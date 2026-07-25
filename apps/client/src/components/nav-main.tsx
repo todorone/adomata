@@ -29,7 +29,7 @@ export function NavMain({
 }) {
 	return (
 		<SidebarGroup>
-			<SidebarGroupLabel>Platform</SidebarGroupLabel>
+			<SidebarGroupLabel>Платформа</SidebarGroupLabel>
 			<SidebarMenu>
 				{items.map(item =>
 					item.items?.length ? (

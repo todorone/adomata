@@ -29,16 +29,16 @@ function EditUserDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
 		<Dialog open onOpenChange={open => !open && onClose()}>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Edit User</DialogTitle>
+					<DialogTitle>Редагувати користувача</DialogTitle>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="name">Name</Label>
+						<Label htmlFor="name">Ім’я</Label>
 						<Input
 							id="name"
 							value={name}
 							onChange={e => setName(e.target.value)}
-							placeholder="Full name"
+							placeholder="Повне ім’я"
 							required
 						/>
 					</div>
@@ -54,9 +54,9 @@ function EditUserDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
 						/>
 					</div>
 					<Button type="submit" disabled={updateUser.isPending}>
-						{updateUser.isPending ? 'Saving…' : 'Save'}
+						{updateUser.isPending ? 'Збереження…' : 'Зберегти'}
 					</Button>
-					{updateUser.isError && <p className="text-sm text-destructive">Failed to update user.</p>}
+					{updateUser.isError && <p className="text-sm text-destructive">Не вдалося оновити користувача.</p>}
 				</form>
 			</DialogContent>
 		</Dialog>
@@ -71,8 +71,8 @@ function SuperUsersPage() {
 
 	async function handleDeleteUser(user: AdminUser) {
 		const confirmed = await confirm({
-			title: 'Delete user?',
-			description: `This will permanently delete ${user.name}. This action cannot be undone.`,
+			title: 'Видалити користувача?',
+			description: `Це остаточно видалить ${user.name}. Цю дію неможливо скасувати.`,
 		})
 
 		if (confirmed) {
@@ -83,20 +83,20 @@ function SuperUsersPage() {
 	return (
 		<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
-				<h1 className="text-2xl font-semibold">Users</h1>
+				<h1 className="text-2xl font-semibold">Користувачі</h1>
 			</div>
 
-			{isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-			{isError && <p className="text-sm text-destructive">Failed to load users.</p>}
+			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}
+			{isError && <p className="text-sm text-destructive">Не вдалося завантажити користувачів.</p>}
 
 			{userList && (
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead>Name</TableHead>
+							<TableHead>Ім’я</TableHead>
 							<TableHead>Email</TableHead>
-							<TableHead>Verified</TableHead>
-							<TableHead>Created</TableHead>
+							<TableHead>Підтверджено</TableHead>
+							<TableHead>Створено</TableHead>
 							<TableHead className="w-24" />
 						</TableRow>
 					</TableHeader>
@@ -104,7 +104,7 @@ function SuperUsersPage() {
 						{userList.length === 0 && (
 							<TableRow>
 								<TableCell colSpan={5} className="text-muted-foreground text-center">
-									No users yet.
+									Поки що немає користувачів.
 								</TableCell>
 							</TableRow>
 						)}
@@ -112,7 +112,7 @@ function SuperUsersPage() {
 							<TableRow key={u.id}>
 								<TableCell className="font-medium">{u.name}</TableCell>
 								<TableCell className="text-muted-foreground">{u.email}</TableCell>
-								<TableCell className="text-muted-foreground">{u.emailVerified ? 'Yes' : 'No'}</TableCell>
+								<TableCell className="text-muted-foreground">{u.emailVerified ? 'Так' : 'Ні'}</TableCell>
 								<TableCell className="text-muted-foreground">
 									{new Date(u.createdAt).toLocaleDateString()}
 								</TableCell>
@@ -120,7 +120,7 @@ function SuperUsersPage() {
 									<Button
 										variant="ghost"
 										size="icon"
-										aria-label={`Edit ${u.name}`}
+										aria-label={`Редагувати ${u.name}`}
 										onClick={() => setEditingUser(u)}
 									>
 										<Pencil className="size-4" />
@@ -128,7 +128,7 @@ function SuperUsersPage() {
 									<Button
 										variant="ghost"
 										size="icon"
-										aria-label={`Delete ${u.name}`}
+										aria-label={`Видалити ${u.name}`}
 										disabled={deleteUser.isPending}
 										onClick={() => {
 											handleDeleteUser(u)

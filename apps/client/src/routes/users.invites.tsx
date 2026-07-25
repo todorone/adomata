@@ -25,6 +25,19 @@ export const Route = createFileRoute('/users/invites')({
 
 const ROLES: InviteRole[] = ['member', 'admin']
 
+const ROLE_LABELS: Record<InviteRole, string> = {
+	member: 'Учасник',
+	admin: 'Адміністратор',
+	owner: 'Власник',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+	pending: 'Очікує',
+	accepted: 'Прийнято',
+	rejected: 'Відхилено',
+	canceled: 'Скасовано',
+}
+
 function InviteDialog() {
 	const [open, setOpen] = useState(false)
 	const [email, setEmail] = useState('')
@@ -48,11 +61,11 @@ function InviteDialog() {
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<Button>Invite User</Button>
+				<Button>Запросити користувача</Button>
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Invite User</DialogTitle>
+					<DialogTitle>Запросити користувача</DialogTitle>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
@@ -67,7 +80,7 @@ function InviteDialog() {
 						/>
 					</div>
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="role">Role</Label>
+						<Label htmlFor="role">Роль</Label>
 						<select
 							id="role"
 							value={role}
@@ -76,13 +89,13 @@ function InviteDialog() {
 						>
 							{ROLES.map(r => (
 								<option key={r} value={r}>
-									{r.charAt(0).toUpperCase() + r.slice(1)}
+									{ROLE_LABELS[r]}
 								</option>
 							))}
 						</select>
 					</div>
 					<Button type="submit" disabled={invite.isPending}>
-						{invite.isPending ? 'Sending…' : 'Send Invite'}
+						{invite.isPending ? 'Надсилання…' : 'Надіслати запрошення'}
 					</Button>
 					{invite.isError && <p className="text-destructive text-sm">{invite.error.message}</p>}
 				</form>
@@ -112,28 +125,28 @@ function AdminInvitesPage() {
 	return (
 		<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
-				<h1 className="text-2xl font-semibold">Invites</h1>
+				<h1 className="text-2xl font-semibold">Запрошення</h1>
 			</div>
 
-			{isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-			{isError && <p className="text-destructive text-sm">Failed to load invitations.</p>}
+			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}
+			{isError && <p className="text-destructive text-sm">Не вдалося завантажити запрошення.</p>}
 
 			{invitations && (
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead>Agency</TableHead>
+							<TableHead>Агенція</TableHead>
 							<TableHead>Email</TableHead>
-							<TableHead>Role</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>Expires</TableHead>
+							<TableHead>Роль</TableHead>
+							<TableHead>Статус</TableHead>
+							<TableHead>Закінчується</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{invitations.length === 0 && (
 							<TableRow>
 								<TableCell colSpan={5} className="text-muted-foreground text-center">
-									No invitations yet.
+									Поки що немає запрошень.
 								</TableCell>
 							</TableRow>
 						)}
@@ -141,12 +154,14 @@ function AdminInvitesPage() {
 							<TableRow key={inv.id}>
 								<TableCell className="text-muted-foreground">{inv.organizationName}</TableCell>
 								<TableCell className="font-medium">{inv.email}</TableCell>
-								<TableCell className="text-muted-foreground capitalize">{inv.role}</TableCell>
+								<TableCell className="text-muted-foreground">
+									{ROLE_LABELS[inv.role as InviteRole] ?? inv.role}
+								</TableCell>
 								<TableCell>
 									<span
 										className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(inv.status)}`}
 									>
-										{inv.status}
+										{STATUS_LABELS[inv.status] ?? inv.status}
 									</span>
 								</TableCell>
 								<TableCell className="text-muted-foreground">
@@ -172,9 +187,9 @@ function InvitesPage() {
 
 	async function handleCancelInvitation(invitation: { id: string; email: string }) {
 		const confirmed = await confirm({
-			title: 'Cancel invitation?',
-			description: `This will cancel the pending invitation for ${invitation.email}.`,
-			confirmLabel: 'Cancel invitation',
+			title: 'Скасувати запрошення?',
+			description: `Це скасує очікуване запрошення для ${invitation.email}.`,
+			confirmLabel: 'Скасувати запрошення',
 		})
 
 		if (confirmed) {
@@ -187,21 +202,21 @@ function InvitesPage() {
 	return (
 		<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
-				<h1 className="text-2xl font-semibold">Invites</h1>
+				<h1 className="text-2xl font-semibold">Запрошення</h1>
 				<InviteDialog />
 			</div>
 
-			{isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-			{isError && <p className="text-destructive text-sm">Failed to load invitations.</p>}
+			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}
+			{isError && <p className="text-destructive text-sm">Не вдалося завантажити запрошення.</p>}
 
 			{invitations && (
 				<Table>
 					<TableHeader>
 						<TableRow>
 							<TableHead>Email</TableHead>
-							<TableHead>Role</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>Expires</TableHead>
+							<TableHead>Роль</TableHead>
+							<TableHead>Статус</TableHead>
+							<TableHead>Закінчується</TableHead>
 							<TableHead className="w-16" />
 						</TableRow>
 					</TableHeader>
@@ -209,19 +224,21 @@ function InvitesPage() {
 						{invitations.length === 0 && (
 							<TableRow>
 								<TableCell colSpan={5} className="text-muted-foreground text-center">
-									No invitations yet.
+									Поки що немає запрошень.
 								</TableCell>
 							</TableRow>
 						)}
 						{invitations.map(inv => (
 							<TableRow key={inv.id}>
 								<TableCell className="font-medium">{inv.email}</TableCell>
-								<TableCell className="text-muted-foreground capitalize">{inv.role}</TableCell>
+								<TableCell className="text-muted-foreground">
+									{ROLE_LABELS[inv.role as InviteRole] ?? inv.role}
+								</TableCell>
 								<TableCell>
 									<span
 										className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(inv.status)}`}
 									>
-										{inv.status}
+										{STATUS_LABELS[inv.status] ?? inv.status}
 									</span>
 								</TableCell>
 								<TableCell className="text-muted-foreground">
@@ -232,7 +249,7 @@ function InvitesPage() {
 										<Button
 											variant="ghost"
 											size="icon"
-											aria-label="Cancel invitation"
+											aria-label="Скасувати запрошення"
 											disabled={cancel.isPending}
 											onClick={() => {
 												handleCancelInvitation(inv)

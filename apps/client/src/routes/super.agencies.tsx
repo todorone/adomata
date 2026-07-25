@@ -39,15 +39,15 @@ function CreateOrgDialog() {
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<Button>Create Agency</Button>
+				<Button>Створити агенцію</Button>
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Create Agency</DialogTitle>
+					<DialogTitle>Створити агенцію</DialogTitle>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="orgName">Agency Name</Label>
+						<Label htmlFor="orgName">Назва агенції</Label>
 						<Input
 							id="orgName"
 							value={orgName}
@@ -67,7 +67,7 @@ function CreateOrgDialog() {
 						/>
 					</div>
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="firstAdminEmail">First Admin Email</Label>
+						<Label htmlFor="firstAdminEmail">Email першого адміністратора</Label>
 						<Input
 							id="firstAdminEmail"
 							type="email"
@@ -78,9 +78,9 @@ function CreateOrgDialog() {
 						/>
 					</div>
 					<Button type="submit" disabled={createOrg.isPending}>
-						{createOrg.isPending ? 'Creating…' : 'Create'}
+						{createOrg.isPending ? 'Створення…' : 'Створити'}
 					</Button>
-					{createOrg.isError && <p className="text-sm text-destructive">Failed to create agency.</p>}
+					{createOrg.isError && <p className="text-sm text-destructive">Не вдалося створити агенцію.</p>}
 				</form>
 			</DialogContent>
 		</Dialog>
@@ -94,8 +94,8 @@ function SuperPage() {
 
 	async function handleDeleteOrganization(org: { id: string; name: string }) {
 		const confirmed = await confirm({
-			title: 'Delete agency?',
-			description: `This will permanently delete ${org.name}. This action cannot be undone.`,
+			title: 'Видалити агенцію?',
+			description: `Це остаточно видалить ${org.name}. Цю дію неможливо скасувати.`,
 		})
 
 		if (confirmed) {
@@ -106,20 +106,20 @@ function SuperPage() {
 	return (
 		<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
-				<h1 className="text-2xl font-semibold">Agencies</h1>
+				<h1 className="text-2xl font-semibold">Агенції</h1>
 				<CreateOrgDialog />
 			</div>
 
-			{isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-			{isError && <p className="text-sm text-destructive">Failed to load agencies.</p>}
+			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}
+			{isError && <p className="text-sm text-destructive">Не вдалося завантажити агенції.</p>}
 
 			{orgs && (
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead>Name</TableHead>
+							<TableHead>Назва</TableHead>
 							<TableHead>Slug</TableHead>
-							<TableHead>Created</TableHead>
+							<TableHead>Створено</TableHead>
 							<TableHead className="w-16" />
 						</TableRow>
 					</TableHeader>
@@ -127,7 +127,7 @@ function SuperPage() {
 						{orgs.length === 0 && (
 							<TableRow>
 								<TableCell colSpan={4} className="text-muted-foreground text-center">
-									No agencies yet.
+									Поки що немає агенцій.
 								</TableCell>
 							</TableRow>
 						)}
@@ -142,7 +142,7 @@ function SuperPage() {
 									<Button
 										variant="ghost"
 										size="icon"
-										aria-label={`Delete ${org.name}`}
+										aria-label={`Видалити ${org.name}`}
 										disabled={deleteOrg.isPending}
 										onClick={() => {
 											handleDeleteOrganization(org)

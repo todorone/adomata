@@ -26,7 +26,7 @@ export function LoginForm() {
 		setLoading(false)
 
 		if (signInError) {
-			setError(signInError.message ?? 'Invalid email or password')
+			setError(signInError.message ?? 'Неправильний email або пароль')
 			return
 		}
 
@@ -37,8 +37,8 @@ export function LoginForm() {
 	return (
 		<form onSubmit={handleSubmit} className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2 text-center">
-				<h1 className="text-2xl font-bold tracking-tight">Sign in to your account</h1>
-				<p className="text-muted-foreground text-sm">Enter your email and password below</p>
+				<h1 className="text-2xl font-bold tracking-tight">Увійдіть у свій акаунт</h1>
+				<p className="text-muted-foreground text-sm">Введіть свій email та пароль нижче</p>
 			</div>
 
 			{error && <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">{error}</p>}
@@ -58,7 +58,7 @@ export function LoginForm() {
 				</div>
 
 				<div className="flex flex-col gap-2">
-					<Label htmlFor="password">Password</Label>
+					<Label htmlFor="password">Пароль</Label>
 					<Input
 						id="password"
 						type="password"
@@ -71,7 +71,7 @@ export function LoginForm() {
 			</div>
 
 			<Button type="submit" className="w-full" disabled={loading}>
-				{loading ? 'Signing in…' : 'Sign in'}
+				{loading ? 'Виконується вхід…' : 'Увійти'}
 			</Button>
 		</form>
 	)

@@ -10,28 +10,28 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } fr
 
 const navMain = [
 	{
-		title: 'Dashboard',
+		title: 'Дашборд',
 		url: '/',
 		icon: LayoutDashboard,
 		isActive: true,
-		items: [{ title: 'Overview', url: '/' }],
+		items: [{ title: 'Огляд', url: '/' }],
 	},
 	{
-		title: 'Users',
+		title: 'Користувачі',
 		url: '/users/invites',
 		icon: Users,
-		items: [{ title: 'Invites', url: '/users/invites' }],
+		items: [{ title: 'Запрошення', url: '/users/invites' }],
 	},
 ]
 
 const superadminNav = [
 	{
-		title: 'Agencies',
+		title: 'Агенції',
 		url: '/super/agencies',
 		icon: Building2,
 	},
 	{
-		title: 'Users',
+		title: 'Користувачі',
 		url: '/super/users',
 		icon: UsersRound,
 	},
@@ -41,7 +41,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const { data: session } = useSession()
 
 	const user = {
-		name: session?.data?.user.name ?? 'User',
+		name: session?.data?.user.name ?? 'Користувач',
 		email: session?.data?.user.email ?? '',
 		avatar: session?.data?.user.image ?? undefined,
 	}
@@ -56,7 +56,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 		<Sidebar collapsible="icon" {...props}>
 			{organization && (
 				<SidebarHeader>
-					<TeamSwitcher teams={[{ name: organization.name, logo: Building2, plan: 'Agency' }]} />
+					<TeamSwitcher teams={[{ name: organization.name, logo: Building2, plan: 'Агенція' }]} />
 				</SidebarHeader>
 			)}
 			<SidebarContent>

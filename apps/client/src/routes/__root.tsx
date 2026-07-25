@@ -18,7 +18,7 @@ export const Route = createRootRoute({
 				content: 'width=device-width, initial-scale=1',
 			},
 			{
-				title: 'Adomata Dashboard',
+				title: 'Adomata Дашборд',
 			},
 		],
 	}),
@@ -53,7 +53,7 @@ function RootComponent() {
 							<Breadcrumb>
 								<BreadcrumbList>
 									<BreadcrumbItem>
-										<BreadcrumbPage>Dashboard</BreadcrumbPage>
+										<BreadcrumbPage>Дашборд</BreadcrumbPage>
 									</BreadcrumbItem>
 								</BreadcrumbList>
 							</Breadcrumb>

@@ -97,11 +97,11 @@ export function useConfirm() {
 					<DialogFooter>
 						<DialogClose asChild>
 							<Button variant="outline" onClick={dismiss}>
-								{options.cancelLabel ?? 'Cancel'}
+								{options.cancelLabel ?? 'Скасувати'}
 							</Button>
 						</DialogClose>
 						<Button variant={options.variant ?? 'destructive'} onClick={() => close(true)}>
-							{options.confirmLabel ?? 'Delete'}
+							{options.confirmLabel ?? 'Видалити'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

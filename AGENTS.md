@@ -11,3 +11,11 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 ### Domain docs
 
 Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Checks
+
+After completing any task, run `pnpm checks` (type-check, lint, format-check, test) and fix any issues it reports before finishing.
+
+### Localization
+
+All user-facing application text (UI copy, labels, placeholders, button text, error messages, table headers, etc.) must be written in Ukrainian. This applies to everything rendered in `apps/client`. Code identifiers, comments, commit messages, and internal docs stay in English.

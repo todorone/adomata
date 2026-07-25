@@ -82,12 +82,12 @@ export function NavUser({
 						<DropdownMenuGroup>
 							<DropdownMenuItem>
 								<BadgeCheck />
-								Account
+								Акаунт
 							</DropdownMenuItem>
 						</DropdownMenuGroup>
 						<DropdownMenuItem onClick={handleLogout}>
 							<LogOut />
-							Log out
+							Вийти
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>

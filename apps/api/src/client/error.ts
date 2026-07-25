@@ -7,6 +7,7 @@ export const apiErrorCodeEnum = z.enum([
 	'NOT_FOUND',
 	'CONFLICT',
 	'INTERNAL',
+	'SERVICE_UNAVAILABLE',
 	'NO_ACTIVE_ORGANIZATION',
 ])
 export type ApiErrorCode = z.infer<typeof apiErrorCodeEnum>

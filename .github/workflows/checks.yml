@@ -3,10 +3,10 @@ name: Checks
 on:
    push:
       branches:
-         - master
+         - main
    pull_request:
       branches:
-         - master
+         - main
 
 jobs:
    check:
@@ -38,7 +38,86 @@ jobs:
            run: pnpm lint
 
          - name: TS types check
-           run: pnpm types
+           run: pnpm ts
 
          - name: Unit tests
-           run: pnpm unit -- --maxWorkers=2
+           run: pnpm test -- --maxWorkers=2
+
+   e2e:
+      runs-on: ubuntu-latest
+      timeout-minutes: 10
+
+      # Drives the real SPA against a live Bun API + Postgres. Kept in a
+      # separate job so the fast lint/ts/unit `check` job isn't gated on
+      # bringing up the full stack.
+      services:
+         postgres:
+            image: postgres:18-alpine
+            env:
+               POSTGRES_USER: adomata
+               POSTGRES_PASSWORD: adomata
+               POSTGRES_DB: adomata
+            ports:
+               - 5432:5432
+            options: >-
+               --health-cmd "pg_isready -U adomata -d adomata"
+               --health-interval 10s
+               --health-timeout 5s
+               --health-retries 5
+
+      env:
+         DATABASE_URL: postgres://adomata:adomata@localhost:5432/adomata
+         PORT: 3000
+         BASE_URL: http://localhost:3000
+         BETTER_AUTH_URL: http://localhost:3000
+         BETTER_AUTH_SECRET: e2e-ci-secret-not-for-production
+         SUPERADMIN_EMAIL: super@adomata.com
+         CLIENT_URL: http://localhost:5173
+         VITE_API_URL: http://localhost:3000
+         E2E_SUPERADMIN_EMAIL: super@adomata.com
+         E2E_SUPERADMIN_PASSWORD: e2e-ci-superadmin-password
+
+      steps:
+         - name: Checkout
+           uses: actions/checkout@v4
+
+         - uses: pnpm/action-setup@v4
+           name: Install pnpm
+           with:
+              run_install: false
+
+         - name: Setup Node.js
+           uses: actions/setup-node@v4
+           with:
+              node-version: 24.x
+              cache: pnpm
+
+         - name: Setup Bun
+           uses: oven-sh/setup-bun@v2
+           with:
+              bun-version: latest
+
+         - name: Install dependencies
+           run: pnpm install
+
+         - name: Apply database migrations
+           working-directory: apps/api
+           run: bun src/db/migrate.ts
+
+         - name: Start API
+           working-directory: apps/api
+           run: |
+              bun src/index.ts &
+              for i in $(seq 1 30); do
+                 if curl -fsS http://localhost:3000/health >/dev/null; then
+                    echo "API is up"; exit 0
+                 fi
+                 sleep 1
+              done
+              echo "API failed to become healthy"; exit 1
+
+         - name: Install Playwright browser
+           run: pnpm --filter client exec playwright install --with-deps chromium
+
+         - name: E2E tests
+           run: pnpm e2e

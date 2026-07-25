@@ -10,6 +10,7 @@ import tseslint from 'typescript-eslint'
 
 /** @type {import('eslint').Linter.FlatConfig[]} */
 export default tseslint.config(
+	{ ignores: ['**/dist/**', '**/routeTree.gen.ts'] },
 	...tseslint.configs.recommended,
 	{
 		files: ['apps/api/src/client/**/*.ts'],

@@ -74,7 +74,9 @@ describe('POST /auth/sign-up/email', () => {
 		})
 
 		expect(res.status).toBe(403)
-		expect(await res.json()).toEqual({ error: 'Registration requires an invitation' })
+		expect(await res.json()).toEqual({
+			error: { code: 'FORBIDDEN', message: 'Registration requires an invitation' },
+		})
 		expect(authCalls.canSignUpWithEmail).toHaveBeenCalledWith('uninvited@example.com')
 		expect(authCalls.handler).not.toHaveBeenCalled()
 	})

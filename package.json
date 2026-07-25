@@ -4,14 +4,16 @@
 	"scripts": {
 		"format": "pnpm -r run format",
 		"format-check": "pnpm -r run format-check",
-		"types": "pnpm -r run types",
+		"ts": "pnpm -r run ts",
 		"lint": "pnpm -r run lint",
-		"unit": "pnpm -r run test",
-		"checks": "pnpm run \"/^(types|lint|format-check)$/\"",
+		"test": "pnpm -r run test",
+		"dev:api": "pnpm --filter api dev",
+		"dev:client": "pnpm --filter client dev",
+		"e2e": "pnpm --filter client e2e",
+		"checks": "pnpm run \"/^(ts|lint|format-check|test)$/\"",
 		"prepare": "husky"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "0.18.8",
 		"@types/node": "24.13.3",
 		"eslint": "9.39.5",
 		"eslint-config-prettier": "10.1.8",

@@ -10,7 +10,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/api/src ./src
 COPY apps/api/drizzle ./drizzle
-# @fp/domain is a workspace dependency; node_modules/@ado/domain symlinks here and
+# @ado/domain is a workspace dependency; node_modules/@ado/domain symlinks here and
 # Bun resolves its raw .ts at runtime, so the package source must be present.
 COPY packages/domain/package.json ./packages/domain/package.json
 COPY packages/domain/src ./packages/domain/src

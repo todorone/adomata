@@ -7,10 +7,15 @@ dist-ssr
 *.local
 .cache
 .vscode
-.sentry
+.claude
 
 **/.wrangler
 
 **/.env
 **/.env.*
 !**/.env.example
+
+# Playwright E2E (apps/client)
+test-results
+playwright-report
+**/e2e/.auth

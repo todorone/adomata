@@ -1,19 +1,20 @@
 {
-	"name": "dashboard",
+	"name": "client",
 	"private": true,
 	"type": "module",
 	"imports": {
 		"@/*": "./src/*"
 	},
 	"scripts": {
-		"dev": "vite dev --port 3000",
+		"dev": "vite dev --port 5173",
 		"build": "vite build",
 		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
 		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check",
 		"lint": "eslint src",
 		"preview": "vite preview",
 		"test": "vitest run",
-		"types": "tsc",
+		"ts": "tsc",
+		"e2e": "playwright test",
 		"deploy": "pnpm run build && wrangler deploy"
 	},
 	"dependencies": {
@@ -42,6 +43,7 @@
 		"zod": "4.4.2"
 	},
 	"devDependencies": {
+		"@playwright/test": "1.61.0",
 		"@rolldown/plugin-babel": "^0.2.3",
 		"@tailwindcss/typography": "^0.5.16",
 		"@tanstack/devtools-vite": "latest",

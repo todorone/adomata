@@ -1,0 +1,3 @@
+# Budget is scoped to Client, not Ad Account
+
+A Client can have multiple Ad Accounts, but its monthly spend Budget is tracked as a single cap at the Client level, aggregating spend across all of that Client's Ad Accounts — not as separate per-Ad-Account caps. This matches how agencies actually budget commercially: one monthly spend commitment per client relationship, even when that client's ads run through several Ad Accounts (regional or inherited legacy accounts). Per-Ad-Account caps were considered and rejected as unneeded complexity for the prototype; if a real need for finer-grained caps shows up later, an Ad-Account-scoped Budget can be added alongside the Client-level one without restructuring it.

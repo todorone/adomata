@@ -1,0 +1,17 @@
+packages:
+  - "apps/*"
+peerDependencyRules:
+  ignoreMissing:
+    - '*'
+  allowAny:
+    - '*'
+saveExact: true
+autoInstallPeers: true
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/vitest-pool-workers@0.18.8'
+  - miniflare@4.20260722.0
+  - wrangler@4.114.0

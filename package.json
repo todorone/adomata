@@ -1,0 +1,36 @@
+{
+	"name": "adomata",
+	"private": true,
+	"scripts": {
+		"format": "pnpm -r run format",
+		"format-check": "pnpm -r run format-check",
+		"types": "pnpm -r run types",
+		"lint": "pnpm -r run lint",
+		"unit": "pnpm -r run test",
+		"checks": "pnpm run \"/^(types|lint|format-check)$/\"",
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "0.18.8",
+		"@types/node": "24.13.3",
+		"eslint": "9.39.5",
+		"eslint-config-prettier": "10.1.8",
+		"eslint-config-standard": "17.1.0",
+		"eslint-plugin-import": "2.32.0",
+		"eslint-plugin-n": "18.2.2",
+		"eslint-plugin-promise": "7.3.0",
+		"eslint-plugin-react": "7.37.5",
+		"eslint-plugin-react-hooks": "7.1.1",
+		"globals": "17.7.0",
+		"husky": "9.1.7",
+		"prettier": "3.9.6",
+		"typescript": "6.0.3",
+		"typescript-eslint": "8.65.0",
+		"vitest": "4.1.10",
+		"wrangler": "4.114.0"
+	},
+	"engines": {
+		"node": "24"
+	},
+	"packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72"
+}

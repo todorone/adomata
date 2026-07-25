@@ -1,0 +1,3 @@
+# Bootstrap Adomata's infra from FrontPeek's scaffolding
+
+Adomata's `api`/`dashboard`/`landing` apps, and their build tooling (pnpm workspaces, ESLint/Prettier config, Husky, GitHub Actions), were bootstrapped by copying FrontPeek's (`../frontpeek`) working scaffolding rather than starting from scratch — Cloudflare Workers + Hono + Better Auth + Drizzle + D1/R2, deployed as a pnpm monorepo. Turborepo was dropped in favor of plain pnpm workspace scripts (`pnpm -r run <script>`), since a two-to-three-app repo doesn't need task-graph caching yet. FrontPeek's domain-specific code (routines, tasks, scheduling, devices, mobile app) was stripped; only the generic auth/tenancy shell was kept.

@@ -1,0 +1,38 @@
+{
+	"name": "@adomata/api",
+	"version": "0.0.0",
+	"private": true,
+	"exports": {
+		"./client": "./src/client/index.ts"
+	},
+	"typesVersions": {
+		"*": {
+			"client": ["./src/client/index.ts"]
+		}
+	},
+	"scripts": {
+		"deploy": "pnpm db:migrate:remote && wrangler deploy --minify",
+		"dev": "wrangler dev",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate:local": "wrangler d1 migrations apply adomata --local",
+		"db:migrate:remote": "wrangler d1 migrations apply adomata --remote",
+		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
+		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check",
+		"types": "tsc",
+		"lint": "eslint src",
+		"test": "vitest run",
+		"cf-typegen": "wrangler types && prettier -w worker-configuration.d.ts"
+	},
+	"dependencies": {
+		"@better-auth/drizzle-adapter": "1.6.9",
+		"@hono/zod-validator": "0.8.0",
+		"better-auth": "1.6.9",
+		"drizzle-orm": "0.45.2",
+		"drizzle-zod": "0.8.3",
+		"hono": "4.12.16",
+		"zod": "4.4.2"
+	},
+	"devDependencies": {
+		"drizzle-kit": "0.31.10"
+	}
+}

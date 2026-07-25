@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dashboard",
+  "compatibility_date": "2026-05-12",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+  // TODO: add the custom domain route once dash.adomata.com is provisioned in Cloudflare — do not reuse FrontPeek's route.
+  // "routes": [{ "pattern": "dash.adomata.com", "custom_domain": true }]
+}

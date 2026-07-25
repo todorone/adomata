@@ -1,0 +1,88 @@
+services:
+   api:
+      build:
+         context: .
+         dockerfile: Dockerfile
+      init: true
+      ports:
+         - '3000:3000'
+      environment:
+         NODE_ENV: production
+         BUN_ENV: production
+         PORT: '3000'
+         DATABASE_URL: 'postgres://${POSTGRES_USER:-adomata}:${POSTGRES_PASSWORD:-adomata}@db:5432/${POSTGRES_DB:-adomata}'
+      depends_on:
+         db:
+            condition: service_healthy
+         pre-migration-backup:
+            condition: service_completed_successfully
+         migrate:
+            condition: service_completed_successfully
+      restart: unless-stopped
+      stop_grace_period: 30s
+
+   # One-shot job: takes a verified pg_dump before production migrations. It is
+   # disabled by default for local/dev compose.
+   pre-migration-backup:
+      image: postgres:18-alpine
+      command: ['sh', '/usr/local/bin/pre-migration-backup']
+      environment:
+         PRE_MIGRATION_BACKUP_ENABLED: '${PRE_MIGRATION_BACKUP_ENABLED:-false}'
+         DEPLOY_REF_NAME: '${DEPLOY_REF_NAME:-main}'
+         DEPLOY_COMMIT_SHA: '${DEPLOY_COMMIT_SHA:-unknown}'
+         PGHOST: db
+         PGUSER: '${POSTGRES_USER:-adomata}'
+         PGPASSWORD: '${POSTGRES_PASSWORD:-adomata}'
+         PGDATABASE: '${POSTGRES_DB:-adomata}'
+      volumes:
+         - ./scripts/pre-migration-backup.sh:/usr/local/bin/pre-migration-backup:ro
+         - pre_migration_backups:/backups
+      depends_on:
+         db:
+            condition: service_healthy
+      restart: 'no'
+
+   # One-shot job: applies Drizzle migrations, then exits. The api waits for it
+   # to succeed, so a failed migration keeps the api from starting.
+   migrate:
+      build:
+         context: .
+         dockerfile: Dockerfile
+      command: ['bun', 'src/db/migrate.ts']
+      environment:
+         NODE_ENV: production
+         BUN_ENV: production
+         DATABASE_URL: 'postgres://${POSTGRES_USER:-adomata}:${POSTGRES_PASSWORD:-adomata}@db:5432/${POSTGRES_DB:-adomata}'
+      depends_on:
+         db:
+            condition: service_healthy
+         pre-migration-backup:
+            condition: service_completed_successfully
+      restart: 'no'
+
+   db:
+      image: postgres:18-alpine
+      environment:
+         POSTGRES_USER: '${POSTGRES_USER:-adomata}'
+         POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-adomata}'
+         POSTGRES_DB: '${POSTGRES_DB:-adomata}'
+         # Keep PGDATA in a subdir so the volume mount point isn't the data dir itself.
+         PGDATA: /var/lib/postgresql/data/pgdata
+      volumes:
+         - pgdata:/var/lib/postgresql/data
+      # Not published to the host by default; only the api on the internal
+      # network can reach it. Uncomment for local DB access during development.
+      # ports:
+      #   - "5432:5432"
+      healthcheck:
+         test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-adomata} -d ${POSTGRES_DB:-adomata}']
+         interval: 10s
+         timeout: 5s
+         retries: 5
+         start_period: 10s
+      restart: unless-stopped
+      stop_grace_period: 30s
+
+volumes:
+   pgdata:
+   pre_migration_backups:

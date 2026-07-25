@@ -12,7 +12,7 @@ const dbCalls = vi.hoisted(() => ({
 }))
 
 vi.mock('../db', () => ({
-	createDb: vi.fn(() => ({
+	db: {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => ({
@@ -20,7 +20,7 @@ vi.mock('../db', () => ({
 				})),
 			})),
 		})),
-	})),
+	},
 }))
 
 vi.mock('../logic/auth', () => ({
@@ -75,9 +75,9 @@ describe('GET /me', () => {
 			slug: 'acme-ops',
 			logo: null,
 		}
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request('/me', {}, { DB: {} as D1Database })
+		const res = await app.request('/me')
 
 		expect(res.status).toBe(200)
 		const body = await res.json()

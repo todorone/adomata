@@ -14,7 +14,7 @@
 		/* Specify how TypeScript looks up a file from a given module specifier. */
 		"moduleResolution": "Bundler",
 		/* Specify type package names to be included without being referenced in a source file. */
-		"types": [],
+		"types": ["node", "bun"],
 		/* Enable importing .json files */
 		"resolveJsonModule": true,
 
@@ -40,5 +40,5 @@
 		"skipLibCheck": true
 	},
 	"exclude": ["test"],
-	"include": ["worker-configuration.d.ts", "src/**/*.ts"]
+	"include": ["src/**/*.ts"]
 }

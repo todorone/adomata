@@ -6,7 +6,7 @@ const dbCalls = vi.hoisted(() => ({
 }))
 
 vi.mock('../db', () => ({
-	createDb: vi.fn(() => ({
+	db: {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => ({
@@ -21,7 +21,7 @@ vi.mock('../db', () => ({
 				}),
 			})),
 		})),
-	})),
+	},
 }))
 
 describe('restoreActiveOrganization', () => {
@@ -33,7 +33,7 @@ describe('restoreActiveOrganization', () => {
 	it('skips when session already has an active organization', async () => {
 		const { restoreActiveOrganization } = await import('../logic/auth')
 
-		await restoreActiveOrganization({} as Env, {
+		await restoreActiveOrganization({
 			token: 'tok_1',
 			userId: 'user_1',
 			activeOrganizationId: 'org_1',
@@ -46,7 +46,7 @@ describe('restoreActiveOrganization', () => {
 		dbCalls.selectResult = [{ organizationId: 'org_1' }]
 		const { restoreActiveOrganization } = await import('../logic/auth')
 
-		await restoreActiveOrganization({} as Env, {
+		await restoreActiveOrganization({
 			token: 'tok_1',
 			userId: 'user_1',
 		})
@@ -58,7 +58,7 @@ describe('restoreActiveOrganization', () => {
 		dbCalls.selectResult = []
 		const { restoreActiveOrganization } = await import('../logic/auth')
 
-		await restoreActiveOrganization({} as Env, {
+		await restoreActiveOrganization({
 			token: 'tok_1',
 			userId: 'user_1',
 		})

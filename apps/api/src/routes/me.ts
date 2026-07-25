@@ -1,18 +1,17 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 
-import { createDb } from '../db'
+import { db } from '../db'
 import { organization } from '../db/schema'
 import { createAuth, requireAuth } from '../logic/auth'
 import { meResponseSchema } from '../client/me'
-import type { Bindings } from '../index'
 import type { ActiveOrgMember, ActiveOrganization } from '../client/me'
 
 function serializeDate(value: Date) {
 	return value.toISOString()
 }
 
-const meHono = new Hono<Bindings>()
+const meHono = new Hono()
 
 meHono.use('*', requireAuth)
 
@@ -21,7 +20,7 @@ export const meRoutes = meHono.get('/', async c => {
 	let activeOrganization: ActiveOrganization | null = null
 
 	try {
-		activeOrgMember = await createAuth(c.env).api.getActiveMember({
+		activeOrgMember = await createAuth().api.getActiveMember({
 			headers: c.req.raw.headers,
 		})
 	} catch {
@@ -29,7 +28,7 @@ export const meRoutes = meHono.get('/', async c => {
 	}
 
 	if (activeOrgMember) {
-		const [org] = await createDb(c.env.DB)
+		const [org] = await db
 			.select({
 				id: organization.id,
 				name: organization.name,

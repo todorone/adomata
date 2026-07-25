@@ -1,72 +1,72 @@
-import { index, sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // Better Auth: core user accounts
-export const users = sqliteTable(
+export const users = pgTable(
 	'user',
 	{
-		id: text('id').primaryKey(),
-		name: text('name').notNull(),
-		email: text('email').notNull(),
-		emailVerified: integer('emailVerified', { mode: 'boolean' }).notNull().default(false),
-		image: text('image'),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
-		updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
+		id: text().primaryKey(),
+		name: text().notNull(),
+		email: text().notNull(),
+		emailVerified: boolean().notNull().default(false),
+		image: text(),
+		createdAt: timestamp({ withTimezone: true }).notNull(),
+		updatedAt: timestamp({ withTimezone: true }).notNull(),
 	},
 	table => [uniqueIndex('user_email_idx').on(table.email)],
 )
 
 // Better Auth: user sessions with bearer tokens; extended with activeOrganizationId
-export const sessions = sqliteTable(
+export const sessions = pgTable(
 	'session',
 	{
-		id: text('id').primaryKey(),
-		expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }).notNull(),
-		token: text('token').notNull(),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
-		updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
-		ipAddress: text('ipAddress'),
-		userAgent: text('userAgent'),
-		activeOrganizationId: text('activeOrganizationId'),
-		userId: text('userId')
+		id: text().primaryKey(),
+		expiresAt: timestamp({ withTimezone: true }).notNull(),
+		token: text().notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull(),
+		updatedAt: timestamp({ withTimezone: true }).notNull(),
+		ipAddress: text(),
+		userAgent: text(),
+		activeOrganizationId: text(),
+		userId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
 	},
-	table => [uniqueIndex('session_token_idx').on(table.token), index('session_userId_idx').on(table.userId)],
+	table => [uniqueIndex('session_token_idx').on(table.token), index('session_user_id_idx').on(table.userId)],
 )
 
 // Better Auth: OAuth provider credentials and tokens (Google, Apple)
-export const accounts = sqliteTable(
+export const accounts = pgTable(
 	'account',
 	{
-		id: text('id').primaryKey(),
-		accountId: text('accountId').notNull(),
-		providerId: text('providerId').notNull(),
-		userId: text('userId')
+		id: text().primaryKey(),
+		accountId: text().notNull(),
+		providerId: text().notNull(),
+		userId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
-		accessToken: text('accessToken'),
-		refreshToken: text('refreshToken'),
-		idToken: text('idToken'),
-		accessTokenExpiresAt: integer('accessTokenExpiresAt', { mode: 'timestamp_ms' }),
-		refreshTokenExpiresAt: integer('refreshTokenExpiresAt', { mode: 'timestamp_ms' }),
-		scope: text('scope'),
-		password: text('password'),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
-		updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }).notNull(),
+		accessToken: text(),
+		refreshToken: text(),
+		idToken: text(),
+		accessTokenExpiresAt: timestamp({ withTimezone: true }),
+		refreshTokenExpiresAt: timestamp({ withTimezone: true }),
+		scope: text(),
+		password: text(),
+		createdAt: timestamp({ withTimezone: true }).notNull(),
+		updatedAt: timestamp({ withTimezone: true }).notNull(),
 	},
-	table => [index('account_userId_idx').on(table.userId)],
+	table => [index('account_user_id_idx').on(table.userId)],
 )
 
 // Better Auth: temporary codes for email verification flow
-export const verifications = sqliteTable(
+export const verifications = pgTable(
 	'verification',
 	{
-		id: text('id').primaryKey(),
-		identifier: text('identifier').notNull(),
-		value: text('value').notNull(),
-		expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }).notNull(),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }),
-		updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }),
+		id: text().primaryKey(),
+		identifier: text().notNull(),
+		value: text().notNull(),
+		expiresAt: timestamp({ withTimezone: true }).notNull(),
+		createdAt: timestamp({ withTimezone: true }),
+		updatedAt: timestamp({ withTimezone: true }),
 	},
 	table => [index('verification_identifier_idx').on(table.identifier)],
 )
@@ -77,56 +77,56 @@ export const account = accounts
 export const verification = verifications
 
 // Better Auth (organization plugin): tenant organizations — represents Adomata's Agency; slug is the public identifier
-export const organization = sqliteTable('organization', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	slug: text('slug').unique(),
-	logo: text('logo'),
-	metadata: text('metadata'),
-	createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
-	updatedAt: integer('updatedAt', { mode: 'timestamp_ms' }),
+export const organization = pgTable('organization', {
+	id: text().primaryKey(),
+	name: text().notNull(),
+	slug: text().unique(),
+	logo: text(),
+	metadata: text(),
+	createdAt: timestamp({ withTimezone: true }).notNull(),
+	updatedAt: timestamp({ withTimezone: true }),
 })
 
 // Better Auth (organization plugin): links users to organizations with a role
-export const member = sqliteTable(
+export const member = pgTable(
 	'member',
 	{
-		id: text('id').primaryKey(),
-		organizationId: text('organizationId')
+		id: text().primaryKey(),
+		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
-		userId: text('userId')
+		userId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
-		role: text('role', { enum: ['owner', 'admin', 'member'] }).notNull(),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
+		role: text({ enum: ['owner', 'admin', 'member'] }).notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull(),
 	},
 	table => [
-		index('member_organizationId_idx').on(table.organizationId),
-		index('member_userId_idx').on(table.userId),
-		uniqueIndex('member_userId_organizationId_idx').on(table.userId, table.organizationId),
+		index('member_organization_id_idx').on(table.organizationId),
+		index('member_user_id_idx').on(table.userId),
+		uniqueIndex('member_user_id_organization_id_idx').on(table.userId, table.organizationId),
 	],
 )
 
 // Better Auth (organization plugin): pending/accepted/rejected org invites sent by email
-export const invitation = sqliteTable(
+export const invitation = pgTable(
 	'invitation',
 	{
-		id: text('id').primaryKey(),
-		organizationId: text('organizationId')
+		id: text().primaryKey(),
+		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
-		email: text('email').notNull(),
-		role: text('role', { enum: ['owner', 'admin', 'member'] }).notNull(),
-		status: text('status', { enum: ['pending', 'accepted', 'rejected', 'canceled'] }).notNull(),
-		expiresAt: integer('expiresAt', { mode: 'timestamp_ms' }).notNull(),
-		createdAt: integer('createdAt', { mode: 'timestamp_ms' }).notNull(),
-		inviterId: text('inviterId')
+		email: text().notNull(),
+		role: text({ enum: ['owner', 'admin', 'member'] }).notNull(),
+		status: text({ enum: ['pending', 'accepted', 'rejected', 'canceled'] }).notNull(),
+		expiresAt: timestamp({ withTimezone: true }).notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull(),
+		inviterId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
 	},
 	table => [
-		index('invitation_organizationId_idx').on(table.organizationId),
+		index('invitation_organization_id_idx').on(table.organizationId),
 		index('invitation_email_status_idx').on(table.email, table.status),
 	],
 )

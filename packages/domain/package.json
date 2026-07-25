@@ -1,0 +1,15 @@
+{
+	"name": "@ado/domain",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"ts": "tsc --noEmit",
+		"lint": "eslint src",
+		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
+		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check"
+	}
+}

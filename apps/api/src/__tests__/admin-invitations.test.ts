@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { adminInvitationsResponseSchema } from '../client/admin/invitations'
 import { apiErrorSchema } from '../client/error'
@@ -9,7 +9,7 @@ const dbCalls = vi.hoisted(() => ({
 }))
 
 vi.mock('../db', () => ({
-	createDb: vi.fn(() => ({
+	db: {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				innerJoin: vi.fn(() => ({
@@ -17,7 +17,7 @@ vi.mock('../db', () => ({
 				})),
 			})),
 		})),
-	})),
+	},
 }))
 
 vi.mock('../logic/auth', () => ({
@@ -66,16 +66,19 @@ describe('GET /admin/invitations', () => {
 	beforeEach(() => {
 		dbCalls.rows = []
 		vi.resetModules()
+		process.env.SUPERADMIN_EMAIL = 'admin@example.com'
+	})
+
+	afterEach(() => {
+		delete process.env.SUPERADMIN_EMAIL
 	})
 
 	it('rejects non-superadmin callers', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/invitations',
-			{ headers: { 'x-test-user-email': 'member@example.com' } },
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/invitations', {
+			headers: { 'x-test-user-email': 'member@example.com' },
+		})
 
 		expect(res.status).toBe(403)
 		const body = apiErrorSchema.parse(await res.json())
@@ -84,13 +87,11 @@ describe('GET /admin/invitations', () => {
 
 	it('returns all invitations with organization names for the superadmin', async () => {
 		dbCalls.rows = [sampleRow]
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/invitations',
-			{ headers: { 'x-test-user-email': 'admin@example.com' } },
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/invitations', {
+			headers: { 'x-test-user-email': 'admin@example.com' },
+		})
 
 		expect(res.status).toBe(200)
 		const body = await res.json()
@@ -109,13 +110,11 @@ describe('GET /admin/invitations', () => {
 
 	it('returns an empty list when there are no invitations', async () => {
 		dbCalls.rows = []
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/invitations',
-			{ headers: { 'x-test-user-email': 'admin@example.com' } },
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/invitations', {
+			headers: { 'x-test-user-email': 'admin@example.com' },
+		})
 
 		expect(res.status).toBe(200)
 		const body = await res.json()

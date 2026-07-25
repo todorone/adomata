@@ -7,6 +7,11 @@ const authCalls = vi.hoisted(() => ({
 	handler: vi.fn(),
 }))
 
+// Not used directly by this route, but ../app transitively imports every route
+// module (including routes/admin.ts, which imports ../db) to register them —
+// mock it so the real Bun-only db/index.ts is never evaluated under Node.
+vi.mock('../db', () => ({ db: {} }))
+
 vi.mock('../logic/auth', () => ({
 	activateInvitedOrganization: authCalls.activateInvitedOrganization,
 	canSignUpWithEmail: authCalls.canSignUpWithEmail,
@@ -56,7 +61,7 @@ describe('POST /auth/sign-up/email', () => {
 
 	it('blocks sign-up without a pending invitation', async () => {
 		authCalls.canSignUpWithEmail.mockResolvedValue(false)
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
 		const res = await app.request('/auth/sign-up/email', {
 			method: 'POST',
@@ -70,13 +75,13 @@ describe('POST /auth/sign-up/email', () => {
 
 		expect(res.status).toBe(403)
 		expect(await res.json()).toEqual({ error: 'Registration requires an invitation' })
-		expect(authCalls.canSignUpWithEmail).toHaveBeenCalledWith(undefined, 'uninvited@example.com')
+		expect(authCalls.canSignUpWithEmail).toHaveBeenCalledWith('uninvited@example.com')
 		expect(authCalls.handler).not.toHaveBeenCalled()
 	})
 
 	it('forwards invited sign-ups to better-auth', async () => {
 		authCalls.canSignUpWithEmail.mockResolvedValue(true)
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
 		const res = await app.request('/auth/sign-up/email', {
 			method: 'POST',
@@ -98,7 +103,7 @@ describe('POST /auth/sign-up/email', () => {
 
 	it('sets the invited organization as active after sign-up', async () => {
 		authCalls.canSignUpWithEmail.mockResolvedValue(true)
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
 		const res = await app.request('/auth/sign-up/email', {
 			method: 'POST',
@@ -111,6 +116,6 @@ describe('POST /auth/sign-up/email', () => {
 		})
 
 		expect(res.status).toBe(200)
-		expect(authCalls.activateInvitedOrganization).toHaveBeenCalledWith(undefined, 'invited@example.com', 'token_1')
+		expect(authCalls.activateInvitedOrganization).toHaveBeenCalledWith('invited@example.com', 'token_1')
 	})
 })

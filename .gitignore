@@ -10,3 +10,7 @@ dist-ssr
 .sentry
 
 **/.wrangler
+
+**/.env
+**/.env.*
+!**/.env.example

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { and, eq, asc } from 'drizzle-orm'
 
-import { createDb } from '../db'
+import { db } from '../db'
 import { invitation, member, organization, users } from '../db/schema'
 import { createAuth, requireAuth } from '../logic/auth'
 import {
@@ -17,7 +17,6 @@ import {
 	updateAdminUserResponseSchema,
 } from '../client/admin/users'
 import { apiError } from '../logic/apiError'
-import type { Bindings } from '../index'
 
 function isSuperadmin(email: string, superadminEmail?: string) {
 	return Boolean(superadminEmail && email.toLowerCase() === superadminEmail.toLowerCase())
@@ -33,7 +32,7 @@ function serializeOrganization(org: typeof organization.$inferSelect) {
 	}
 }
 
-const adminHono = new Hono<Bindings>()
+const adminHono = new Hono()
 
 adminHono.use('*', requireAuth)
 
@@ -46,12 +45,12 @@ const withCreateOrganizationRoutes = adminHono.post(
 	async c => {
 		const { email: callerEmail, id: callerId } = c.get('authSession').user
 
-		if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+		if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 			return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 		}
 
 		const body = c.req.valid('json')
-		const auth = createAuth(c.env)
+		const auth = createAuth()
 		const org = await auth.api.createOrganization({
 			body: {
 				name: body.orgName,
@@ -70,9 +69,7 @@ const withCreateOrganizationRoutes = adminHono.post(
 				headers: c.req.raw.headers,
 			})
 		} finally {
-			await createDb(c.env.DB)
-				.delete(member)
-				.where(and(eq(member.organizationId, org.id), eq(member.userId, callerId)))
+			await db.delete(member).where(and(eq(member.organizationId, org.id), eq(member.userId, callerId)))
 		}
 
 		return c.json(
@@ -92,22 +89,22 @@ const withCreateOrganizationRoutes = adminHono.post(
 const withListOrganizationRoutes = withCreateOrganizationRoutes.get('/organizations', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
-	const organizations = await createDb(c.env.DB).select().from(organization)
+	const organizations = await db.select().from(organization)
 	return c.json(adminOrganizationsResponseSchema.parse({ organizations: organizations.map(serializeOrganization) }))
 })
 
 const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
-	const rows = await createDb(c.env.DB)
+	const rows = await db
 		.select({
 			id: invitation.id,
 			organizationId: invitation.organizationId,
@@ -137,24 +134,22 @@ const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', 
 const withDeleteOrganizationRoutes = withListInvitationRoutes.delete('/organizations/:id', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
-	await createDb(c.env.DB)
-		.delete(organization)
-		.where(eq(organization.id, c.req.param('id')))
+	await db.delete(organization).where(eq(organization.id, c.req.param('id')))
 	return c.body(null, 204)
 })
 
 const withListUsersRoutes = withDeleteOrganizationRoutes.get('/users', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
-	const rows = await createDb(c.env.DB).select().from(users).orderBy(asc(users.createdAt))
+	const rows = await db.select().from(users).orderBy(asc(users.createdAt))
 	return c.json(
 		adminUsersResponseSchema.parse({
 			users: rows.map(u => ({
@@ -175,14 +170,14 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 	async c => {
 		const { email: callerEmail } = c.get('authSession').user
 
-		if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+		if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 			return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 		}
 
 		const body = c.req.valid('json')
 		const id = c.req.param('id')
 
-		const [updated] = await createDb(c.env.DB)
+		const [updated] = await db
 			.update(users)
 			.set({ ...(body.name && { name: body.name }), ...(body.email && { email: body.email }) })
 			.where(eq(users.id, id))
@@ -205,12 +200,10 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 export const adminRoutes = withUpdateUserRoutes.delete('/users/:id', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, c.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
-	await createDb(c.env.DB)
-		.delete(users)
-		.where(eq(users.id, c.req.param('id')))
+	await db.delete(users).where(eq(users.id, c.req.param('id')))
 	return c.body(null, 204)
 })

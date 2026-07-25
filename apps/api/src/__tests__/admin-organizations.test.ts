@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { adminOrganizationsResponseSchema, createAdminOrganizationResponseSchema } from '../client/admin/organizations'
 import { apiErrorSchema } from '../client/error'
@@ -45,11 +45,19 @@ vi.mock('../logic/auth', () => ({
 }))
 
 vi.mock('../db', () => ({
-	createDb: vi.fn(() => ({
+	db: {
 		delete: vi.fn(() => ({ where: authCalls.deleteWhere })),
 		select: vi.fn(() => ({ from: authCalls.selectFrom })),
-	})),
+	},
 }))
+
+beforeEach(() => {
+	process.env.SUPERADMIN_EMAIL = 'admin@example.com'
+})
+
+afterEach(() => {
+	delete process.env.SUPERADMIN_EMAIL
+})
 
 describe('POST /admin/organizations', () => {
 	beforeEach(() => {
@@ -67,26 +75,20 @@ describe('POST /admin/organizations', () => {
 	})
 
 	it('rejects non-superadmin callers', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations',
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-test-user-email': 'member@example.com',
-				},
-				body: JSON.stringify({
-					orgName: 'Frontpeek',
-					orgSlug: 'frontpeek',
-					firstAdminEmail: 'owner@example.com',
-				}),
+		const res = await app.request('/admin/organizations', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-test-user-email': 'member@example.com',
 			},
-			{
-				SUPERADMIN_EMAIL: 'admin@example.com',
-			},
-		)
+			body: JSON.stringify({
+				orgName: 'Frontpeek',
+				orgSlug: 'frontpeek',
+				firstAdminEmail: 'owner@example.com',
+			}),
+		})
 
 		expect(res.status).toBe(403)
 		const body = apiErrorSchema.parse(await res.json())
@@ -97,26 +99,20 @@ describe('POST /admin/organizations', () => {
 	})
 
 	it('creates an organization and owner invitation for the superadmin', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations',
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-test-user-email': 'admin@example.com',
-				},
-				body: JSON.stringify({
-					orgName: 'Frontpeek',
-					orgSlug: 'frontpeek',
-					firstAdminEmail: 'owner@example.com',
-				}),
+		const res = await app.request('/admin/organizations', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-test-user-email': 'admin@example.com',
 			},
-			{
-				SUPERADMIN_EMAIL: 'admin@example.com',
-			},
-		)
+			body: JSON.stringify({
+				orgName: 'Frontpeek',
+				orgSlug: 'frontpeek',
+				firstAdminEmail: 'owner@example.com',
+			}),
+		})
 
 		expect(res.status).toBe(201)
 		const body = await res.json()
@@ -155,26 +151,20 @@ describe('POST /admin/organizations', () => {
 	})
 
 	it('rejects invalid creation requests before creating an organization', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations',
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-test-user-email': 'admin@example.com',
-				},
-				body: JSON.stringify({
-					orgName: 'Frontpeek',
-					orgSlug: 'frontpeek',
-					firstAdminEmail: 'not-an-email',
-				}),
+		const res = await app.request('/admin/organizations', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-test-user-email': 'admin@example.com',
 			},
-			{
-				SUPERADMIN_EMAIL: 'admin@example.com',
-			},
-		)
+			body: JSON.stringify({
+				orgName: 'Frontpeek',
+				orgSlug: 'frontpeek',
+				firstAdminEmail: 'not-an-email',
+			}),
+		})
 
 		expect(res.status).toBe(400)
 		const body = apiErrorSchema.parse(await res.json())
@@ -195,16 +185,12 @@ describe('GET /admin/organizations', () => {
 	})
 
 	it('rejects non-superadmin callers', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations',
-			{
-				method: 'GET',
-				headers: { 'x-test-user-email': 'member@example.com' },
-			},
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/organizations', {
+			method: 'GET',
+			headers: { 'x-test-user-email': 'member@example.com' },
+		})
 
 		expect(res.status).toBe(403)
 		const body = apiErrorSchema.parse(await res.json())
@@ -213,16 +199,12 @@ describe('GET /admin/organizations', () => {
 	})
 
 	it('returns the list of organizations for the superadmin', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations',
-			{
-				method: 'GET',
-				headers: { 'x-test-user-email': 'admin@example.com' },
-			},
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/organizations', {
+			method: 'GET',
+			headers: { 'x-test-user-email': 'admin@example.com' },
+		})
 
 		expect(res.status).toBe(200)
 		const body = await res.json()
@@ -245,16 +227,12 @@ describe('DELETE /admin/organizations/:id', () => {
 	})
 
 	it('rejects non-superadmin callers', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations/org_1',
-			{
-				method: 'DELETE',
-				headers: { 'x-test-user-email': 'member@example.com' },
-			},
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/organizations/org_1', {
+			method: 'DELETE',
+			headers: { 'x-test-user-email': 'member@example.com' },
+		})
 
 		expect(res.status).toBe(403)
 		const body = apiErrorSchema.parse(await res.json())
@@ -263,16 +241,12 @@ describe('DELETE /admin/organizations/:id', () => {
 	})
 
 	it('deletes the organization for the superadmin', async () => {
-		const { default: app } = await import('../index')
+		const { app } = await import('../app')
 
-		const res = await app.request(
-			'/admin/organizations/org_1',
-			{
-				method: 'DELETE',
-				headers: { 'x-test-user-email': 'admin@example.com' },
-			},
-			{ SUPERADMIN_EMAIL: 'admin@example.com' },
-		)
+		const res = await app.request('/admin/organizations/org_1', {
+			method: 'DELETE',
+			headers: { 'x-test-user-email': 'admin@example.com' },
+		})
 
 		expect(res.status).toBe(204)
 		expect(authCalls.deleteWhere).toHaveBeenCalledOnce()

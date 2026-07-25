@@ -5,11 +5,11 @@ import { organization } from 'better-auth/plugins/organization'
 import { and, eq, gt } from 'drizzle-orm'
 import { createMiddleware } from 'hono/factory'
 
-import { createDb } from '../db'
+import { db } from '../db'
 import * as schema from '../db/schema'
 import { invitation, member, sessions } from '../db/schema'
 import { apiError } from './apiError'
-import type { Bindings } from '../index'
+import { sendEmail } from './email'
 
 export type AuthSession = {
 	session: {
@@ -58,17 +58,17 @@ function escapeHtml(value: string) {
 	})
 }
 
-function createInvitationUrl(env: Env, invitationId: string) {
-	const baseUrl = env.BETTER_AUTH_URL ?? env.BASE_URL
+function createInvitationUrl(invitationId: string) {
+	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.BASE_URL
 	return `${baseUrl}/invitation/accept?id=${encodeURIComponent(invitationId)}`
 }
 
-export async function restoreActiveOrganization(
-	env: Env,
-	session: { token: string; userId: string; activeOrganizationId?: string | null },
-) {
+export async function restoreActiveOrganization(session: {
+	token: string
+	userId: string
+	activeOrganizationId?: string | null
+}) {
 	if (session.activeOrganizationId) return
-	const db = createDb(env.DB)
 	const [membership] = await db
 		.select({ organizationId: member.organizationId })
 		.from(member)
@@ -81,13 +81,13 @@ export async function restoreActiveOrganization(
 		.where(eq(sessions.token, session.token))
 }
 
-export function createAuth(env: Env) {
+export function createAuth() {
 	return betterAuth({
-		baseURL: env.BETTER_AUTH_URL,
+		baseURL: process.env.BETTER_AUTH_URL,
 		basePath: '/auth',
-		secret: env.BETTER_AUTH_SECRET,
-		database: drizzleAdapter(createDb(env.DB), {
-			provider: 'sqlite',
+		secret: process.env.BETTER_AUTH_SECRET,
+		database: drizzleAdapter(db, {
+			provider: 'pg',
 			schema,
 			camelCase: true,
 		}),
@@ -109,17 +109,17 @@ export function createAuth(env: Env) {
 		},
 		socialProviders: {
 			google:
-				env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+				process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
 					? {
-							clientId: env.GOOGLE_CLIENT_ID,
-							clientSecret: env.GOOGLE_CLIENT_SECRET,
+							clientId: process.env.GOOGLE_CLIENT_ID,
+							clientSecret: process.env.GOOGLE_CLIENT_SECRET,
 						}
 					: undefined,
 			apple:
-				env.APPLE_CLIENT_ID && env.APPLE_CLIENT_SECRET
+				process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET
 					? {
-							clientId: env.APPLE_CLIENT_ID,
-							clientSecret: env.APPLE_CLIENT_SECRET,
+							clientId: process.env.APPLE_CLIENT_ID,
+							clientSecret: process.env.APPLE_CLIENT_SECRET,
 						}
 					: undefined,
 		},
@@ -127,7 +127,7 @@ export function createAuth(env: Env) {
 			user: {
 				create: {
 					before: async user => {
-						if (!(await canSignUpWithEmail(env, user.email))) {
+						if (!(await canSignUpWithEmail(user.email))) {
 							return false
 						}
 					},
@@ -135,7 +135,7 @@ export function createAuth(env: Env) {
 			},
 			session: {
 				create: {
-					after: async session => restoreActiveOrganization(env, session),
+					after: async session => restoreActiveOrganization(session),
 				},
 			},
 		},
@@ -145,10 +145,7 @@ export function createAuth(env: Env) {
 				invitationExpiresIn: 60 * 60 * 24 * 7,
 				allowUserToCreateOrganization: false,
 				sendInvitationEmail: async ({ email, id, organization, inviter, role }) => {
-					if (!env.EMAIL) throw new Error('EMAIL binding is not configured')
-					if (!env.EMAIL_FROM) throw new Error('EMAIL_FROM is not configured')
-
-					const invitationUrl = createInvitationUrl(env, id)
+					const invitationUrl = createInvitationUrl(id)
 					const organizationName = organization.name
 					const inviterName = inviter.user.name || inviter.user.email
 					const subject = `Invitation to join ${organizationName}`
@@ -160,9 +157,8 @@ export function createAuth(env: Env) {
 						'This invitation expires in 7 days.',
 					].join('\n')
 
-					await env.EMAIL.send({
+					await sendEmail({
 						to: email,
-						from: env.EMAIL_FROM,
 						subject,
 						text,
 						html: [
@@ -177,14 +173,14 @@ export function createAuth(env: Env) {
 	})
 }
 
-export async function canSignUpWithEmail(env: Env, email: string) {
+export async function canSignUpWithEmail(email: string) {
 	const normalizedEmail = email.toLowerCase()
 
-	if (env.SUPERADMIN_EMAIL && normalizedEmail === env.SUPERADMIN_EMAIL.toLowerCase()) {
+	if (process.env.SUPERADMIN_EMAIL && normalizedEmail === process.env.SUPERADMIN_EMAIL.toLowerCase()) {
 		return true
 	}
 
-	const pendingInvitation = await createDb(env.DB)
+	const pendingInvitation = await db
 		.select({ id: invitation.id })
 		.from(invitation)
 		.where(
@@ -199,9 +195,8 @@ export async function canSignUpWithEmail(env: Env, email: string) {
 	return pendingInvitation.length > 0
 }
 
-export async function activateInvitedOrganization(env: Env, email: string, sessionToken: string) {
+export async function activateInvitedOrganization(email: string, sessionToken: string) {
 	const normalizedEmail = email.toLowerCase()
-	const db = createDb(env.DB)
 	const [pendingInvitation] = await db
 		.select({ organizationId: invitation.organizationId })
 		.from(invitation)
@@ -222,8 +217,8 @@ export async function activateInvitedOrganization(env: Env, email: string, sessi
 		.where(eq(sessions.token, sessionToken))
 }
 
-export const requireAuth = createMiddleware<Bindings>(async (c, next) => {
-	const session = (await createAuth(c.env).api.getSession({
+export const requireAuth = createMiddleware(async (c, next) => {
+	const session = (await createAuth().api.getSession({
 		headers: c.req.raw.headers,
 	})) as AuthSession | null
 
@@ -234,11 +229,11 @@ export const requireAuth = createMiddleware<Bindings>(async (c, next) => {
 	return next()
 })
 
-export const requireOrg = createMiddleware<Bindings>(async (c, next) => {
+export const requireOrg = createMiddleware(async (c, next) => {
 	let member: OrgMember | null = null
 
 	try {
-		member = (await createAuth(c.env).api.getActiveMember({
+		member = (await createAuth().api.getActiveMember({
 			headers: c.req.raw.headers,
 		})) as OrgMember | null
 	} catch {

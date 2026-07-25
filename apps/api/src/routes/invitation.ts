@@ -1,8 +1,6 @@
 import { Hono } from 'hono'
 
-import type { Bindings } from '../index'
-
-export const invitationRoutes = new Hono<Bindings>()
+export const invitationRoutes = new Hono()
 
 invitationRoutes.get('/accept', c => {
 	const id = c.req.query('id')
@@ -10,7 +8,7 @@ invitationRoutes.get('/accept', c => {
 
 	// TODO: dashboard doesn't have an /accept-invitation screen yet — build one that calls
 	// authClient.organization.acceptInvitation({ invitationId }) and then routes into login/signup.
-	const dashboardUrl = (c.env as Env & { DASHBOARD_URL?: string }).DASHBOARD_URL
+	const dashboardUrl = process.env.DASHBOARD_URL
 	if (dashboardUrl) {
 		return c.redirect(`${dashboardUrl}/accept-invitation?id=${encodeURIComponent(id)}`)
 	}

@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { RouterProvider } from '@tanstack/react-router'
 
+import { ErrorBoundary } from '@/components/error-boundary'
 import { ModalProvider } from '@/components/modal-provider'
 import { QueryProvider } from '@/data/core/queryProvider'
 import { getRouter } from './router'
@@ -15,10 +16,12 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
 	<React.StrictMode>
-		<QueryProvider>
-			<ModalProvider>
-				<RouterProvider router={getRouter()} />
-			</ModalProvider>
-		</QueryProvider>
+		<ErrorBoundary>
+			<QueryProvider>
+				<ModalProvider>
+					<RouterProvider router={getRouter()} />
+				</ModalProvider>
+			</QueryProvider>
+		</ErrorBoundary>
 	</React.StrictMode>,
 )

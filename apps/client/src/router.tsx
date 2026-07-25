@@ -1,4 +1,5 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import { ErrorFallback } from '@/components/error-fallback'
 import { routeTree } from './routeTree.gen'
 
 export function getRouter() {
@@ -6,6 +7,7 @@ export function getRouter() {
 		routeTree,
 		scrollRestoration: true,
 		defaultPreload: false,
+		defaultErrorComponent: ({ error, reset }) => <ErrorFallback error={error} reset={reset} />,
 	})
 
 	return router

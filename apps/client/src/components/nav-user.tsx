@@ -1,7 +1,7 @@
 import { BadgeCheck, ChevronsUpDown, LogOut } from 'lucide-react'
 import { useRouter } from '@tanstack/react-router'
 
-import { authClient } from '@/lib/auth-client'
+import { authClient, clearStoredToken } from '@/lib/auth-client'
 import { clearCachedSession } from '@/data/session'
 import { Avatar, AvatarFallback, AvatarImage } from '@/ui/avatar'
 import {
@@ -29,6 +29,7 @@ export function NavUser({
 
 	async function handleLogout() {
 		await authClient.signOut()
+		clearStoredToken()
 		clearCachedSession()
 		router.navigate({ to: '/login' })
 	}

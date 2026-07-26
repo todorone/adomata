@@ -6,11 +6,15 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Filter,
+	ImageOff,
+	Layers3,
 	LayoutGrid,
 	ListFilter,
 	PanelLeft,
+	Play,
 	Search,
 	Sparkles,
+	ExternalLink,
 	Users,
 } from 'lucide-react'
 import { z } from 'zod'
@@ -31,7 +35,25 @@ type Metrics = {
 	ctr: number
 }
 
-type Ad = { id: string; name: string; status: 'Активне' | 'Пауза'; metrics: Metrics }
+type CreativeKind = 'image' | 'video' | 'carousel' | 'asset-feed'
+type CreativeAsset = {
+	id: string
+	label: string
+	title: string
+	imageUrl: string
+	placement?: string
+}
+type Creative = {
+	kind: CreativeKind
+	formatLabel: string
+	body: string
+	headline: string
+	cta: string
+	destination: string
+	assets: CreativeAsset[]
+	mediaAvailable: boolean
+}
+type Ad = { id: string; name: string; status: 'Активне' | 'Пауза'; metrics: Metrics; creative: Creative }
 type AdSet = { id: string; name: string; status: 'Активна' | 'Пауза'; metrics: Metrics; ads: Ad[] }
 type Campaign = {
 	id: string
@@ -80,6 +102,89 @@ const CLIENTS = [
 	'Craft & Co',
 ]
 
+const CREATIVE_PALETTES = [
+	['#0e5555', '#f4c16e'],
+	['#bb5c3c', '#f5dfaf'],
+	['#3f5b9a', '#9ed4d2'],
+	['#7b4e86', '#f0a878'],
+	['#21694f', '#d6e68f'],
+]
+
+function creativeImage(seed: number, index: number) {
+	const [start, end] = CREATIVE_PALETTES[(seed + index) % CREATIVE_PALETTES.length]
+	const title = ['ЛІДИ', 'ДЛЯ ТЕБЕ', 'НОВИНКА', 'ПОРУЧ', 'ТЕСТ'][index % 5]
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${start}"/><stop offset="1" stop-color="${end}"/></linearGradient></defs><rect width="900" height="560" fill="url(#g)"/><circle cx="710" cy="110" r="180" fill="white" fill-opacity=".18"/><circle cx="140" cy="500" r="230" fill="black" fill-opacity=".12"/><text x="64" y="96" fill="white" font-family="Arial,sans-serif" font-size="34" font-weight="700" letter-spacing="7">ADOMATA / CREATIVE</text><text x="64" y="390" fill="white" font-family="Arial,sans-serif" font-size="92" font-weight="800">${title}</text><rect x="68" y="430" width="190" height="7" rx="3" fill="white" fill-opacity=".8"/></svg>`
+	return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
+function creativeAsset(seed: number, index: number, placement?: string): CreativeAsset {
+	return {
+		id: `asset-${seed}-${index}`,
+		label: `Варіант ${String.fromCharCode(65 + index)}`,
+		title: ['Ранковий ритуал', 'Вигода поруч', 'Спробуйте сьогодні', 'Деталі, що працюють'][index % 4],
+		imageUrl: creativeImage(seed, index),
+		placement,
+	}
+}
+
+function creativeFor(seed: number): Creative {
+	const base = {
+		body: 'Зробіть наступний крок разом із брендом, якому довіряють щодня.',
+		headline: 'Більше результату з кожного кліка',
+		cta: 'Дізнатися більше',
+		destination: 'nov forma.ua/offer',
+	}
+	if (seed % 13 === 0) {
+		return {
+			...base,
+			kind: 'image',
+			formatLabel: 'Зображення · недоступне',
+			assets: [{ ...creativeAsset(seed, 0), imageUrl: 'https://cdn.adomata.local/prototype-expired.jpg' }],
+			mediaAvailable: false,
+		}
+	}
+	if (seed % 4 === 0) {
+		return {
+			...base,
+			kind: 'video',
+			formatLabel: 'Відео · прев’ю',
+			assets: [creativeAsset(seed, 0)],
+			mediaAvailable: true,
+		}
+	}
+	if (seed % 5 === 0) {
+		return {
+			...base,
+			kind: 'carousel',
+			formatLabel: 'Карусель · 4 картки',
+			assets: Array.from({ length: 4 }, (_, index) => creativeAsset(seed, index)),
+			mediaAvailable: true,
+		}
+	}
+	if (seed % 6 === 0) {
+		return {
+			...base,
+			kind: 'asset-feed',
+			formatLabel: 'Набір ресурсів · 5 варіантів',
+			assets: [
+				creativeAsset(seed, 0, 'Стрічка · мобільна'),
+				creativeAsset(seed, 1, 'Stories · вертикальна'),
+				creativeAsset(seed, 2, 'Reels · вертикальна'),
+				creativeAsset(seed, 3, 'Стрічка · широка'),
+				creativeAsset(seed, 4, 'Audience Network'),
+			],
+			mediaAvailable: true,
+		}
+	}
+	return {
+		...base,
+		kind: 'image',
+		formatLabel: 'Зображення',
+		assets: [creativeAsset(seed, 0)],
+		mediaAvailable: true,
+	}
+}
+
 function metricsFor(seed: number, multiplier = 1): Metrics {
 	return {
 		spend: Math.round((1200 + ((seed * 743) % 8800)) * multiplier),
@@ -104,6 +209,7 @@ function makeAccounts(): Account[] {
 					name: `Креатив ${adIndex + 1}: тест ${['A', 'B', 'C'][adIndex % 3]}`,
 					status: adIndex === 2 ? 'Пауза' : 'Активне',
 					metrics: metricsFor(number + campaignNumber + adSetNumber + adIndex, 0.18),
+					creative: creativeFor(number + campaignNumber + adSetNumber + adIndex),
 				}))
 				return {
 					id: `adset-${number}-${campaignNumber}-${adSetNumber}`,
@@ -219,6 +325,103 @@ function MetricStrip({ account, metrics }: { account: Account; metrics: Set<Metr
 	)
 }
 
+function CreativeMetrics({ metrics, metricKeys }: { metrics: Metrics; metricKeys: Set<MetricKey> }) {
+	return (
+		<div className="prototype-creative-metrics">
+			{METRICS.filter(metric => metricKeys.has(metric.key)).map(metric => (
+				<div key={metric.key}>
+					<strong>{metricValue(metrics, metric.key)}</strong>
+					<span>{metric.label}</span>
+				</div>
+			))}
+		</div>
+	)
+}
+
+function CreativeMedia({ asset, kind, available }: { asset: CreativeAsset; kind: CreativeKind; available: boolean }) {
+	const [failed, setFailed] = useState(!available)
+	if (failed) {
+		return (
+			<div className="prototype-creative-media prototype-creative-media-missing">
+				<ImageOff className="size-5" />
+				<span>Медіа недоступне</span>
+			</div>
+		)
+	}
+	return (
+		<div className="prototype-creative-media">
+			<img src={asset.imageUrl} alt={asset.title} onError={() => setFailed(true)} />
+			{kind === 'video' && (
+				<span className="prototype-video-badge">
+					<Play className="size-3 fill-current" /> Відео
+				</span>
+			)}
+		</div>
+	)
+}
+
+function CreativePreview({
+	ad,
+	metricKeys,
+	surface,
+}: {
+	ad: Ad
+	metricKeys: Set<MetricKey>
+	surface: 'inline' | 'panel' | 'compact'
+}) {
+	const { creative } = ad
+	const collection = creative.kind === 'carousel' || creative.kind === 'asset-feed'
+	return (
+		<div className={`prototype-creative prototype-creative-${surface}`}>
+			<div className="prototype-creative-main">
+				<CreativeMedia asset={creative.assets[0]} kind={creative.kind} available={creative.mediaAvailable} />
+				<div className="min-w-0 flex-1">
+					<div className="mb-1 flex flex-wrap items-center gap-2">
+						<span className="prototype-creative-format">
+							{creative.kind === 'video' ? <Play className="size-3" /> : <Layers3 className="size-3" />}
+							{creative.formatLabel}
+						</span>
+						<span className="text-[11px] text-[var(--sea-ink-soft)]">{ad.status}</span>
+					</div>
+					<div className="truncate text-sm font-extrabold text-[var(--sea-ink)]">{creative.headline}</div>
+					<p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--sea-ink-soft)]">{creative.body}</p>
+					<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--sea-ink-soft)]">
+						<span className="font-bold text-[var(--sea-ink)]">{creative.cta}</span>
+						<span className="inline-flex items-center gap-1">
+							<ExternalLink className="size-3" /> {creative.destination}
+						</span>
+					</div>
+				</div>
+				<CreativeMetrics metrics={ad.metrics} metricKeys={metricKeys} />
+			</div>
+			{collection && (
+				<div className="prototype-creative-assets">
+					<div className="prototype-creative-assets-heading">
+						<span>{creative.kind === 'carousel' ? 'Усі картки каруселі' : 'Варіанти набору ресурсів'}</span>
+						<span>{creative.assets.length} ресурсів</span>
+					</div>
+					<div className="prototype-creative-assets-grid">
+						{creative.assets.map(asset => (
+							<div key={asset.id} className="prototype-creative-asset">
+								<CreativeMedia asset={asset} kind="image" available={creative.mediaAvailable} />
+								<div className="mt-1 truncate text-[11px] font-bold">{asset.label}</div>
+								{asset.placement && (
+									<div className="truncate text-[10px] text-[var(--sea-ink-soft)]">{asset.placement}</div>
+								)}
+							</div>
+						))}
+					</div>
+					<p className="mt-2 text-[11px] text-[var(--sea-ink-soft)]">
+						{creative.kind === 'carousel'
+							? 'Показано всі картки; результати атрибутовано на рівні оголошення.'
+							: 'Meta підбирає комбінацію за розміщенням; результати атрибутовано на рівні оголошення.'}
+					</p>
+				</div>
+			)}
+		</div>
+	)
+}
+
 function PrototypeHeader({
 	variant,
 	depth,
@@ -238,7 +441,7 @@ function PrototypeHeader({
 			<div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
 				<div>
 					<div className="mb-2 flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.18em] text-[var(--kicker)]">
-						<Sparkles className="size-3.5" /> PROTOTYPE · #13 · ВАРІАНТ {variant}
+						<Sparkles className="size-3.5" /> PROTOTYPE · #16 · ВАРІАНТ {variant}
 					</div>
 					<h1 className="display-title text-4xl leading-none text-[var(--sea-ink)] sm:text-5xl">{current.name}</h1>
 					<p className="mt-2 max-w-2xl text-sm text-[var(--sea-ink-soft)]">
@@ -384,7 +587,8 @@ function VariantA({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 					/>,
 				)
 				if (!adSetOpen) return
-				adSet.ads.forEach(ad =>
+				adSet.ads.forEach(ad => {
+					const adOpen = expanded.has(ad.id)
 					rows.push(
 						<TreeRow
 							key={ad.id}
@@ -393,12 +597,19 @@ function VariantA({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 							status={ad.status}
 							metrics={ad.metrics}
 							metricKeys={metrics}
-							open={false}
-							onToggle={() => undefined}
-							last
+							open={adOpen}
+							onToggle={() => toggle(ad.id)}
+							last={!adOpen}
 						/>,
-					),
-				)
+					)
+					if (adOpen) {
+						rows.push(
+							<div key={`${ad.id}-creative`} className="prototype-tree-creative-row min-w-[760px]">
+								<CreativePreview ad={ad} metricKeys={metrics} surface="inline" />
+							</div>,
+						)
+					}
+				})
 			})
 		})
 		return rows
@@ -441,8 +652,7 @@ function VariantA({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 			</div>
 			<div className="mt-3 flex items-center justify-between text-xs text-[var(--sea-ink-soft)]">
 				<span>
-					Батьківський рядок показує власний агрегат · натисніть кампанію, щоб піти глибше, незалежно від
-					глобальної глибини.
+					Батьківський рядок показує власний агрегат · натисніть оголошення, щоб відкрити креатив і його метрики.
 				</span>
 				<span>{visibleAccounts.length} / 50</span>
 			</div>
@@ -451,6 +661,9 @@ function VariantA({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 }
 
 function DetailTree({ account, depth, metrics }: { account: Account; depth: Depth; metrics: Set<MetricKey> }) {
+	const [selectedAdId, setSelectedAdId] = useState('')
+	const allAds = account.campaigns.flatMap(campaign => campaign.adSets.flatMap(adSet => adSet.ads))
+	const selectedAd = allAds.find(ad => ad.id === selectedAdId) ?? allAds[0]
 	return (
 		<div className="flex flex-col gap-2">
 			{account.campaigns.length === 0 && (
@@ -493,6 +706,47 @@ function DetailTree({ account, depth, metrics }: { account: Account; depth: Dept
 					)}
 				</div>
 			))}
+			{depth >= 3 ? (
+				<div className="prototype-detail-creative-shell">
+					<div className="mb-3 flex items-start justify-between gap-3">
+						<div>
+							<div className="text-xs font-extrabold uppercase tracking-[0.12em] text-[var(--kicker)]">
+								Креатив оголошення
+							</div>
+							<p className="mt-1 text-xs text-[var(--sea-ink-soft)]">
+								Виберіть оголошення зліва — деталі та метрики залишаються поруч.
+							</p>
+						</div>
+						<span className="prototype-creative-format">{allAds.length} огол.</span>
+					</div>
+					{selectedAd ? (
+						<div className="prototype-detail-creative-layout">
+							<div className="prototype-detail-ad-list">
+								{allAds.map(ad => (
+									<button
+										key={ad.id}
+										type="button"
+										onClick={() => setSelectedAdId(ad.id)}
+										className={`prototype-detail-ad-button ${selectedAd.id === ad.id ? 'prototype-detail-ad-button-active' : ''}`}
+									>
+										<span className="truncate text-left font-bold">{ad.name}</span>
+										<span className="text-[10px] text-[var(--sea-ink-soft)]">{ad.creative.formatLabel}</span>
+									</button>
+								))}
+							</div>
+							<CreativePreview ad={selectedAd} metricKeys={metrics} surface="panel" />
+						</div>
+					) : (
+						<div className="rounded-2xl border border-dashed border-[var(--line)] p-5 text-sm text-[var(--sea-ink-soft)]">
+							У цьому кабінеті немає оголошень.
+						</div>
+					)}
+				</div>
+			) : (
+				<div className="rounded-2xl border border-dashed border-[var(--line)] p-4 text-xs text-[var(--sea-ink-soft)]">
+					Перемкніть глибину на «Оголошення», щоб перевірити панель креативу.
+				</div>
+			)}
 			<div className="flex flex-wrap gap-4 border-t border-[var(--line)] pt-3 text-xs text-[var(--sea-ink-soft)]">
 				{METRICS.filter(metric => metrics.has(metric.key)).map(metric => (
 					<span key={metric.key}>
@@ -641,7 +895,7 @@ function VariantC({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 			<div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
 				<div>
 					<div className="mb-2 flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.18em] text-[var(--kicker)]">
-						<LayoutGrid className="size-3.5" /> PROTOTYPE · #13 · ВАРІАНТ C
+						<LayoutGrid className="size-3.5" /> PROTOTYPE · #16 · ВАРІАНТ C
 					</div>
 					<h1 className="display-title text-4xl leading-none text-[var(--sea-ink)] sm:text-5xl">Сигнали</h1>
 					<p className="mt-2 max-w-2xl text-sm text-[var(--sea-ink-soft)]">
@@ -760,6 +1014,34 @@ function VariantC({ accounts, metrics, setMetrics, depth, setDepth }: PrototypeP
 															</div>
 														))
 													)}
+													{depth >= 3 &&
+														account.campaigns.some(campaign =>
+															campaign.adSets.some(adSet => adSet.ads.length > 0),
+														) && (
+															<div className="mt-3 border-t border-[var(--line)] pt-3">
+																<div className="mb-2 flex items-center justify-between gap-2">
+																	<span className="text-xs font-extrabold uppercase tracking-[0.1em] text-[var(--kicker)]">
+																		Креативи
+																	</span>
+																	<span className="text-[11px] text-[var(--sea-ink-soft)]">
+																		На рівні оголошення
+																	</span>
+																</div>
+																<div className="flex flex-col gap-2">
+																	{account.campaigns
+																		.flatMap(campaign => campaign.adSets.flatMap(adSet => adSet.ads))
+																		.slice(0, 4)
+																		.map(ad => (
+																			<CreativePreview
+																				key={ad.id}
+																				ad={ad}
+																				metricKeys={metrics}
+																				surface="compact"
+																			/>
+																		))}
+																</div>
+															</div>
+														)}
 												</div>
 											)}
 										</div>

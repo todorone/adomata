@@ -2,7 +2,7 @@
 
 A SaaS platform for agencies to run media buying, social media management, and automation on behalf of their clients.
 
-Current prototype scope is narrower: a read-only Fleet Board giving an agency director KPI visibility across every Ad Account, on Meta only. Budget and Budget Exhausted notifications stay in the model but sit behind the board in priority. SMM and rule-based automation are future phases, not yet modeled.
+Current product scope is narrower: a read-only Fleet Board giving an agency director KPI visibility across every Ad Account, on Meta only. Budget and Budget Exhausted notifications stay in the model but sit behind the board in priority. SMM and rule-based automation are future phases, not yet modeled.
 
 ## Language
 
@@ -22,11 +22,11 @@ A Meta Ads Manager account the Agency has been granted access to, scoped to exac
 _Avoid_: Ads cabinet, Cabinet, Account
 
 **Account Health**:
-Meta's own health signal for an Ad Account (`account_status`, `disable_reason`, and billing signals like `balance`/`is_prepay_account`) — vendor-mirrored, not renamed, same treatment as Campaign/Ad Set/Ad. Orthogonal to Ad Account's connection status: connection status is whether *Adomata* can still read the account; Account Health is whether *Meta* considers the account healthy. When connection status is access lost, Account Health is unknown, not red — Adomata can't call the API to check it. Drives the board's traffic light.
+Meta's own health signal for an Ad Account (`account_status`, `disable_reason`, and billing signals like `balance`/`is_prepay_account`) — vendor-mirrored, not renamed, same treatment as Campaign/Ad Set/Ad. Orthogonal to Ad Account's connection status: connection status is whether _Adomata_ can still read the account; Account Health is whether _Meta_ considers the account healthy. When connection status is access lost, Account Health is unknown, not red — Adomata can't call the API to check it. Drives the board's traffic light.
 _Avoid_: Account status (ambiguous with connection status — always say which one)
 
 **Health Color / Health Reason**:
-The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering *why*. Health Color answers "does this need me?"; Health Reason answers "why?". This split exists because several of Meta's raw signals (e.g. postpay billing) are permanent properties of an account, not transient problems — cramming that nuance into color alone would either make the color meaningless (everyone's postpay, everyone's the same color) or require a color per nuance. Four colors: green, yellow, red — Meta told us something about this account — and **grey**, a categorically different case meaning Adomata has nothing to report (connection status is pending or access lost), never used for a Meta-reported problem. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md). A Client row rolls these up from its Ad Accounts — worst color wins, Reason becomes a count of children needing attention — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
+The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering _why_. Health Color answers "what kind of state is this?"; Health Reason answers "why?". Red needs attention; yellow is the neutral fact that an active account uses postpay; green is active prepay; grey means Adomata has nothing to report because the connection is pending or lost. This split exists because permanent properties such as postpay billing must remain visible without being mislabeled as problems. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md). A Client row rolls these up from its Ad Accounts — worst color wins, while its Reason counts red children needing attention or, when there are no red children, summarizes yellow postpay children — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
 _Avoid_: Traffic light (as if it's color-only), Status (too vague — say Health Color or Health Reason)
 
 **Campaign / Ad Set / Ad**:
@@ -34,7 +34,7 @@ Meta's own tree beneath an Ad Account (Campaign → Ad Set → Ad), each level a
 _Avoid_: inventing Adomata synonyms for these terms
 
 **Creative**:
-A property of an Ad, not a tree level below it — an Ad has exactly one Creative, expanded in place rather than listed as siblings. A carousel or Advantage+ asset-feed Ad carries several assets (images, videos, copy, links), but those are internal structure of that one Creative, not multiple Creatives under the Ad. On the Fleet Board it renders as a full-width block beneath its Ad row, carrying the visual, copy, CTA, destination, and the current Metric Selection; multi-asset Ads show every asset with results explicitly attributed to the whole Ad, never split between assets ([ADR 0022](docs/adr/0022-creative-surface-is-an-inline-expansion-of-the-ad-row.md)).
+A property of an Ad, not a tree level below it — an Ad has exactly one Creative, opened as that Ad's detail rather than listed as siblings. A carousel or Advantage+ asset-feed Ad carries several assets (images, videos, copy, links), but those are internal structure of that one Creative, not multiple Creatives under the Ad. Each Fleet Board view presents the same Creative content in its native detail surface: inline beneath the Ad row in Tree, in the selected-Ad detail panel in Control Room, and in expanded card detail in Signals. Multi-asset Ads show every asset with results explicitly attributed to the whole Ad, never split between assets ([ADR 0027](docs/adr/0027-creative-presentation-is-native-to-each-fleet-board-view.md)).
 _Avoid_: Creative level, Creatives (as a list of children under an Ad)
 
 **User**:
@@ -45,34 +45,58 @@ _Vendor exception_: Better Auth's `member` table (the User↔Agency join row wit
 ### Fleet Board
 
 **Fleet Board**:
-The read-only tree view giving an agency director KPI visibility across every Ad Account at once, expandable down through Meta's own Campaign → Ad Set → Ad → Creative hierarchy. Never writes back to Meta ([ADR 0005](docs/adr/0005-fleet-board-is-read-only.md)).
+The read-only surface giving an agency director KPI visibility across every Ad Account at once through three switchable, functionally complete views: Tree, Control Room, and Signals. Each view reaches Meta's Campaign → Ad Set → Ad → Creative hierarchy and never writes back to Meta ([ADR 0005](docs/adr/0005-fleet-board-is-read-only.md)).
 _Avoid_: Fleet dashboard, dashboard
 
+**Tree view / Control Room view / Signals view**:
+The Fleet Board's three functionally complete presentations over the same data and controls. Tree is a comparison-first hierarchy table and the default; Control Room is a fleet rail beside one selected Ad Account's detail; Signals groups Ad Accounts into operational lanes with expandable cards. The active view is URL-encoded so interview links reproduce it. After user evaluation, a separate decision promotes the strongest default, preserves only distinct secondary workflows, and removes redundant views.
+_Avoid_: Variant, Prototype
+
 **View Depth**:
-The Fleet Board's global dial over how deep every row is opened at once — four positions: Ad Account, Campaign, Ad Set, Ad. Distinct from row expansion, which is per-row and additive: a row is open if View Depth reaches its level *or* it was individually expanded, so raising the dial never collapses what someone opened by hand. Depth is a rendering control only — it never changes a number, since every level's figures are rollups that exist whether or not the row is on screen ([ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md)). See [ADR 0021](docs/adr/0021-fleet-board-is-one-tree-table-with-a-depth-dial-over-row-expansion.md).
+The Fleet Board's global dial over how deeply each complete view reveals the hierarchy — four positions: Ad Account, Campaign, Ad Set, Ad. Distinct from local expansion or selection, which adds detail for one branch without lowering the global depth elsewhere. Depth is a rendering control only — it never changes a number, since every level's figures are rollups that exist whether or not the row is on screen ([ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md)). See [ADR 0026](docs/adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md).
 _Avoid_: Zoom, Level setting, Drill-down (the board never replaces itself with a detail view)
 
 **Client-grouped view / Flat view**:
-The Fleet Board's grouping toggle. Client-grouped view nests Ad Accounts under a collapsible Client row that is itself a KPI aggregate — not a bare header — so a director can read a Client's rolled-up numbers without expanding it. Flat view removes the nesting and lists every Ad Account directly; Client is demoted to a column and a filter, and no Client-level aggregate row is shown. Both modes are a presentation choice over the same underlying data — Client's rollup ([see Ad Account](#tenancy)) always exists regardless of which mode is active.
+The Fleet Board's grouping toggle, defaulting to Client-grouped view in every complete view. Client-grouped view makes Client a KPI aggregate above its Ad Accounts: a collapsible row in Tree, a group in the Control Room rail, or a card placed into a Signals lane by its rolled-up operational state. Flat view removes that level and presents every Ad Account directly; Client becomes metadata and a filter, and no Client aggregate is shown. Both modes are presentation choices over the same underlying data — Client's rollup ([see Ad Account](#tenancy)) always exists regardless of which mode is active.
 _Avoid_: —
+
+**Needs Attention**:
+The Fleet Board classification for an Ad Account with red Account Health or a lost Meta connection. Yellow postpay, green health, pending first sync, and a merely non-running campaign do not qualify. A Client Needs Attention when at least one child Ad Account does.
+_Avoid_: Yellow, Warning, Unhealthy (a lost connection has unknown Account Health)
+
+**Signals Lane**:
+One of four operational groups in Signals view: Needs Attention, Postpay, Active, or Awaiting Data. Needs Attention includes red Account Health and lost Meta connections; Postpay is yellow without an attention claim; Active is green; Awaiting Data is pending first sync. A Client card uses the highest-priority lane represented by its Ad Accounts in that order.
+_Avoid_: Traffic-light lane, Grey lane
+
+**Running**:
+The board's interpretation of Meta `effective_status = ACTIVE` for an Ad, rolled up with any-active-child-wins through Ad Set, Campaign, Ad Account, and Client. It describes Meta's effective configuration state, not proof that impressions are being delivered at this moment.
+_Avoid_: Delivering, Live delivery
 
 ### KPIs
 
 **KPI**:
-One of the fixed metrics Adomata tracks per Ad Account and rolls up per Client: Spend, Impressions, Clicks, CTR, CPA, ROAS. Spend, Impressions, and Clicks are summed at every tree level; CTR, CPA, and ROAS are always recomputed from those sums, never summed or averaged directly, and show blank when their denominator is zero — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
+One of the fixed metrics Adomata tracks per Ad Account and rolls up per Client: Spend, Impressions, Clicks, CTR, CPA, ROAS. Spend, Impressions, and Clicks are summed at every tree level; CTR, CPA, and ROAS are always recomputed from those sums, never summed or averaged directly, and show blank when their denominator is zero. CPA is also blank when a row mixes result action types — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
 _Avoid_: Metric
 
+**Clicks / CTR**:
+Clicks means Meta inline link clicks: clicks on links to destinations or experiences, excluding broad engagement such as likes, comments, shares, and image opens. CTR is Clicks divided by Impressions at the displayed tree level.
+_Avoid_: All clicks, Engagement clicks
+
 **CPA** (Cost per Action):
-Spend divided by the number of results Meta attributes to an ad (e.g. leads, purchases). "Action," not "acquisition" — a result isn't always a completed sale.
+Spend divided by the number of results Meta attributes to one canonical action type (e.g. leads or purchases), following the Ad Set's current attribution setting in Meta Ads Manager. A row whose spend-contributing descendants use different or unresolved result action types has no CPA; mixing unlike results would make the ratio meaningless. "Action," not "acquisition" — a result isn't always a completed sale.
 _Avoid_: Cost per acquisition, CPL
 
 **ROAS** (Return on Ad Spend):
-Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API). Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error.
+Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API) and following the Ad Set's current attribution setting in Meta Ads Manager. Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error.
 _Avoid_: —
 
 **Metric Selection**:
 The subset of the fixed KPI list a Fleet Board view currently shows as columns, chosen from all six but never expanded beyond them. Held entirely in the URL as a search param — not stored against a User or Agency — so it's per view, not per person: two people can hold different links to the same board showing different columns. A view with no selection param shows the default (Spend, ROAS). Column order and width are fixed to the KPI list's order above, not part of the selection. See [ADR 0020](docs/adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md).
 _Avoid_: Metric toggle, Column selection (implementation-level phrasing, not the concept)
+
+**Time Range**:
+The single period whose KPI values the Fleet Board currently shows: Today, Last 7 days, or Month to date. Today is the default, and each Ad Account's period follows its own Meta-configured timezone; a Client rollup may therefore combine accounts whose period boundaries differ. V1 does not compare the selected period with a previous period.
+_Avoid_: Date range (suggests arbitrary start/end dates), Comparison period
 
 ### Monitoring & Alerts
 
@@ -81,7 +105,7 @@ An Agency-defined spend cap set on a Client for a calendar month, covering total
 _Avoid_: Spend cap, Allocation, Limit
 
 **Budget Exhausted**:
-The system event that fires when a Client's actual spend across its Ad Accounts reaches its Budget for the current month. Resets with the Budget each month cycle. The only event type in the prototype.
+The system event that fires when a Client's actual spend across its Ad Accounts reaches its Budget for the current month. Resets with the Budget each month cycle. The only event type in the current scope.
 _Avoid_: Alert, Overspend
 
 **Notification**:
@@ -89,6 +113,10 @@ An email delivered to an Agency's Users when a system event (currently only Budg
 _Avoid_: Alert
 
 ### Freshness
+
+**Stale**:
+An Ad Account whose last successful Account Tier refresh is more than 10 minutes old or whose last successful Insights Tier refresh is more than 2 hours old — twice the target cadence of the respective tier. The Fleet Board summarizes each tier using the oldest successful refresh among currently visible Ad Accounts and marks stale or failed accounts individually.
+_Avoid_: Provisional (a freshly synced current-day KPI can still be Provisional)
 
 **Account Tier**:
 The faster of the Fleet Board's two refresh cadences (5 minutes): Account Health, money owed, and whether a Client's campaigns are running. Backed by cheap baseline Meta Ad Account reads, not Insights calls.
@@ -99,9 +127,9 @@ The slower of the Fleet Board's two refresh cadences (1 hour): Spend and KPIs. B
 _Avoid_: Performance tier
 
 **Provisional**:
-The state of an Insights Tier metric for the current day, while Meta's own attribution is still revising it. Distinct from staleness — a Provisional number can be freshly polled and still change. A prior day's metric is Final once it ages out of the Reconciliation Window.
+The state of an Insights Tier metric whose Time Range includes any day inside the Reconciliation Window, while Meta may still revise it. Distinct from staleness — a Provisional number can be freshly polled and still change. A day becomes Final only after it ages out of the Reconciliation Window; an aggregate is Provisional when any included day is Provisional.
 _Avoid_: Stale, pending (staleness is about the age of Adomata's copy; Provisional is about whether Meta itself has finished computing the number)
 
 **Reconciliation Window**:
-The trailing span of prior days that the Insights Tier keeps re-polling and overwriting even though those days already look Final, sized to match whatever attribution window the KPIs use ([issue #14](https://github.com/todorone/adomata/issues/14)). Exists because Meta itself documents that a settled day's number can still move — an advertiser editing an ad set's attribution setting, or a platform-wide attribution change — not just ordinary same-day revision. A day older than the window is stored as-is and never re-checked again; that residual drift risk is accepted, not engineered around, for this scope.
+The current day plus the 28 complete prior days that the Insights Tier keeps re-polling and overwriting while they remain Provisional. Exists because Meta documents that Insights may change for 28 days after being reported, and because an advertiser editing an ad set's attribution setting or a platform-wide attribution change can also move historical results. A day older than the window is stored as-is and never re-checked again; that residual drift risk is accepted, not engineered around, for this scope.
 _Avoid_: —

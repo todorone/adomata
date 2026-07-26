@@ -1,0 +1,3 @@
+# Creative presentation is native to each Fleet Board view
+
+All three complete Fleet Board views expose identical Creative content and whole-Ad attribution rules, but each uses its native detail surface: a full-width inline block beneath the Ad row in Tree, a dedicated selected-Ad panel in Control Room, and expanded card detail in Signals. This supersedes [ADR 0022](0022-creative-surface-is-an-inline-expansion-of-the-ad-row.md)'s single inline surface now that [ADR 0026](0026-fleet-board-ships-three-complete-views-for-evaluation.md) makes all three views first-class. Signals does not retain the prototype's four-preview truncation; functional parity requires access to the full hierarchy and every Creative.

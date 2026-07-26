@@ -16,9 +16,14 @@ ratio is undefined, not zero; showing `0%` would read as "this performed at zero
 happened. This gives ROAS one uniform blank rule instead of two (its existing "no conversion tracking"
 nullability, plus a separate zero-spend case).
 
+CPA is also blank when a row's spend-contributing descendants use different or unresolved result action
+types, with the UI explaining that the row contains mixed result types. Dividing total spend by unlike
+results such as purchases plus leads would produce a number with no stable meaning. An Ad or parent whose
+contributing descendants all resolve to the same canonical Meta action type computes CPA normally.
+
 ## Partial ROAS tracking
 
-A Client's ROAS sums `action_values` and `spend` across *all* of its child Ad Accounts, including ones
+A Client's ROAS sums `action_values` and `spend` across _all_ of its child Ad Accounts, including ones
 with no conversion tracking configured — an untracked account contributes `$0` to the numerator but its
 spend still counts toward the denominator. This was chosen over blanking the Client's ROAS entirely, or
 computing it only over tracked accounts with a coverage badge: both of those require the UI to explain a
@@ -33,29 +38,32 @@ Health Color and Health Reason ([ADR 0018](0018-account-health-is-color-plus-rea
 are Meta-reported per Ad Account, not a SQL sum — a Client's Health Color is the worst color among its
 child Ad Accounts, by strict severity order:
 
-| Severity | Color | Wins when |
-| --- | --- | --- |
-| 1 (worst) | **red** | any child is red |
-| 2 | **yellow** | no red child, any child is yellow |
-| 3 | **green** | no red or yellow child, at least one child is green |
-| 4 (best case for "no data") | **grey** | *every* child is grey — grey never outranks a real signal |
+| Severity                    | Color      | Wins when                                                 |
+| --------------------------- | ---------- | --------------------------------------------------------- |
+| 1 (worst)                   | **red**    | any child is red                                          |
+| 2                           | **yellow** | no red child, any child is yellow                         |
+| 3                           | **green**  | no red or yellow child, at least one child is green       |
+| 4 (best case for "no data") | **grey**   | _every_ child is grey — grey never outranks a real signal |
 
 A single grey child sitting among green siblings does not grey out the Client — an account Adomata can't
 currently read (pending or access-lost) is not evidence the Client needs attention, and the two
 common-case boards (all-green, and all-grey because nothing's connected yet) both need to read
 unambiguously.
 
-The Client's Health Reason is a count — "1 of 3 need attention" — of children whose color is neither green
-nor grey, not the worst child's Reason text copied up. A single child's disable_reason ("Disabled — payment
-risk") would misrepresent siblings with a different problem if three accounts are flagged for three
-different reasons; the count answers "how many need me" without claiming to explain all of them at once.
+The Client's Health Reason never copies one child's text onto its siblings. If any children are red, it
+counts only those red children as needing attention (for example, "1 of 3 need attention"). Yellow is a
+neutral postpay fact, not an attention state. When there are no red children but at least one is yellow,
+the Reason instead summarizes the postpay count; all-green and all-grey Clients use corresponding active
+and no-data summaries. This preserves the distinction between a Meta-reported problem and a permanent
+billing property.
 
 ## Running rollup
 
-A parent row (Ad Set, Campaign, Ad Account, or Client) shows as running if *any* child is running,
-recursively up the tree — the same any-child-wins shape as the health color rollup, not a stricter
-all-children-running rule. A director scanning for "is anything live under this Client" wants to know
-about partial activity, not just full activity.
+An Ad is Running when Meta reports `effective_status = ACTIVE`; this is an effective configuration state,
+not proof of current delivery. A parent row (Ad Set, Campaign, Ad Account, or Client) shows as Running if
+_any_ child is Running, recursively up the tree — the same any-child-wins shape as the health color
+rollup, not a stricter all-children-running rule. A director scanning for whether anything is active under
+a Client wants to know about partial activity, not just full activity.
 
 ## Collapse and filtering
 

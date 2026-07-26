@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0027
+---
+
 # The creative surface is an inline expansion of the Ad row, not a panel or a gallery
 
 [Issue #16](https://github.com/todorone/adomata/issues/16) prototyped three creative surfaces on top of
@@ -34,7 +38,7 @@ resolution returning a usable `source` for the authorized token — the research
 thumbnail the V1 contract, since a Graph Video `source` is not guaranteed by the AdCreative schema.
 
 **Media resolves server-side, and a broken asset never hides the Ad's numbers.** Meta documents Ad Image
-`url`/`url_128` as *temporary*, so the browser must not hold a long-lived hotlink. A "media unavailable"
+`url`/`url_128` as _temporary_, so the browser must not hold a long-lived hotlink. A "media unavailable"
 placeholder stands in for an expired or failed asset while the Ad's performance row renders unchanged.
 
 ## Rejected alternatives
@@ -47,8 +51,8 @@ placeholder stands in for an expired or failed asset while the Ad's performance 
   the previews as likely too small to judge creative quality — which is the entire reason the owner
   wants the surface.
 - **A creative gallery grouping the same Creative across Ads and accounts.** This is what
-  "which creative works" ultimately wants, and it is deliberately *not* built here: it is creative
-  *comparison*, which the map lists under Not-yet-specified, and it needs a cross-Ad creative identity
+  "which creative works" ultimately wants, and it is deliberately _not_ built here: it is creative
+  _comparison_, which the map lists under Not-yet-specified, and it needs a cross-Ad creative identity
   (image hash or `effective_object_story_id`) that nothing has yet decided to store as a first-class key.
 
 ## What this does not settle

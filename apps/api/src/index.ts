@@ -1,13 +1,17 @@
 import './core/telemetry'
+import { MetaClient } from './meta/client'
 import { parseMetaConfig, requireHeartbeatSecret } from './meta/config'
+import { configureHeartbeat } from './sync/runtime'
 
 const metaConfig = parseMetaConfig()
-requireHeartbeatSecret()
+const heartbeatSecret = requireHeartbeatSecret()
 
 if (metaConfig.mode === 'fake') {
-	const { fakeMetaServer } = await import('./meta/fake/server')
-	fakeMetaServer.listen({ onUnhandledRequest: 'bypass' })
+	const { fakeMetaServer, rejectUnhandledMetaRequest } = await import('./meta/fake/server')
+	fakeMetaServer.listen({ onUnhandledRequest: rejectUnhandledMetaRequest })
 }
+
+configureHeartbeat({ metaClient: new MetaClient({ accessToken: metaConfig.accessToken }), heartbeatSecret })
 
 const { app } = await import('./app')
 

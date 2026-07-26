@@ -8,7 +8,7 @@ import { API_URL, SUPERADMIN, signInOrSignUp } from './fixtures'
 test('unauthenticated visitors are redirected to the login page', async ({ page }) => {
 	await page.goto('/')
 	await expect(page).toHaveURL(/\/login$/)
-	await expect(page.getByRole('heading', { name: 'Sign in to your account' })).toBeVisible()
+	await expect(page.getByRole('heading', { name: 'Увійдіть у свій акаунт' })).toBeVisible()
 })
 
 test('a superadmin can authenticate against the API and list organizations', async ({ request }) => {

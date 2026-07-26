@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 
-import { requireHeartbeatSecret } from '../meta/config'
 import { runHeartbeat } from '../sync/account-tier'
+import { getHeartbeatDependencies } from '../sync/runtime'
 
 const route = createRoute({
 	method: 'post',
@@ -20,8 +20,8 @@ const route = createRoute({
 })
 
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
-	if (c.req.header('authorization') !== `Bearer ${requireHeartbeatSecret()}`)
-		return c.text('Несанкціонований доступ', 401)
-	const result = await runHeartbeat()
+	const { heartbeatSecret, metaClient } = getHeartbeatDependencies()
+	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
+	const result = await runHeartbeat({ metaClient })
 	return c.json({ ok: true as const, ...result }, 200)
 })

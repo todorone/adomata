@@ -7,11 +7,9 @@ import { adAccount, organization } from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
 import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
-import { runHeartbeat } from '../sync/account-tier'
+import { accountTierAdvisoryLock, runHeartbeat } from '../sync/account-tier'
 
 const fakeAccessToken = 'integration-test-token'
-const advisoryLock = 190019
-
 function clientWithAttemptCounter(attempts: { count: number }) {
 	return new MetaClient({
 		accessToken: fakeAccessToken,
@@ -93,7 +91,7 @@ describe('Account Tier heartbeat integration', () => {
 	it('does nothing when another Account Tier sync holds the advisory lock', async () => {
 		const attempts = { count: 0 }
 		const competingSql = new SQL({ url: process.env.DATABASE_URL })
-		await competingSql`select pg_advisory_lock(${advisoryLock})`
+		await competingSql`select pg_advisory_lock(${accountTierAdvisoryLock})`
 		try {
 			await expect(runHeartbeat({ metaClient: clientWithAttemptCounter(attempts) })).resolves.toEqual({
 				skipped: true,
@@ -101,7 +99,7 @@ describe('Account Tier heartbeat integration', () => {
 			})
 			expect(attempts.count).toBe(0)
 		} finally {
-			await competingSql`select pg_advisory_unlock(${advisoryLock})`
+			await competingSql`select pg_advisory_unlock(${accountTierAdvisoryLock})`
 			await competingSql.end()
 		}
 	})

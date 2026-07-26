@@ -2,22 +2,21 @@ import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 
 import { db } from '../db'
 import { adAccount } from '../db/schema'
-import { MetaApiError, MetaClient } from '../meta/client'
+import { MetaApiError } from '../meta/client'
+import type { MetaClient } from '../meta/client'
 
-const accountTierLock = 190019
+export const accountTierAdvisoryLock = 190019
 const refreshIntervalMilliseconds = 5 * 60 * 1000
 
 type RunHeartbeatOptions = {
-	metaClient?: MetaClient
+	metaClient: MetaClient
 	now?: Date
 }
 
-export async function runHeartbeat({ metaClient, now = new Date() }: RunHeartbeatOptions = {}) {
-	const client =
-		metaClient ?? new MetaClient({ accessToken: process.env.META_ACCESS_TOKEN?.trim() || 'fake-meta-access-token' })
+export async function runHeartbeat({ metaClient, now = new Date() }: RunHeartbeatOptions) {
 	return db.transaction(async transaction => {
 		const lockRows = await transaction.execute(
-			sql<{ locked: boolean }>`select pg_try_advisory_xact_lock(${accountTierLock}) as locked`,
+			sql<{ locked: boolean }>`select pg_try_advisory_xact_lock(${accountTierAdvisoryLock}) as locked`,
 		)
 		if (!lockRows[0]?.locked) return { skipped: true, processed: 0 }
 
@@ -36,7 +35,7 @@ export async function runHeartbeat({ metaClient, now = new Date() }: RunHeartbea
 
 		for (const account of dueAccounts) {
 			try {
-				const health = await client.getAccount(account.id)
+				const health = await metaClient.getAccount(account.id)
 				await transaction
 					.update(adAccount)
 					.set({

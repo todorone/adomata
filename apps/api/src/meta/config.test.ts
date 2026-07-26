@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseMetaConfig } from './config'
+import { parseMetaConfig, requireHeartbeatSecret } from './config'
 
 describe('parseMetaConfig', () => {
 	it('requires a declared fake or live mode', () => {
@@ -26,5 +26,11 @@ describe('parseMetaConfig', () => {
 			mode: 'live',
 			accessToken: 'live-token',
 		})
+	})
+
+	it('requires a non-blank heartbeat secret in every mode', () => {
+		expect(() => requireHeartbeatSecret({})).toThrow('HEARTBEAT_SECRET must be set')
+		expect(() => requireHeartbeatSecret({ HEARTBEAT_SECRET: '  ' })).toThrow('HEARTBEAT_SECRET must be set')
+		expect(requireHeartbeatSecret({ HEARTBEAT_SECRET: ' secret ' })).toBe('secret')
 	})
 })

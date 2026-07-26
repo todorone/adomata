@@ -8,6 +8,13 @@
       "when": 1784953576242,
       "tag": "0000_equal_nemesis",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785002044182,
+      "tag": "0001_flashy_raider",
+      "breakpoints": true
     }
   ]
 }

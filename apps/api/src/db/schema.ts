@@ -1,4 +1,15 @@
-import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import {
+	boolean,
+	date,
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	uniqueIndex,
+} from 'drizzle-orm/pg-core'
 
 // Better Auth: core user accounts
 export const users = pgTable(
@@ -133,3 +144,174 @@ export const invitation = pgTable(
 
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
+
+// Fleet Board: Adomata-owned end-brand, scoped under an Agency (see CONTEXT.md — Client)
+export const client = pgTable(
+	'client',
+	{
+		id: text().primaryKey(),
+		agencyId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		name: text().notNull(),
+		deletedAt: timestamp({ withTimezone: true }),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('client_agency_id_idx').on(table.agencyId)],
+)
+
+export type Client = typeof client.$inferSelect
+export type NewClient = typeof client.$inferInsert
+
+// Fleet Board: a Meta Ad Account, scoped to exactly one Client (ADR 0006). PK is Meta's own
+// account id (ADR 0009). connectionStatus/healthColor are Adomata's own derived state, distinct
+// from the raw Meta health fields alongside them (see CONTEXT.md — Ad Account, Account Health).
+export const adAccount = pgTable(
+	'ad_account',
+	{
+		id: text().primaryKey(),
+		clientId: text()
+			.notNull()
+			.references(() => client.id, { onDelete: 'cascade' }),
+		name: text().notNull(),
+		currency: text().notNull(),
+		connectionStatus: text({ enum: ['pending', 'connected', 'access_lost'] })
+			.notNull()
+			.default('pending'),
+		// Set on any failed poll; does not by itself change connectionStatus — only a real
+		// auth/permission failure does. Distinguishes a rate-limit/5xx hiccup from access loss.
+		lastPollAttemptAt: timestamp({ withTimezone: true }),
+		lastPollError: text(),
+		accountTierRefreshedAt: timestamp({ withTimezone: true }),
+		insightsTierRefreshedAt: timestamp({ withTimezone: true }),
+		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
+		metaAccountStatus: integer(),
+		metaDisableReason: integer(),
+		balance: text(),
+		isPrepayAccount: boolean(),
+		fundingSourceType: integer(),
+		// Adomata's own derived traffic light, recomputed from the raw fields above on every poll
+		healthColor: text({ enum: ['green', 'yellow', 'red'] }),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('ad_account_client_id_idx').on(table.clientId)],
+)
+
+export type AdAccount = typeof adAccount.$inferSelect
+export type NewAdAccount = typeof adAccount.$inferInsert
+
+// Fleet Board: Meta's own Campaign, vendor-mirrored (see CONTEXT.md — Campaign / Ad Set / Ad).
+// PK is Meta's own campaign id (ADR 0009). deletedAt is set, never cleared, when a sync no
+// longer sees this object (ADR 0011) — rows are never hard-deleted.
+export const campaign = pgTable(
+	'campaign',
+	{
+		id: text().primaryKey(),
+		adAccountId: text()
+			.notNull()
+			.references(() => adAccount.id, { onDelete: 'cascade' }),
+		name: text().notNull(),
+		effectiveStatus: text().notNull(),
+		objective: text(),
+		deletedAt: timestamp({ withTimezone: true }),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('campaign_ad_account_id_idx').on(table.adAccountId)],
+)
+
+export type Campaign = typeof campaign.$inferSelect
+export type NewCampaign = typeof campaign.$inferInsert
+
+// Fleet Board: Meta's own Ad Set, vendor-mirrored. PK is Meta's own ad set id (ADR 0009).
+// optimizationGoal drives which action_type an ad's CPA/ROAS is computed against (ADR 0010).
+export const adSet = pgTable(
+	'ad_set',
+	{
+		id: text().primaryKey(),
+		campaignId: text()
+			.notNull()
+			.references(() => campaign.id, { onDelete: 'cascade' }),
+		name: text().notNull(),
+		effectiveStatus: text().notNull(),
+		optimizationGoal: text(),
+		deletedAt: timestamp({ withTimezone: true }),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('ad_set_campaign_id_idx').on(table.campaignId)],
+)
+
+export type AdSet = typeof adSet.$inferSelect
+export type NewAdSet = typeof adSet.$inferInsert
+
+// Fleet Board: Meta's own Ad, vendor-mirrored. PK is Meta's own ad id (ADR 0009). The tree
+// stops here — Creative is this row's property, not a fifth level (ADR 0007).
+export const ad = pgTable(
+	'ad',
+	{
+		id: text().primaryKey(),
+		adSetId: text()
+			.notNull()
+			.references(() => adSet.id, { onDelete: 'cascade' }),
+		name: text().notNull(),
+		effectiveStatus: text().notNull(),
+		deletedAt: timestamp({ withTimezone: true }),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('ad_ad_set_id_idx').on(table.adSetId)],
+)
+
+export type Ad = typeof ad.$inferSelect
+export type NewAd = typeof ad.$inferInsert
+
+// Fleet Board: an Ad's Creative, 1:1 (see CONTEXT.md — Creative; ADR 0007). PK is Meta's own
+// creative id (ADR 0009). payload holds the format-specific content (single image, carousel
+// child_attachments, Advantage+ asset_feed_spec) — too variable in shape to normalize into columns.
+export const adCreative = pgTable(
+	'ad_creative',
+	{
+		id: text().primaryKey(),
+		adId: text()
+			.notNull()
+			.references(() => ad.id, { onDelete: 'cascade' }),
+		name: text(),
+		payload: jsonb().notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [uniqueIndex('ad_creative_ad_id_idx').on(table.adId)],
+)
+
+export type AdCreative = typeof adCreative.$inferSelect
+export type NewAdCreative = typeof adCreative.$inferInsert
+
+// Fleet Board: one Ad's Insights for one day — the only grain Insights are stored at (ADR 0010).
+// Campaign/Ad Set/Ad Account/Client numbers are always a computed rollup over these rows, never
+// a separate Meta call. actions/actionValues keep Meta's raw arrays so CPA/ROAS can pick the right
+// action_type per campaign at read time, rather than baking in one fixed type at ingestion.
+// Today's row is Provisional; older rows are Final once they age out of the Reconciliation Window
+// (see CONTEXT.md — Provisional, Reconciliation Window) — both are derived from `date`, not stored.
+export const adInsight = pgTable(
+	'ad_insight',
+	{
+		adId: text()
+			.notNull()
+			.references(() => ad.id, { onDelete: 'cascade' }),
+		date: date().notNull(),
+		spend: text().notNull(),
+		impressions: integer().notNull(),
+		clicks: integer().notNull(),
+		actions: jsonb().notNull(),
+		actionValues: jsonb().notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [primaryKey({ columns: [table.adId, table.date] })],
+)
+
+export type AdInsight = typeof adInsight.$inferSelect
+export type NewAdInsight = typeof adInsight.$inferInsert

@@ -13,6 +13,9 @@ services:
          BUN_ENV: production
          PORT: '3000'
          DATABASE_URL: 'postgres://${POSTGRES_USER:-adomata}:${POSTGRES_PASSWORD:-adomata}@db:5432/${POSTGRES_DB:-adomata}'
+         META_API_MODE: '${META_API_MODE}'
+         META_ACCESS_TOKEN: '${META_ACCESS_TOKEN}'
+         HEARTBEAT_SECRET: '${HEARTBEAT_SECRET}'
       depends_on:
          db:
             condition: service_healthy

@@ -16,6 +16,8 @@
 		"start": "bun src/index.ts",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "bun src/db/migrate.ts",
+		"seed:fake-meta": "bun src/meta/fake/seed.ts",
+		"test:integration": "bun test src/__tests__/account-tier.integration.test.ts",
 		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
 		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check",
 		"ts": "tsc",
@@ -44,6 +46,7 @@
 	},
 	"devDependencies": {
 		"@types/bun": "1.3.14",
-		"drizzle-kit": "0.31.10"
+		"drizzle-kit": "0.31.10",
+		"msw": "2.15.0"
 	}
 }

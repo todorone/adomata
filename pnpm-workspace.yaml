@@ -9,6 +9,7 @@ saveExact: true
 autoInstallPeers: true
 allowBuilds:
   esbuild: true
+  msw: true
   protobufjs: true
   sharp: true
   workerd: true

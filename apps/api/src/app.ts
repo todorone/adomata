@@ -9,6 +9,7 @@ import { authRoutes } from './routes/auth'
 import { healthRoutes } from './routes/health'
 import { invitationRoutes } from './routes/invitation'
 import { meRoutes } from './routes/me'
+import { heartbeatRoutes } from './routes/heartbeat'
 import { apiError } from './logic/apiError'
 import { logger } from './core/logger'
 
@@ -61,4 +62,5 @@ const withAuthRoutes = withHealthRoutes.route('/auth', authRoutes)
 const withMeRoutes = withAuthRoutes.route('/me', meRoutes)
 const withAdminRoutes = withMeRoutes.route('/admin', adminRoutes)
 const withInvitationRoutes = withAdminRoutes.route('/invitation', invitationRoutes)
-export const app = withInvitationRoutes.get('/', c => c.text('🟢 api works'))
+const withHeartbeatRoutes = withInvitationRoutes.route('/heartbeat', heartbeatRoutes)
+export const app = withHeartbeatRoutes.get('/', c => c.text('🟢 api works'))

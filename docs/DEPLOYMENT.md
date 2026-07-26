@@ -103,7 +103,9 @@ Cloudflare Email Service credentials (`CLOUDFLARE_ACCOUNT_ID`,
 and the `OTEL_*` exporter vars (`OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`) pointing at the external
 OpenObserve instance at `https://telemetry.fedir.net` — see `apps/api/.env.example`
-for the full list. Unlike FrontPeek, Adomata has no `R2_*` or `VAPID_*` vars —
+for the full list. Meta production uses `META_API_MODE=live`, a non-blank
+`META_ACCESS_TOKEN`, and `HEARTBEAT_SECRET`; the API refuses to start without
+them. Unlike FrontPeek, Adomata has no `R2_*` or `VAPID_*` vars —
 there's no File/Avatar/Push domain yet. To read the live env on the box:
 `docker exec <api-container> env`.
 

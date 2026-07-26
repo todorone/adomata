@@ -43,6 +43,7 @@ export function clearCachedSession() {
 	queryClient.removeQueries({ queryKey: sessionKeys.current })
 }
 
-export function refreshCachedSession() {
-	return queryClient.invalidateQueries({ queryKey: sessionKeys.current })
+export async function refreshCachedSession() {
+	await queryClient.invalidateQueries({ queryKey: sessionKeys.current, refetchType: 'none' })
+	return queryClient.fetchQuery(sessionQueries.current())
 }

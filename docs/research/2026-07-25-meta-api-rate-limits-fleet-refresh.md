@@ -15,7 +15,10 @@ the [Open questions](#open-questions--unconfirmed-numbers) section instead of be
   expansion / pagination) for the campaign→ad-set→ad structure, plus one paginated `GET .../insights`
   call per KPI "level" needed (e.g. one call with `level=ad` returns a row for *every* ad in the account
   in one paginated response — not one call per ad). 150 accounts × ~3–5 calls ≈ 450–750 calls per full
-  refresh cycle.
+  refresh cycle. **Caveat**: the "one call returns every row at that level" mechanic is well-evidenced
+  from Meta's docs (see [Q3](#3-batch-requests-ids-multi-object-reads-and-field-expansion)) but not
+  stated verbatim in one primary sentence — worth a quick empirical check against a real account before
+  treating this arithmetic as final.
 - **Minimum viable refresh interval: cannot be pinned to a hard published number.** The per-ad-account
   Business Use Case (BUC) quotas are generous enough (tens of thousands to hundreds of thousands of
   "points" per hour per account, see [Q2](#2-does-the-limit-scale-with-spend-tier)/[Q5](#5-practical-arithmetic-for-a-150-account-fleet))
@@ -156,11 +159,24 @@ separate "spend-tier multiplier" Meta publishes; treat any claim of one as uncon
   campaign→ad-set→ad chain should be validated empirically per edge rather than assumed to fully nest.
   ([Graph API: Field Expansion](https://developers.facebook.com/docs/graph-api/guides/field-expansion/))
 - **The real collapsing mechanism for KPI reads is not field expansion — it's the Insights `level`
-  parameter.** `GET /act_<AD_ACCOUNT_ID>/insights?level=ad` returns **one row per ad for every ad in the
-  account**, paginated, in a single call — confirmed on the ad-account insights reference page. The same
-  applies to `level=campaign` and `level=adset`. This means KPI data for an entire account's ad tree can
-  be fetched in one paginated call per level, regardless of how many campaigns/ad sets/ads exist.
+  parameter.** The ad-account insights reference page documents `level` as one of `ad`, `adset`,
+  `campaign`, `account` ("Represents the level of result") but does not spell out response-shape
+  semantics in prose on that page.
   ([Ad Account insights reference](https://developers.facebook.com/docs/marketing-api/reference/ad-account/insights/))
+  The Insights parameters doc is more explicit: `level` **"allows you to aggregate results at a defined
+  object level"** and **"this automatically deduplicates data"** — e.g. querying a campaign's insights
+  with `level=ad` returns the ad-level breakdown for that campaign.
+  ([Insights parameters](https://developers.facebook.com/docs/marketing-api/insights/parameters/v9.0))
+  Combined with the general Insights guide's own example (a `gender` breakdown returns 3 rows, one per
+  breakdown value, in a single paginated `data` array —
+  [Insights API](https://developers.facebook.com/docs/marketing-api/insights/)), the documented mechanic
+  is: `GET /act_<AD_ACCOUNT_ID>/insights?level=ad` returns one row per ad across the account in a
+  single paginated response, not one call per ad. This is also universal, load-bearing behavior in every
+  Meta SDK and code sample that iterates ad-level insights, but **no single primary page states the
+  "one row per ad, account-wide, in one paginated call" sentence verbatim** — treat this specific framing
+  as strongly-evidenced-by-documented-mechanics rather than a directly quotable primary-source sentence,
+  and validate empirically against Adomata's own accounts before hard-coding call-count assumptions on it.
+  The same aggregation applies to `level=campaign` and `level=adset`.
 - Pagination itself: Meta documents `limit` as "the maximum number of objects that *may* be returned"
   but does not give a universal default or maximum — "some edges may also have a maximum on the `limit`
   value for performance reasons," varying by endpoint (unconfirmed as a single number; see
@@ -264,6 +280,14 @@ there is no push mechanism that would reduce the refresh-loop call volume comput
 
 These could not be pinned to an unambiguous primary-doc statement and should not be treated as settled:
 
+- **"`level=ad` returns one row per ad, account-wide, in a single paginated call" is inferred, not a
+  verbatim primary-doc sentence.** It follows from combining the Insights parameters doc's description of
+  `level` as aggregating/deduplicating results at an object level, the general Insights guide's breakdown
+  example (one row per breakdown value in one paginated response), and universal SDK/code-sample usage —
+  but no single fetched Meta page states this exact row-per-object-account-wide behavior in one sentence.
+  Since this drives the entire "2–5 calls per account" arithmetic in [Q5](#5-practical-arithmetic-for-a-150-account-fleet),
+  validate it empirically against a real Adomata-connected ad account before treating the call-count
+  estimate as load-bearing for capacity planning.
 - **No numeric ceiling for the "Ads Insights Platform" backend-capacity throttle** (`backend_qps`,
   `complexity_score`). Meta describes the *existence* and *contributing factors* of this throttle but
   publishes no formula or threshold — this is the single biggest reason the "minimum viable refresh

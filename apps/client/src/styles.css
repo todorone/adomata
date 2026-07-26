@@ -240,6 +240,280 @@ pre code {
   color: #e8efff;
 }
 
+/* Issue #13 throwaway board prototype. Delete with the route after the interaction model is chosen. */
+.prototype-page-shell {
+  width: min(1480px, calc(100% - 1rem));
+  margin: 0 auto;
+  padding: 0.5rem 0 5rem;
+}
+
+.prototype-metric-chip,
+.prototype-depth-button,
+.prototype-filter-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.5rem 0.75rem;
+  color: var(--sea-ink-soft);
+  font-size: 0.75rem;
+  font-weight: 800;
+  transition: 120ms ease;
+}
+
+.prototype-metric-chip:hover,
+.prototype-depth-button:hover,
+.prototype-filter-button:hover {
+  border-color: var(--lagoon);
+  color: var(--sea-ink);
+}
+
+.prototype-metric-chip-active,
+.prototype-depth-button-active,
+.prototype-filter-button-active {
+  border-color: var(--sea-ink);
+  background: var(--sea-ink);
+  color: white;
+}
+
+.prototype-depth-button {
+  border: 0;
+  border-radius: 0.85rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.prototype-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.5rem 0.75rem;
+  color: var(--sea-ink-soft);
+  font-size: 0.8rem;
+}
+
+.prototype-input-wrap input {
+  width: 9rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--sea-ink);
+}
+
+.prototype-input-wrap input::placeholder {
+  color: var(--sea-ink-soft);
+}
+
+.prototype-health-dot {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 14%, transparent);
+}
+
+.prototype-health-green { color: #2f8b5d; }
+.prototype-health-yellow { color: #b18119; }
+.prototype-health-red { color: #c84e44; }
+
+.prototype-tree-head,
+.prototype-tree-row {
+  display: grid;
+  grid-template-columns: minmax(270px, 1.8fr) minmax(110px, 0.7fr) repeat(4, minmax(90px, 0.55fr));
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.prototype-tree-head {
+  border-bottom: 1px solid var(--line);
+  background: rgba(231, 240, 232, 0.52);
+  padding: 0.85rem 1rem;
+  color: var(--sea-ink-soft);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prototype-tree-row {
+  min-height: 3.25rem;
+  border-bottom: 1px solid rgba(23, 58, 64, 0.08);
+  padding: 0.5rem 1rem 0.5rem 0;
+}
+
+.prototype-tree-row:hover {
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.prototype-level-mark {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: 0 0 auto;
+  border-radius: 0.15rem;
+  background: var(--sea-ink-soft);
+}
+
+.prototype-level-mark.level-0 { background: var(--palm); }
+.prototype-level-mark.level-1 { background: var(--lagoon); }
+.prototype-level-mark.level-2 { background: #d7a63d; }
+.prototype-level-mark.level-3 { background: #c58282; }
+
+.prototype-status-pill {
+  border-radius: 999px;
+  background: var(--sand);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--sea-ink-soft);
+}
+
+.prototype-control-room {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.37fr) minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1.75rem;
+  background: var(--surface);
+  box-shadow: 0 22px 44px rgba(30, 90, 72, 0.1);
+}
+
+.prototype-account-rail {
+  max-height: 66rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: rgba(231, 240, 232, 0.52);
+  padding: 1.25rem;
+}
+
+.prototype-account-list-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.9rem;
+  padding: 0.7rem 0.6rem;
+  color: var(--sea-ink);
+  transition: 120ms ease;
+}
+
+.prototype-account-list-row:hover,
+.prototype-account-list-row-active {
+  background: white;
+  box-shadow: 0 4px 14px rgba(23, 58, 64, 0.08);
+}
+
+.prototype-room-main {
+  min-width: 0;
+  padding: 1.5rem;
+}
+
+.prototype-room-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-radius: 1rem;
+  background: rgba(231, 240, 232, 0.58);
+  padding: 0.85rem 1rem;
+}
+
+.prototype-room-stat span {
+  color: var(--sea-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.prototype-room-stat strong {
+  color: var(--sea-ink);
+  font-size: 1.25rem;
+}
+
+.prototype-signal-lane {
+  min-width: 0;
+  border: 1px solid color-mix(in oklab, currentColor 18%, var(--line));
+  border-radius: 1.5rem;
+  background: color-mix(in oklab, currentColor 5%, var(--surface));
+  padding: 1rem;
+}
+
+.prototype-signal-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid color-mix(in oklab, currentColor 55%, transparent);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.85rem;
+  transition: 120ms ease;
+}
+
+.prototype-signal-card:hover,
+.prototype-signal-card-open {
+  background: white;
+  box-shadow: 0 7px 18px rgba(23, 58, 64, 0.1);
+}
+
+.prototype-signal-number {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border-radius: 0.65rem;
+  background: var(--sand);
+  color: var(--sea-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.prototype-switcher {
+  position: fixed;
+  z-index: 30;
+  right: 50%;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  transform: translateX(50%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: #173a40;
+  padding: 0.3rem;
+  color: white;
+  box-shadow: 0 14px 35px rgba(23, 58, 64, 0.28);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.prototype-switcher button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  color: white;
+}
+
+.prototype-switcher button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.prototype-switcher span {
+  min-width: 7.6rem;
+  padding: 0 0.25rem;
+  text-align: center;
+}
+
+@media (max-width: 800px) {
+  .prototype-control-room {
+    grid-template-columns: 1fr;
+  }
+
+  .prototype-account-rail {
+    max-height: 23rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
 .page-wrap {
   width: min(1080px, calc(100% - 2rem));
   margin-inline: auto;

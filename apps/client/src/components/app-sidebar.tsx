@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Building2, LayoutDashboard, Users, UsersRound } from 'lucide-react'
+import { Building2, LayoutDashboard, Sparkles, Users, UsersRound } from 'lucide-react'
 
 import { NavMain } from '@/components/nav-main'
 import { NavUser } from '@/components/nav-user'
@@ -21,6 +21,19 @@ const navMain = [
 		url: '/users/invites',
 		icon: Users,
 		items: [{ title: 'Запрошення', url: '/users/invites' }],
+	},
+]
+
+const prototypeNav = [
+	{
+		title: 'Прототип №13 · Флотська дошка',
+		url: '/prototype/fleet-board',
+		icon: LayoutDashboard,
+	},
+	{
+		title: 'Прототип №16 · Перегляд креативів',
+		url: '/prototype/fleet-board',
+		icon: Sparkles,
 	},
 ]
 
@@ -61,6 +74,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			)}
 			<SidebarContent>
 				<NavMain items={navMain} />
+				<NavMain items={prototypeNav} />
 				{isSuperadmin && <NavMain items={superadminNav} />}
 			</SidebarContent>
 			<SidebarFooter>

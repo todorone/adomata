@@ -66,6 +66,10 @@ _Avoid_: Cost per acquisition, CPL
 Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API). Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error.
 _Avoid_: —
 
+**Metric Selection**:
+The subset of the fixed KPI list a Fleet Board view currently shows as columns, chosen from all six but never expanded beyond them. Held entirely in the URL as a search param — not stored against a User or Agency — so it's per view, not per person: two people can hold different links to the same board showing different columns. A view with no selection param shows the default (Spend, ROAS). Column order and width are fixed to the KPI list's order above, not part of the selection. See [ADR 0020](docs/adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md).
+_Avoid_: Metric toggle, Column selection (implementation-level phrasing, not the concept)
+
 ### Monitoring & Alerts
 
 **Budget**:

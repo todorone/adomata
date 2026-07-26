@@ -33,7 +33,6 @@ base.use(
 		credentials: true,
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 		allowHeaders: ['Content-Type', 'Authorization', 'x-skip-oauth-proxy'],
-		exposeHeaders: ['set-auth-token'],
 		maxAge: 600,
 	}),
 )

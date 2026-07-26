@@ -33,9 +33,6 @@ base.use(
 		credentials: true,
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 		allowHeaders: ['Content-Type', 'Authorization', 'x-skip-oauth-proxy'],
-		// The client authenticates with a bearer token read from this response
-		// header (better-auth's `bearer()` plugin). Cross-origin fetch hides
-		// non-safelisted response headers from JS unless explicitly exposed.
 		exposeHeaders: ['set-auth-token'],
 		maxAge: 600,
 	}),

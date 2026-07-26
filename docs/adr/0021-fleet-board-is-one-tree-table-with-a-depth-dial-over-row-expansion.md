@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0026
+---
+
 # The Fleet Board is one comparison tree table: a global depth dial sets breadth, row expansion adds local depth
 
 [Issue #13](https://github.com/todorone/adomata/issues/13) put three genuinely different interaction
@@ -18,11 +22,11 @@ is never replaced by a drill-down view.
 Two controls, with one rule governing how they interact:
 
 - **View Depth** is a global dial with four positions — Ad Account, Campaign, Ad Set, Ad. It sets how
-  deep *every* row is opened at once. This is the owner's "expand the depth of view."
+  deep _every_ row is opened at once. This is the owner's "expand the depth of view."
 - **Row expansion** is per-row and additive. Clicking any row opens its children regardless of where the
   dial sits. This is the owner's "click a campaign and see its ad sets."
 
-**The rule: a row is open if the depth dial reaches its level *or* it has been individually expanded.**
+**The rule: a row is open if the depth dial reaches its level _or_ it has been individually expanded.**
 Never the reverse — raising the dial never collapses a row the user opened by hand, and lowering the
 dial back does not discard individual expansions. The prototype implements exactly this
 (`const campaignOpen = depth > 1 || expanded.has(campaign.id)`), and it is what makes the two controls
@@ -65,6 +69,6 @@ Consequences that follow and are not separately negotiable:
 
 ## What this does not settle
 
-Whether the board's *default* View Depth is Ad Account (the owner's literal "brief view") or Campaign.
+Whether the board's _default_ View Depth is Ad Account (the owner's literal "brief view") or Campaign.
 The prototype defaults to Ad Account and that is what the spec describes, but the owner never chose, and
 it is a one-line change with no downstream dependency. Not tracked as an ADR-level open question.

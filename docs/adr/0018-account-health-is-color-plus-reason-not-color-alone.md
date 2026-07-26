@@ -8,10 +8,11 @@ signals are permanent properties of an account rather than transient problems �
 would force a choice between a meaningless color (every healthy postpay agency's whole board pinned to
 one hue, forever) or an ever-growing color set, one per nuance.
 
-Decided: every Ad Account always shows **Health Color** (a small closed set) *and* **Health Reason** (an
-always-visible short text). Color answers "does this need me?"; reason answers "why?". This lets color
-stay coarse and stable while reason carries the specifics, including for properties (like postpay) that
-are permanent rather than problems.
+Decided: every Ad Account always shows **Health Color** (a small closed set) _and_ **Health Reason** (an
+always-visible short text). Color answers "what kind of state is this?"; reason answers "why?". Red needs
+attention, while yellow is a neutral postpay fact. This lets color stay coarse and stable while reason
+carries the specifics, including properties that are permanent rather than problems. Operational Needs
+Attention additionally includes a lost Meta connection, whose Account Health is grey/unknown.
 
 See [CONTEXT.md — Health Color / Health Reason](../../CONTEXT.md#tenancy) for the term definitions.
 
@@ -20,14 +21,14 @@ See [CONTEXT.md — Health Color / Health Reason](../../CONTEXT.md#tenancy) for 
 Evaluated top to bottom; first match wins. Inputs are the Ad Account's `connectionStatus` (Adomata's
 own) and, from Meta's Account Tier poll, `account_status`, `disable_reason`, and `is_prepay_account`.
 
-| # | Condition | Color | Reason |
-| - | --- | --- | --- |
-| 1 | `connectionStatus = pending` (no successful poll yet) | **grey** | "Awaiting first sync" |
-| 2 | `connectionStatus = access_lost` | **grey** | "Meta connection lost" |
-| 3 | `account_status ≠ ACTIVE`, `disable_reason` present | **red** | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`) |
-| 4 | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent) | **red** | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
-| 5 | `account_status = ACTIVE`, `is_prepay_account = false` | **yellow** | "Postpay account — billed after spend" |
-| 6 | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green** | "Active" |
+| #   | Condition                                                           | Color      | Reason                                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `connectionStatus = pending` (no successful poll yet)               | **grey**   | "Awaiting first sync"                                                                                                                                                                                                                                                     |
+| 2   | `connectionStatus = access_lost`                                    | **grey**   | "Meta connection lost"                                                                                                                                                                                                                                                    |
+| 3   | `account_status ≠ ACTIVE`, `disable_reason` present                 | **red**    | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`)                                                                         |
+| 4   | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent)      | **red**    | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
+| 5   | `account_status = ACTIVE`, `is_prepay_account = false`              | **yellow** | "Postpay account — billed after spend"                                                                                                                                                                                                                                    |
+| 6   | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green**  | "Active"                                                                                                                                                                                                                                                                  |
 
 Notes on the inputs:
 
@@ -36,7 +37,7 @@ Notes on the inputs:
 - `CLOSED`/`PENDING_CLOSURE` are shown red (row 4), not filtered off the board. Adomata can't tell an
   advertiser-initiated wind-down from a Meta-initiated one from this field alone, and silently dropping
   the row risks a director never noticing a client relationship ended without their say-so. Whether to
-  eventually stop *syncing* a closed account is a separate, later decision.
+  eventually stop _syncing_ a closed account is a separate, later decision.
 - `balance` (amount owed) never drives color — a postpay account normally carries a balance mid-cycle,
   so `balance > 0` alone doesn't mean trouble. It's always displayed as its own informational field,
   regardless of color, per the owner's brief-view request.

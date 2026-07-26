@@ -1,0 +1,3 @@
+# Fleet Board Time Ranges follow each Ad Account's timezone
+
+Today, Last 7 days, and Month to date are evaluated in each Ad Account's Meta-configured timezone, and a Client rollup may therefore combine accounts whose period boundaries differ. Meta returns daily Insights in the Ad Account's timezone; normalizing those rows to an Agency or browser timezone would require a finer storage grain and would otherwise be an approximation. Adomata stores the account's `timezone_name`, explains the boundary in the UI, and flags Client rollups containing multiple timezones rather than hiding the mismatch.

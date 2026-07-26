@@ -24,14 +24,6 @@ const navMain = [
 	},
 ]
 
-const prototypeNav = [
-	{
-		title: 'Прототип дашборду',
-		url: '/prototype/fleet-board',
-		icon: LayoutDashboard,
-	},
-]
-
 const superadminNav = [
 	{
 		title: 'Агенції',
@@ -69,7 +61,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			)}
 			<SidebarContent>
 				<NavMain items={navMain} />
-				<NavMain items={prototypeNav} />
 				{isSuperadmin && <NavMain items={superadminNav} />}
 			</SidebarContent>
 			<SidebarFooter>

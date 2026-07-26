@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as SuperRouteImport } from './routes/super'
-import { Route as PrototypeFleetBoardRouteImport } from './routes/prototype.fleet-board'
 import { Route as SuperAgenciesRouteImport } from './routes/super.agencies'
 import { Route as SuperUsersRouteImport } from './routes/super.users'
 import { Route as UsersInvitesRouteImport } from './routes/users.invites'
@@ -38,11 +37,6 @@ const SuperRoute = SuperRouteImport.update({
   path: '/super',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PrototypeFleetBoardRoute = PrototypeFleetBoardRouteImport.update({
-  id: '/prototype/fleet-board',
-  path: '/prototype/fleet-board',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SuperAgenciesRoute = SuperAgenciesRouteImport.update({
   id: '/agencies',
   path: '/agencies',
@@ -64,7 +58,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
-  '/prototype/fleet-board': typeof PrototypeFleetBoardRoute
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
@@ -74,7 +67,6 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
-  '/prototype/fleet-board': typeof PrototypeFleetBoardRoute
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
@@ -85,7 +77,6 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
-  '/prototype/fleet-board': typeof PrototypeFleetBoardRoute
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
@@ -97,7 +88,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/super'
-    | '/prototype/fleet-board'
     | '/super/agencies'
     | '/super/users'
     | '/users/invites'
@@ -107,7 +97,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/super'
-    | '/prototype/fleet-board'
     | '/super/agencies'
     | '/super/users'
     | '/users/invites'
@@ -117,7 +106,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/sign-up'
     | '/super'
-    | '/prototype/fleet-board'
     | '/super/agencies'
     | '/super/users'
     | '/users/invites'
@@ -128,7 +116,6 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SignUpRoute: typeof SignUpRoute
   SuperRoute: typeof SuperRouteWithChildren
-  PrototypeFleetBoardRoute: typeof PrototypeFleetBoardRoute
   UsersInvitesRoute: typeof UsersInvitesRoute
 }
 
@@ -160,13 +147,6 @@ declare module '@tanstack/react-router' {
       path: '/super'
       fullPath: '/super'
       preLoaderRoute: typeof SuperRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/prototype/fleet-board': {
-      id: '/prototype/fleet-board'
-      path: '/prototype/fleet-board'
-      fullPath: '/prototype/fleet-board'
-      preLoaderRoute: typeof PrototypeFleetBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/super/agencies': {
@@ -210,7 +190,6 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SignUpRoute: SignUpRoute,
   SuperRoute: SuperRouteWithChildren,
-  PrototypeFleetBoardRoute: PrototypeFleetBoardRoute,
   UsersInvitesRoute: UsersInvitesRoute,
 }
 export const routeTree = rootRouteImport

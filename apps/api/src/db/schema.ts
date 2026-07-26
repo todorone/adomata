@@ -176,6 +176,9 @@ export const adAccount = pgTable(
 			.references(() => client.id, { onDelete: 'cascade' }),
 		name: text().notNull(),
 		currency: text().notNull(),
+		// Meta's IANA timezone is nullable during the compatibility rollout. Account-local
+		// ranges fall back safely until every existing account has completed a new sync.
+		timezoneName: text(),
 		connectionStatus: text({ enum: ['pending', 'connected', 'access_lost'] })
 			.notNull()
 			.default('pending'),
@@ -183,6 +186,8 @@ export const adAccount = pgTable(
 		// auth/permission failure does. Distinguishes a rate-limit/5xx hiccup from access loss.
 		lastPollAttemptAt: timestamp({ withTimezone: true }),
 		lastPollError: text(),
+		insightsTierAttemptAt: timestamp({ withTimezone: true }),
+		insightsTierError: text(),
 		accountTierRefreshedAt: timestamp({ withTimezone: true }),
 		insightsTierRefreshedAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
@@ -237,6 +242,7 @@ export const adSet = pgTable(
 		name: text().notNull(),
 		effectiveStatus: text().notNull(),
 		optimizationGoal: text(),
+		resultActionType: text(),
 		deletedAt: timestamp({ withTimezone: true }),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -304,13 +310,18 @@ export const adInsight = pgTable(
 		date: date().notNull(),
 		spend: text().notNull(),
 		impressions: integer().notNull(),
+		inlineLinkClicks: integer().notNull().default(0),
+		// Retained only for a compatibility re-sync. Fleet Board reads inlineLinkClicks.
 		clicks: integer().notNull(),
 		actions: jsonb().notNull(),
 		actionValues: jsonb().notNull(),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},
-	table => [primaryKey({ columns: [table.adId, table.date] })],
+	table => [
+		primaryKey({ columns: [table.adId, table.date] }),
+		index('ad_insight_date_ad_id_idx').on(table.date, table.adId),
+	],
 )
 
 export type AdInsight = typeof adInsight.$inferSelect

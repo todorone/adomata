@@ -12,7 +12,10 @@ const { heartbeatRoutes } = await import('./heartbeat')
 describe('POST /heartbeat', () => {
 	beforeEach(() => {
 		sync.runHeartbeat.mockReset()
-		sync.runHeartbeat.mockResolvedValue({ skipped: false, processed: 2 })
+		sync.runHeartbeat.mockResolvedValue({
+			accountTier: { processed: 2, failed: 0, skipped: 0 },
+			insightsTier: { processed: 1, failed: 0, skipped: 0 },
+		})
 		configureHeartbeat({
 			metaClient: new MetaClient({ accessToken: 'test-token' }),
 			heartbeatSecret: 'heartbeat-secret',
@@ -34,7 +37,11 @@ describe('POST /heartbeat', () => {
 		})
 
 		expect(response.status).toBe(200)
-		expect(await response.json()).toEqual({ ok: true, skipped: false, processed: 2 })
+		expect(await response.json()).toEqual({
+			ok: true,
+			accountTier: { processed: 2, failed: 0, skipped: 0 },
+			insightsTier: { processed: 1, failed: 0, skipped: 0 },
+		})
 		expect(sync.runHeartbeat).toHaveBeenCalledOnce()
 	})
 })

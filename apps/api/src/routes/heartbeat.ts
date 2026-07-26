@@ -11,7 +11,11 @@ const route = createRoute({
 			description: 'Heartbeat completed',
 			content: {
 				'application/json': {
-					schema: z.object({ ok: z.literal(true), skipped: z.boolean(), processed: z.number() }),
+					schema: z.object({
+						ok: z.literal(true),
+						accountTier: z.object({ processed: z.number(), failed: z.number(), skipped: z.number() }),
+						insightsTier: z.object({ processed: z.number(), failed: z.number(), skipped: z.number() }),
+					}),
 				},
 			},
 		},

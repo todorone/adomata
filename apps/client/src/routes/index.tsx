@@ -1,18 +1,43 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { requireSession } from '@/data/session'
+import { FleetBoard } from '@/components/fleet-board'
+import { fleetBoardSearchSchema, metricsSearchValue } from '@/data/fleet-board-search'
 
 export const Route = createFileRoute('/')({
 	beforeLoad: () => requireSession(),
+	validateSearch: fleetBoardSearchSchema,
 	component: Home,
 })
 
 function Home() {
+	const search = Route.useSearch()
+	const navigate = useNavigate({ from: Route.fullPath })
 	return (
-		<div className="grid auto-rows-min gap-4 md:grid-cols-3">
-			<div className="aspect-video rounded-xl bg-muted/50" />
-			<div className="aspect-video rounded-xl bg-muted/50" />
-			<div className="aspect-video rounded-xl bg-muted/50" />
-			<div className="col-span-3 min-h-[50vh] rounded-xl bg-muted/50" />
-		</div>
+		<FleetBoard
+			key={`${search.range}:${search.search}:${search.needsAttention}:${search.clientId ?? ''}`}
+			search={search}
+			setSearch={changes =>
+				navigate({
+					search: previous => {
+						const next = { ...search, ...changes }
+						return {
+							...previous,
+							view: next.view,
+							range: next.range,
+							metrics: metricsSearchValue(next.metrics),
+							group: next.group,
+							depth: next.depth,
+							search: next.search || undefined,
+							needsAttention: next.needsAttention ? 'true' : undefined,
+							clientId: next.clientId,
+							sort: next.sort,
+							direction: next.direction,
+							account: next.account,
+							ad: next.ad,
+						}
+					},
+				})
+			}
+		/>
 	)
 }

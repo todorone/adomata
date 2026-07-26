@@ -10,6 +10,7 @@ import { healthRoutes } from './routes/health'
 import { invitationRoutes } from './routes/invitation'
 import { meRoutes } from './routes/me'
 import { heartbeatRoutes } from './routes/heartbeat'
+import { fleetBoardRoutes } from './routes/fleet-board'
 import { apiError } from './logic/apiError'
 import { logger } from './core/logger'
 
@@ -63,4 +64,5 @@ const withMeRoutes = withAuthRoutes.route('/me', meRoutes)
 const withAdminRoutes = withMeRoutes.route('/admin', adminRoutes)
 const withInvitationRoutes = withAdminRoutes.route('/invitation', invitationRoutes)
 const withHeartbeatRoutes = withInvitationRoutes.route('/heartbeat', heartbeatRoutes)
-export const app = withHeartbeatRoutes.get('/', c => c.text('🟢 api works'))
+const withFleetBoardRoutes = withHeartbeatRoutes.route('/fleet-board', fleetBoardRoutes)
+export const app = withFleetBoardRoutes.get('/', c => c.text('🟢 api works'))

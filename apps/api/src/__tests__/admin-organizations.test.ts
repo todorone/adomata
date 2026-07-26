@@ -179,33 +179,6 @@ describe('POST /admin/organizations', () => {
 		expect(authCalls.deleteWhere).toHaveBeenCalledOnce()
 	})
 
-	it('accepts the legacy first admin email field', async () => {
-		const { app } = await import('../app')
-
-		const res = await app.request('/admin/organizations', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'x-test-user-email': 'admin@example.com',
-			},
-			body: JSON.stringify({
-				orgName: 'Frontpeek',
-				orgSlug: 'frontpeek',
-				firstAdminEmail: 'owner@example.com',
-			}),
-		})
-
-		expect(res.status).toBe(201)
-		expect(authCalls.createInvitation).toHaveBeenCalledWith({
-			body: {
-				organizationId: 'org_1',
-				email: 'owner@example.com',
-				role: 'owner',
-			},
-			headers: expect.any(Headers),
-		})
-	})
-
 	it('keeps the superadmin as owner when they are the first owner', async () => {
 		const { app } = await import('../app')
 

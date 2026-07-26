@@ -9,7 +9,7 @@ import { sendInvitationEmail } from '../logic/email'
 import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
 import {
 	adminOrganizationsResponseSchema,
-	createAdminOrganizationRequestSchema,
+	createAdminOrganizationBodySchema,
 	createAdminOrganizationResponseSchema,
 } from '../client/admin/organizations'
 import { adminInvitationsResponseSchema } from '../client/admin/invitations'
@@ -40,7 +40,7 @@ adminHono.use('*', requireAuth)
 
 const withCreateOrganizationRoutes = adminHono.post(
 	'/organizations',
-	zValidator('json', createAdminOrganizationRequestSchema, (result, c) => {
+	zValidator('json', createAdminOrganizationBodySchema, (result, c) => {
 		if (!result.success)
 			return apiError(c, 'BAD_REQUEST', { message: 'Invalid request', details: result.error.issues })
 	}),

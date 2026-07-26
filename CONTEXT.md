@@ -26,7 +26,7 @@ Meta's own health signal for an Ad Account (`account_status`, `disable_reason`, 
 _Avoid_: Account status (ambiguous with connection status — always say which one)
 
 **Health Color / Health Reason**:
-The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering *why*. Health Color answers "does this need me?"; Health Reason answers "why?". This split exists because several of Meta's raw signals (e.g. postpay billing) are permanent properties of an account, not transient problems — cramming that nuance into color alone would either make the color meaningless (everyone's postpay, everyone's the same color) or require a color per nuance. Four colors: green, yellow, red — Meta told us something about this account — and **grey**, a categorically different case meaning Adomata has nothing to report (connection status is pending or access lost), never used for a Meta-reported problem. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md).
+The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering *why*. Health Color answers "does this need me?"; Health Reason answers "why?". This split exists because several of Meta's raw signals (e.g. postpay billing) are permanent properties of an account, not transient problems — cramming that nuance into color alone would either make the color meaningless (everyone's postpay, everyone's the same color) or require a color per nuance. Four colors: green, yellow, red — Meta told us something about this account — and **grey**, a categorically different case meaning Adomata has nothing to report (connection status is pending or access lost), never used for a Meta-reported problem. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md). A Client row rolls these up from its Ad Accounts — worst color wins, Reason becomes a count of children needing attention — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
 _Avoid_: Traffic light (as if it's color-only), Status (too vague — say Health Color or Health Reason)
 
 **Campaign / Ad Set / Ad**:
@@ -55,7 +55,7 @@ _Avoid_: —
 ### KPIs
 
 **KPI**:
-One of the fixed metrics Adomata tracks per Ad Account and rolls up per Client: Spend, Impressions, Clicks, CTR, CPA, ROAS.
+One of the fixed metrics Adomata tracks per Ad Account and rolls up per Client: Spend, Impressions, Clicks, CTR, CPA, ROAS. Spend, Impressions, and Clicks are summed at every tree level; CTR, CPA, and ROAS are always recomputed from those sums, never summed or averaged directly, and show blank when their denominator is zero — see [ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md).
 _Avoid_: Metric
 
 **CPA** (Cost per Action):

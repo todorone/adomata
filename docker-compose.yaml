@@ -4,8 +4,8 @@ services:
          context: .
          dockerfile: Dockerfile
       init: true
-      # Not published to the host: this VPS is shared with frontpeek, whose api
-      # service already binds host port 3000. Coolify's Traefik reaches this
+      # Not published to the host: this VPS is shared with other apps, one of
+      # which already binds host port 3000. Coolify's Traefik reaches this
       # container over the internal Docker network via its FQDN/labels, not the
       # host port mapping, so nothing public depends on this being published.
       environment:

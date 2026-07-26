@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 
-import { activateInvitedOrganization, canSignUpWithEmail, createAuth } from '../logic/auth'
+import { canSignUpWithEmail, createAuth } from '../logic/auth'
 import { apiError } from '../logic/apiError'
+import { acceptPendingInvitation } from '../logic/invitation'
 
 const signUpEmailSchema = z.object({
 	email: z.email(),
@@ -31,7 +32,7 @@ authRoutes.post('/sign-up/email', async c => {
 		const clone = response.clone()
 		const payload = (await clone.json().catch(() => null)) as { token?: string } | null
 		if (payload?.token) {
-			await activateInvitedOrganization(parsed.data.email, payload.token)
+			await acceptPendingInvitation(parsed.data.email, payload.token)
 		}
 	}
 

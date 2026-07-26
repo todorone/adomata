@@ -23,9 +23,9 @@ export const adminOrganizationsResponseSchema = z.object({
 })
 
 export const createAdminOrganizationBodySchema = z.object({
-	orgName: z.string().min(1),
-	orgSlug: z.string().min(1),
-	firstAdminEmail: z.email(),
+	orgName: z.string().trim().min(1),
+	orgSlug: z.string().trim().toLowerCase().min(1),
+	firstOwnerEmail: z.email(),
 })
 export type CreateAdminOrganizationBody = z.infer<typeof createAdminOrganizationBodySchema>
 
@@ -36,4 +36,5 @@ export const createAdminOrganizationResponseSchema = z.object({
 		slug: true,
 		logo: true,
 	}),
+	invitationId: z.string().nullable(),
 })

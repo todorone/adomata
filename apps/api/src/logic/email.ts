@@ -7,16 +7,41 @@ type EmailMessage = {
 
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4'
 
+export function escapeHtml(value: string) {
+	return value.replace(/[&<>"']/g, char => {
+		switch (char) {
+			case '&':
+				return '&amp;'
+			case '<':
+				return '&lt;'
+			case '>':
+				return '&gt;'
+			case '"':
+				return '&quot;'
+			default:
+				return '&#39;'
+		}
+	})
+}
+
+function roleLabel(role: string) {
+	switch (role) {
+		case 'owner':
+			return 'власник'
+		case 'admin':
+			return 'адміністратор'
+		default:
+			return 'учасник'
+	}
+}
+
 export async function sendEmail(message: EmailMessage) {
 	const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
 	const token = process.env.CLOUDFLARE_EMAIL_API_TOKEN
 	const from = process.env.EMAIL_FROM
 
 	if (!accountId || !token || !from) {
-		console.warn(
-			`[email] not configured (CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_EMAIL_API_TOKEN/EMAIL_FROM); skipping send to ${message.to}`,
-		)
-		return
+		throw new Error('[email] CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_API_TOKEN, and EMAIL_FROM must be configured')
 	}
 
 	const response = await fetch(`${CLOUDFLARE_API}/accounts/${accountId}/email/sending/send`, {
@@ -38,4 +63,32 @@ export async function sendEmail(message: EmailMessage) {
 		const detail = await response.text().catch(() => '')
 		throw new Error(`[email] failed to send to ${message.to}: ${response.status} ${detail}`)
 	}
+}
+
+export async function sendInvitationEmail(params: {
+	email: string
+	organizationName: string
+	inviterName: string
+	role: string
+}) {
+	const clientUrl = process.env.CLIENT_URL
+	if (!clientUrl) throw new Error('[email] CLIENT_URL must be configured to send invitation emails')
+
+	const signupUrl = `${clientUrl.replace(/\/+$/, '')}/sign-up?email=${encodeURIComponent(params.email)}`
+	const role = roleLabel(params.role)
+	const subject = `Запрошення до агенції ${params.organizationName}`
+	const text = [
+		`${params.inviterName} запросив(-ла) вас приєднатися до агенції ${params.organizationName} як ${role}.`,
+		'',
+		`Прийміть запрошення, зареєструвавшись: ${signupUrl}`,
+		'',
+		'Це запрошення діє 7 днів.',
+	].join('\n')
+	const html = [
+		`<p>${escapeHtml(params.inviterName)} запросив(-ла) вас приєднатися до агенції <strong>${escapeHtml(params.organizationName)}</strong> як ${escapeHtml(role)}.</p>`,
+		`<p><a href="${escapeHtml(signupUrl)}">Прийняти запрошення</a></p>`,
+		'<p>Це запрошення діє 7 днів.</p>',
+	].join('')
+
+	await sendEmail({ to: params.email, subject, text, html })
 }

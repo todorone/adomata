@@ -9,7 +9,6 @@ import { db } from '../db'
 import * as schema from '../db/schema'
 import { invitation, member, sessions } from '../db/schema'
 import { apiError } from './apiError'
-import { sendEmail } from './email'
 
 export type AuthSession = {
 	session: {
@@ -37,30 +36,6 @@ export type OrgMember = {
 	organizationId: string
 	userId: string
 	role: 'owner' | 'admin' | 'member'
-}
-
-function escapeHtml(value: string) {
-	return value.replace(/[&<>"']/g, char => {
-		switch (char) {
-			case '&':
-				return '&amp;'
-			case '<':
-				return '&lt;'
-			case '>':
-				return '&gt;'
-			case '"':
-				return '&quot;'
-			case "'":
-				return '&#39;'
-			default:
-				return char
-		}
-	})
-}
-
-function createInvitationUrl(invitationId: string) {
-	const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.BASE_URL
-	return `${baseUrl}/invitation/accept?id=${encodeURIComponent(invitationId)}`
 }
 
 export async function restoreActiveOrganization(session: {
@@ -144,30 +119,6 @@ export function createAuth() {
 			organization({
 				invitationExpiresIn: 60 * 60 * 24 * 7,
 				allowUserToCreateOrganization: false,
-				sendInvitationEmail: async ({ email, id, organization, inviter, role }) => {
-					const invitationUrl = createInvitationUrl(id)
-					const organizationName = organization.name
-					const inviterName = inviter.user.name || inviter.user.email
-					const subject = `Invitation to join ${organizationName}`
-					const text = [
-						`${inviterName} invited you to join ${organizationName} as ${role}.`,
-						'',
-						`Accept the invitation: ${invitationUrl}`,
-						'',
-						'This invitation expires in 7 days.',
-					].join('\n')
-
-					await sendEmail({
-						to: email,
-						subject,
-						text,
-						html: [
-							`<p>${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(organizationName)}</strong> as ${escapeHtml(role)}.</p>`,
-							`<p><a href="${escapeHtml(invitationUrl)}">Accept the invitation</a></p>`,
-							'<p>This invitation expires in 7 days.</p>',
-						].join(''),
-					})
-				},
 			}),
 		],
 	})
@@ -193,28 +144,6 @@ export async function canSignUpWithEmail(email: string) {
 		.limit(1)
 
 	return pendingInvitation.length > 0
-}
-
-export async function activateInvitedOrganization(email: string, sessionToken: string) {
-	const normalizedEmail = email.toLowerCase()
-	const [pendingInvitation] = await db
-		.select({ organizationId: invitation.organizationId })
-		.from(invitation)
-		.where(
-			and(
-				eq(invitation.email, normalizedEmail),
-				eq(invitation.status, 'pending'),
-				gt(invitation.expiresAt, new Date()),
-			),
-		)
-		.limit(1)
-
-	if (!pendingInvitation) return
-
-	await db
-		.update(sessions)
-		.set({ activeOrganizationId: pendingInvitation.organizationId })
-		.where(eq(sessions.token, sessionToken))
 }
 
 export const requireAuth = createMiddleware(async (c, next) => {

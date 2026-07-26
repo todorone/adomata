@@ -11,6 +11,22 @@ const authCalls = vi.hoisted(() => ({
 	selectFrom: vi.fn(),
 }))
 
+const invitationCalls = vi.hoisted(() => ({
+	acceptInvitationForExistingVerifiedUser: vi.fn(),
+}))
+
+const emailCalls = vi.hoisted(() => ({
+	sendInvitationEmail: vi.fn(),
+}))
+
+vi.mock('../logic/invitation', () => ({
+	acceptInvitationForExistingVerifiedUser: invitationCalls.acceptInvitationForExistingVerifiedUser,
+}))
+
+vi.mock('../logic/email', () => ({
+	sendInvitationEmail: emailCalls.sendInvitationEmail,
+}))
+
 vi.mock('../logic/auth', () => ({
 	canSignUpWithEmail: vi.fn(),
 	createAuth: vi.fn(() => ({
@@ -65,6 +81,8 @@ describe('POST /admin/organizations', () => {
 		authCalls.createInvitation.mockReset()
 		authCalls.deleteWhere.mockReset()
 		authCalls.selectFrom.mockReset()
+		invitationCalls.acceptInvitationForExistingVerifiedUser.mockReset()
+		emailCalls.sendInvitationEmail.mockReset()
 		authCalls.createOrganization.mockResolvedValue({
 			id: 'org_1',
 			name: 'Frontpeek',
@@ -72,6 +90,8 @@ describe('POST /admin/organizations', () => {
 			logo: null,
 		})
 		authCalls.createInvitation.mockResolvedValue({ id: 'invitation_1' })
+		invitationCalls.acceptInvitationForExistingVerifiedUser.mockResolvedValue(false)
+		emailCalls.sendInvitationEmail.mockResolvedValue(undefined)
 	})
 
 	it('rejects non-superadmin callers', async () => {
@@ -86,7 +106,7 @@ describe('POST /admin/organizations', () => {
 			body: JSON.stringify({
 				orgName: 'Frontpeek',
 				orgSlug: 'frontpeek',
-				firstAdminEmail: 'owner@example.com',
+				firstOwnerEmail: 'owner@example.com',
 			}),
 		})
 
@@ -110,7 +130,7 @@ describe('POST /admin/organizations', () => {
 			body: JSON.stringify({
 				orgName: 'Frontpeek',
 				orgSlug: 'frontpeek',
-				firstAdminEmail: 'owner@example.com',
+				firstOwnerEmail: 'owner@example.com',
 			}),
 		})
 
@@ -123,6 +143,7 @@ describe('POST /admin/organizations', () => {
 				slug: 'frontpeek',
 				logo: null,
 			},
+			invitationId: 'invitation_1',
 		})
 		expect(body).toEqual({
 			org: {
@@ -131,6 +152,7 @@ describe('POST /admin/organizations', () => {
 				slug: 'frontpeek',
 				logo: null,
 			},
+			invitationId: 'invitation_1',
 		})
 		expect(authCalls.createOrganization).toHaveBeenCalledWith({
 			body: {
@@ -147,7 +169,58 @@ describe('POST /admin/organizations', () => {
 			},
 			headers: expect.any(Headers),
 		})
+		expect(invitationCalls.acceptInvitationForExistingVerifiedUser).toHaveBeenCalledWith({ id: 'invitation_1' })
+		expect(emailCalls.sendInvitationEmail).toHaveBeenCalledWith({
+			email: 'owner@example.com',
+			organizationName: 'Frontpeek',
+			inviterName: 'Test User',
+			role: 'owner',
+		})
 		expect(authCalls.deleteWhere).toHaveBeenCalledOnce()
+	})
+
+	it('keeps the superadmin as owner when they are the first owner', async () => {
+		const { app } = await import('../app')
+
+		const res = await app.request('/admin/organizations', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-test-user-email': 'ADMIN@example.com',
+			},
+			body: JSON.stringify({
+				orgName: 'Adomata',
+				orgSlug: 'adomata',
+				firstOwnerEmail: 'admin@example.com',
+			}),
+		})
+
+		expect(res.status).toBe(201)
+		expect(authCalls.createInvitation).not.toHaveBeenCalled()
+		expect(emailCalls.sendInvitationEmail).not.toHaveBeenCalled()
+		expect(authCalls.deleteWhere).not.toHaveBeenCalled()
+	})
+
+	it('keeps the bootstrap owner when sending the owner invitation fails', async () => {
+		emailCalls.sendInvitationEmail.mockRejectedValueOnce(new Error('Email delivery failed'))
+		const { app } = await import('../app')
+
+		const res = await app.request('/admin/organizations', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-test-user-email': 'admin@example.com',
+			},
+			body: JSON.stringify({
+				orgName: 'Adomata',
+				orgSlug: 'adomata',
+				firstOwnerEmail: 'owner@example.com',
+			}),
+		})
+
+		expect(res.status).toBe(500)
+		expect(invitationCalls.acceptInvitationForExistingVerifiedUser).not.toHaveBeenCalled()
+		expect(authCalls.deleteWhere).not.toHaveBeenCalled()
 	})
 
 	it('rejects invalid creation requests before creating an organization', async () => {
@@ -162,7 +235,7 @@ describe('POST /admin/organizations', () => {
 			body: JSON.stringify({
 				orgName: 'Frontpeek',
 				orgSlug: 'frontpeek',
-				firstAdminEmail: 'not-an-email',
+				firstOwnerEmail: 'not-an-email',
 			}),
 		})
 

@@ -18,19 +18,19 @@ function CreateOrgDialog() {
 	const [open, setOpen] = useState(false)
 	const [orgName, setOrgName] = useState('')
 	const [orgSlug, setOrgSlug] = useState('')
-	const [firstAdminEmail, setFirstAdminEmail] = useState('')
+	const [firstOwnerEmail, setFirstOwnerEmail] = useState('')
 	const createOrg = useCreateOrganization()
 
 	function handleSubmit(e: React.FormEvent) {
 		e.preventDefault()
 		createOrg.mutate(
-			{ orgName, orgSlug, firstAdminEmail },
+			{ orgName, orgSlug, firstOwnerEmail },
 			{
 				onSuccess: () => {
 					setOpen(false)
 					setOrgName('')
 					setOrgSlug('')
-					setFirstAdminEmail('')
+					setFirstOwnerEmail('')
 				},
 			},
 		)
@@ -52,12 +52,12 @@ function CreateOrgDialog() {
 							id="orgName"
 							value={orgName}
 							onChange={e => setOrgName(e.target.value)}
-							placeholder="Acme Inc"
+							placeholder="Агенція «Вектор»"
 							required
 						/>
 					</div>
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="orgSlug">Slug</Label>
+						<Label htmlFor="orgSlug">Слаг</Label>
 						<Input
 							id="orgSlug"
 							value={orgSlug}
@@ -67,13 +67,13 @@ function CreateOrgDialog() {
 						/>
 					</div>
 					<div className="flex flex-col gap-2">
-						<Label htmlFor="firstAdminEmail">Email першого адміністратора</Label>
+						<Label htmlFor="firstOwnerEmail">Електронна пошта власника агенції</Label>
 						<Input
-							id="firstAdminEmail"
+							id="firstOwnerEmail"
 							type="email"
-							value={firstAdminEmail}
-							onChange={e => setFirstAdminEmail(e.target.value)}
-							placeholder="admin@acme.com"
+							value={firstOwnerEmail}
+							onChange={e => setFirstOwnerEmail(e.target.value)}
+							placeholder="owner@example.com"
 							required
 						/>
 					</div>
@@ -118,7 +118,7 @@ function SuperPage() {
 					<TableHeader>
 						<TableRow>
 							<TableHead>Назва</TableHead>
-							<TableHead>Slug</TableHead>
+							<TableHead>Слаг</TableHead>
 							<TableHead>Створено</TableHead>
 							<TableHead className="w-16" />
 						</TableRow>

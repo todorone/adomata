@@ -27,7 +27,7 @@ export const Route = createRootRoute({
 
 function RootComponent() {
 	const pathname = useRouterState({ select: s => s.location.pathname })
-	const isAuthPage = pathname === '/login'
+	const isAuthPage = pathname === '/login' || pathname === '/sign-up'
 
 	if (isAuthPage) {
 		return (

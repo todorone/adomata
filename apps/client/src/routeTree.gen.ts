@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as SuperRouteImport } from './routes/super'
 import { Route as SuperAgenciesRouteImport } from './routes/super.agencies'
 import { Route as SuperUsersRouteImport } from './routes/super.users'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignUpRoute = SignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SuperRoute = SuperRouteImport.update({
@@ -50,6 +56,7 @@ const UsersInvitesRoute = UsersInvitesRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
   '/super/users': typeof SuperUsersRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/sign-up'
     | '/super'
     | '/super/agencies'
     | '/super/users'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/sign-up'
     | '/super'
     | '/super/agencies'
     | '/super/users'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/sign-up'
     | '/super'
     | '/super/agencies'
     | '/super/users'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  SignUpRoute: typeof SignUpRoute
   SuperRoute: typeof SuperRouteWithChildren
   UsersInvitesRoute: typeof UsersInvitesRoute
 }
@@ -120,6 +133,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-up': {
+      id: '/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/super': {
@@ -168,6 +188,7 @@ const SuperRouteWithChildren = SuperRoute._addFileChildren(SuperRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  SignUpRoute: SignUpRoute,
   SuperRoute: SuperRouteWithChildren,
   UsersInvitesRoute: UsersInvitesRoute,
 }

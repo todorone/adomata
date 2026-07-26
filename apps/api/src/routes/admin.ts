@@ -5,6 +5,8 @@ import { and, eq, asc } from 'drizzle-orm'
 import { db } from '../db'
 import { invitation, member, organization, users } from '../db/schema'
 import { createAuth, requireAuth } from '../logic/auth'
+import { sendInvitationEmail } from '../logic/email'
+import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
 import {
 	adminOrganizationsResponseSchema,
 	createAdminOrganizationBodySchema,
@@ -43,7 +45,7 @@ const withCreateOrganizationRoutes = adminHono.post(
 			return apiError(c, 'BAD_REQUEST', { message: 'Invalid request', details: result.error.issues })
 	}),
 	async c => {
-		const { email: callerEmail, id: callerId } = c.get('authSession').user
+		const { email: callerEmail, id: callerId, name: callerName } = c.get('authSession').user
 
 		if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
 			return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
@@ -59,16 +61,25 @@ const withCreateOrganizationRoutes = adminHono.post(
 			},
 		})
 
-		try {
-			await auth.api.createInvitation({
+		let invitationId: string | null = null
+		if (body.firstOwnerEmail.toLowerCase() !== callerEmail.toLowerCase()) {
+			const ownerInvitation = await auth.api.createInvitation({
 				body: {
 					organizationId: org.id,
-					email: body.firstAdminEmail,
+					email: body.firstOwnerEmail,
 					role: 'owner',
 				},
 				headers: c.req.raw.headers,
 			})
-		} finally {
+			invitationId = ownerInvitation.id
+			await sendInvitationEmail({
+				email: body.firstOwnerEmail,
+				organizationName: org.name,
+				inviterName: callerName || callerEmail,
+				role: 'owner',
+			})
+			await acceptInvitationForExistingVerifiedUser(ownerInvitation)
+
 			await db.delete(member).where(and(eq(member.organizationId, org.id), eq(member.userId, callerId)))
 		}
 
@@ -80,6 +91,7 @@ const withCreateOrganizationRoutes = adminHono.post(
 					slug: org.slug,
 					logo: org.logo ?? null,
 				},
+				invitationId,
 			}),
 			201,
 		)

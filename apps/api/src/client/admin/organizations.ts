@@ -29,6 +29,17 @@ export const createAdminOrganizationBodySchema = z.object({
 })
 export type CreateAdminOrganizationBody = z.infer<typeof createAdminOrganizationBodySchema>
 
+export const createAdminOrganizationRequestSchema = z.union([
+	createAdminOrganizationBodySchema,
+	z
+		.object({
+			orgName: z.string().trim().min(1),
+			orgSlug: z.string().trim().toLowerCase().min(1),
+			firstAdminEmail: z.email(),
+		})
+		.transform(({ firstAdminEmail, ...body }) => ({ ...body, firstOwnerEmail: firstAdminEmail })),
+])
+
 export const createAdminOrganizationResponseSchema = z.object({
 	org: adminOrganizationSchema.pick({
 		id: true,

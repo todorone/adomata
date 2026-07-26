@@ -34,7 +34,7 @@ Meta's own tree beneath an Ad Account (Campaign → Ad Set → Ad), each level a
 _Avoid_: inventing Adomata synonyms for these terms
 
 **Creative**:
-A property of an Ad, not a tree level below it — an Ad has exactly one Creative, expanded in place rather than listed as siblings. A carousel or Advantage+ asset-feed Ad carries several assets (images, videos, copy, links), but those are internal structure of that one Creative, not multiple Creatives under the Ad.
+A property of an Ad, not a tree level below it — an Ad has exactly one Creative, expanded in place rather than listed as siblings. A carousel or Advantage+ asset-feed Ad carries several assets (images, videos, copy, links), but those are internal structure of that one Creative, not multiple Creatives under the Ad. On the Fleet Board it renders as a full-width block beneath its Ad row, carrying the visual, copy, CTA, destination, and the current Metric Selection; multi-asset Ads show every asset with results explicitly attributed to the whole Ad, never split between assets ([ADR 0022](docs/adr/0022-creative-surface-is-an-inline-expansion-of-the-ad-row.md)).
 _Avoid_: Creative level, Creatives (as a list of children under an Ad)
 
 **User**:
@@ -47,6 +47,10 @@ _Vendor exception_: Better Auth's `member` table (the User↔Agency join row wit
 **Fleet Board**:
 The read-only tree view giving an agency director KPI visibility across every Ad Account at once, expandable down through Meta's own Campaign → Ad Set → Ad → Creative hierarchy. Never writes back to Meta ([ADR 0005](docs/adr/0005-fleet-board-is-read-only.md)).
 _Avoid_: Fleet dashboard, dashboard
+
+**View Depth**:
+The Fleet Board's global dial over how deep every row is opened at once — four positions: Ad Account, Campaign, Ad Set, Ad. Distinct from row expansion, which is per-row and additive: a row is open if View Depth reaches its level *or* it was individually expanded, so raising the dial never collapses what someone opened by hand. Depth is a rendering control only — it never changes a number, since every level's figures are rollups that exist whether or not the row is on screen ([ADR 0019](docs/adr/0019-fleet-board-rollup-rules.md)). See [ADR 0021](docs/adr/0021-fleet-board-is-one-tree-table-with-a-depth-dial-over-row-expansion.md).
+_Avoid_: Zoom, Level setting, Drill-down (the board never replaces itself with a detail view)
 
 **Client-grouped view / Flat view**:
 The Fleet Board's grouping toggle. Client-grouped view nests Ad Accounts under a collapsible Client row that is itself a KPI aggregate — not a bare header — so a director can read a Client's rolled-up numbers without expanding it. Flat view removes the nesting and lists every Ad Account directly; Client is demoted to a column and a filter, and no Client-level aggregate row is shown. Both modes are a presentation choice over the same underlying data — Client's rollup ([see Ad Account](#tenancy)) always exists regardless of which mode is active.
@@ -65,6 +69,10 @@ _Avoid_: Cost per acquisition, CPL
 **ROAS** (Return on Ad Spend):
 Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API). Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error.
 _Avoid_: —
+
+**Metric Selection**:
+The subset of the fixed KPI list a Fleet Board view currently shows as columns, chosen from all six but never expanded beyond them. Held entirely in the URL as a search param — not stored against a User or Agency — so it's per view, not per person: two people can hold different links to the same board showing different columns. A view with no selection param shows the default (Spend, ROAS). Column order and width are fixed to the KPI list's order above, not part of the selection. See [ADR 0020](docs/adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md).
+_Avoid_: Metric toggle, Column selection (implementation-level phrasing, not the concept)
 
 ### Monitoring & Alerts
 

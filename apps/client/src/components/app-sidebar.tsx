@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Building2, LayoutDashboard, Sparkles, Users, UsersRound } from 'lucide-react'
+import { Building2, LayoutDashboard, Users, UsersRound } from 'lucide-react'
 
 import { NavMain } from '@/components/nav-main'
 import { NavUser } from '@/components/nav-user'
@@ -26,14 +26,9 @@ const navMain = [
 
 const prototypeNav = [
 	{
-		title: 'Прототип №13 · Флотська дошка',
+		title: 'Прототип дашборду',
 		url: '/prototype/fleet-board',
 		icon: LayoutDashboard,
-	},
-	{
-		title: 'Прототип №16 · Перегляд креативів',
-		url: '/prototype/fleet-board',
-		icon: Sparkles,
 	},
 ]
 

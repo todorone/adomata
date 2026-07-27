@@ -22,3 +22,20 @@ test('a superadmin can authenticate against the API and list organizations', asy
 	const body = (await res.json()) as { organizations: unknown[] }
 	expect(Array.isArray(body.organizations)).toBe(true)
 })
+
+test('a user can log out from a Fleet Board URL', async ({ page }) => {
+	await signInOrSignUp(SUPERADMIN)
+
+	await page.goto('/login')
+	await page.getByLabel('Email').fill(SUPERADMIN.email)
+	await page.getByLabel('Пароль').fill(SUPERADMIN.password)
+	await page.getByRole('button', { name: 'Увійти' }).click()
+	await expect(page).toHaveURL(/\/$/)
+
+	await page.goto('/?metrics=spend%2Croas&needsAttention=true')
+	await page.getByRole('button', { name: `${SUPERADMIN.name} ${SUPERADMIN.email}` }).click()
+	await page.getByRole('menuitem', { name: 'Вийти' }).click()
+
+	await expect(page).toHaveURL(/\/login$/)
+	await expect(page.getByRole('heading', { name: 'Увійдіть у свій акаунт' })).toBeVisible()
+})

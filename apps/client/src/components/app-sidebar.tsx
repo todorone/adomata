@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Building2, LayoutDashboard, Users, UsersRound } from 'lucide-react'
+import { Building2, Database, LayoutDashboard, Users, UsersRound } from 'lucide-react'
 
 import { NavMain } from '@/components/nav-main'
 import { NavUser } from '@/components/nav-user'
@@ -34,6 +34,11 @@ const superadminNav = [
 		title: 'Користувачі',
 		url: '/super/users',
 		icon: UsersRound,
+	},
+	{
+		title: 'База даних',
+		url: '/super/database',
+		icon: Database,
 	},
 ]
 

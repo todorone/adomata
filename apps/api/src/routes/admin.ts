@@ -4,6 +4,7 @@ import { and, eq, asc } from 'drizzle-orm'
 
 import { db } from '../db'
 import { invitation, member, organization, users } from '../db/schema'
+import { wipeDatabase } from '../db/wipe'
 import { createAuth, requireAuth } from '../logic/auth'
 import { HQ_SLUG } from '../logic/hq'
 import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
@@ -206,7 +207,18 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 	},
 )
 
-export const adminRoutes = withUpdateUserRoutes.delete('/users/:id', async c => {
+const withWipeDatabaseRoutes = withUpdateUserRoutes.delete('/database', async c => {
+	const { email, emailVerified } = c.get('authSession').user
+
+	if (!emailVerified || !isSuperadmin(email, process.env.SUPERADMIN_EMAIL)) {
+		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
+	}
+
+	await wipeDatabase()
+	return c.body(null, 204)
+})
+
+export const adminRoutes = withWipeDatabaseRoutes.delete('/users/:id', async c => {
 	const { email: callerEmail } = c.get('authSession').user
 
 	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {

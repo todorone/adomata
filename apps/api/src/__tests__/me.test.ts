@@ -112,6 +112,7 @@ describe('GET /me', () => {
 				logo: null,
 			},
 			memberships: [{ id: 'org_1', name: 'Acme Ops', slug: 'acme-ops', logo: null, role: 'admin' }],
+			isSuperadmin: false,
 		})
 		expect(body).toEqual({
 			session: {
@@ -144,6 +145,7 @@ describe('GET /me', () => {
 				logo: null,
 			},
 			memberships: [{ id: 'org_1', name: 'Acme Ops', slug: 'acme-ops', logo: null, role: 'admin' }],
+			isSuperadmin: false,
 		})
 	})
 })

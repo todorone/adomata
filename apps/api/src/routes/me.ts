@@ -8,6 +8,7 @@ import { member, organization } from '../db/schema'
 import { setActiveAgency } from '../logic/activeAgency'
 import { requireAuth } from '../logic/auth'
 import { apiError } from '../logic/apiError'
+import { isSuperadmin } from '../logic/superadmin'
 import { meResponseSchema } from '../client/me'
 import type { ActiveOrgMember, ActiveOrganization } from '../client/me'
 
@@ -77,6 +78,7 @@ const withGetMeRoute = meHono.get('/', async c => {
 			activeOrgMember,
 			activeOrganization,
 			memberships,
+			isSuperadmin: isSuperadmin(authSession.user.email),
 		}),
 	)
 })

@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as SuperRouteImport } from './routes/super'
 import { Route as SuperAgenciesRouteImport } from './routes/super.agencies'
+import { Route as SuperDatabaseRouteImport } from './routes/super.database'
 import { Route as SuperUsersRouteImport } from './routes/super.users'
 import { Route as UsersInvitesRouteImport } from './routes/users.invites'
 
@@ -42,6 +43,11 @@ const SuperAgenciesRoute = SuperAgenciesRouteImport.update({
   path: '/agencies',
   getParentRoute: () => SuperRoute,
 } as any)
+const SuperDatabaseRoute = SuperDatabaseRouteImport.update({
+  id: '/database',
+  path: '/database',
+  getParentRoute: () => SuperRoute,
+} as any)
 const SuperUsersRoute = SuperUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
+  '/super/database': typeof SuperDatabaseRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
+  '/super/database': typeof SuperDatabaseRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/super': typeof SuperRouteWithChildren
   '/super/agencies': typeof SuperAgenciesRoute
+  '/super/database': typeof SuperDatabaseRoute
   '/super/users': typeof SuperUsersRoute
   '/users/invites': typeof UsersInvitesRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/super'
     | '/super/agencies'
+    | '/super/database'
     | '/super/users'
     | '/users/invites'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/super'
     | '/super/agencies'
+    | '/super/database'
     | '/super/users'
     | '/users/invites'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/super'
     | '/super/agencies'
+    | '/super/database'
     | '/super/users'
     | '/users/invites'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SuperAgenciesRouteImport
       parentRoute: typeof SuperRoute
     }
+    '/super/database': {
+      id: '/super/database'
+      path: '/database'
+      fullPath: '/super/database'
+      preLoaderRoute: typeof SuperDatabaseRouteImport
+      parentRoute: typeof SuperRoute
+    }
     '/super/users': {
       id: '/super/users'
       path: '/users'
@@ -175,11 +194,13 @@ declare module '@tanstack/react-router' {
 
 interface SuperRouteChildren {
   SuperAgenciesRoute: typeof SuperAgenciesRoute
+  SuperDatabaseRoute: typeof SuperDatabaseRoute
   SuperUsersRoute: typeof SuperUsersRoute
 }
 
 const SuperRouteChildren: SuperRouteChildren = {
   SuperAgenciesRoute: SuperAgenciesRoute,
+  SuperDatabaseRoute: SuperDatabaseRoute,
   SuperUsersRoute: SuperUsersRoute,
 }
 

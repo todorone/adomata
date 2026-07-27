@@ -52,5 +52,6 @@ export const meResponseSchema = z.object({
 	activeOrgMember: activeOrgMemberSchema.nullable(),
 	activeOrganization: activeOrganizationSchema.nullable(),
 	memberships: z.array(agencyMembershipSchema),
+	isSuperadmin: z.boolean(),
 })
 export type Me = z.infer<typeof meResponseSchema>

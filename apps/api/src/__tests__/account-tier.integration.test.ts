@@ -36,7 +36,11 @@ describe('Account Tier heartbeat integration', () => {
 
 	beforeEach(async () => {
 		fakeMetaServer.resetHandlers()
-		await seedFakeMetaRoster()
+		await db
+			.insert(organization)
+			.values({ ...fakeMetaAgency, createdAt: new Date(), updatedAt: new Date() })
+			.onConflictDoNothing()
+		await seedFakeMetaRoster(fakeMetaAgency.id)
 	})
 
 	afterAll(async () => {
@@ -46,7 +50,7 @@ describe('Account Tier heartbeat integration', () => {
 	})
 
 	it('uses shared roster IDs and safely upserts the seed', async () => {
-		await seedFakeMetaRoster()
+		await seedFakeMetaRoster(fakeMetaAgency.id)
 		const seeded = await readFixtureAccounts()
 		expect(seeded.map(account => account.id).sort()).toEqual(fakeMetaAccounts.map(account => account.id).sort())
 		expect(seeded).toHaveLength(7)

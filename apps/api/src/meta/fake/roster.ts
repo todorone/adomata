@@ -1,3 +1,7 @@
+import { eq } from 'drizzle-orm'
+
+const hqSlug = 'hq'
+
 export const fakeMetaAgency = {
 	id: 'fake-meta-agency',
 	name: 'Meta Fixture Agency',
@@ -5,9 +9,9 @@ export const fakeMetaAgency = {
 } as const
 
 export const fakeMetaClients = [
-	{ id: 'fake-meta-northstar', agencyId: fakeMetaAgency.id, name: 'Northstar Commerce' },
-	{ id: 'fake-meta-meridian', agencyId: fakeMetaAgency.id, name: 'Meridian Services' },
-	{ id: 'fake-meta-orbit', agencyId: fakeMetaAgency.id, name: 'Orbit Studio' },
+	{ id: 'fake-meta-northstar', name: 'Northstar Commerce' },
+	{ id: 'fake-meta-meridian', name: 'Meridian Services' },
+	{ id: 'fake-meta-orbit', name: 'Orbit Studio' },
 ] as const
 
 type SuccessfulAccount = {
@@ -331,27 +335,26 @@ export function createFakeMetaScaleRoster() {
 	}))
 }
 
-export async function seedFakeMetaRoster() {
+export async function seedFakeMetaRoster(agencyId?: string) {
 	const [{ db }, { adAccount, client, organization }] = await Promise.all([
 		import('../../db'),
 		import('../../db/schema'),
 	])
+	const targetAgencyId =
+		agencyId ??
+		(await db.select({ id: organization.id }).from(organization).where(eq(organization.slug, hqSlug)).limit(1))[0]?.id
+	if (!targetAgencyId)
+		throw new Error('HQ Agency does not exist; sign in as the superuser before seeding fake Meta data')
+
 	const now = new Date()
-	await db
-		.insert(organization)
-		.values({ ...fakeMetaAgency, createdAt: now, updatedAt: now })
-		.onConflictDoUpdate({
-			target: organization.id,
-			set: { name: fakeMetaAgency.name, slug: fakeMetaAgency.slug, updatedAt: now },
-		})
 
 	for (const fixtureClient of fakeMetaClients) {
 		await db
 			.insert(client)
-			.values({ ...fixtureClient, createdAt: now, updatedAt: now })
+			.values({ ...fixtureClient, agencyId: targetAgencyId, createdAt: now, updatedAt: now })
 			.onConflictDoUpdate({
 				target: client.id,
-				set: { agencyId: fixtureClient.agencyId, name: fixtureClient.name, updatedAt: now },
+				set: { agencyId: targetAgencyId, name: fixtureClient.name, updatedAt: now },
 			})
 	}
 

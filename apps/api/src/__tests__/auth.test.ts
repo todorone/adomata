@@ -24,44 +24,53 @@ vi.mock('../db', () => ({
 	},
 }))
 
-describe('restoreActiveOrganization', () => {
+describe('restoreActiveAgency', () => {
 	beforeEach(() => {
 		dbCalls.selectResult = []
 		dbCalls.updateSet.mockReset()
 	})
 
 	it('skips when session already has an active organization', async () => {
-		const { restoreActiveOrganization } = await import('../logic/auth')
+		const { restoreActiveAgency } = await import('../logic/activeAgency')
 
-		await restoreActiveOrganization({
-			token: 'tok_1',
-			userId: 'user_1',
-			activeOrganizationId: 'org_1',
-		})
+		await restoreActiveAgency(
+			{
+				token: 'tok_1',
+				userId: 'user_1',
+				activeOrganizationId: 'org_1',
+			},
+			'user@example.com',
+		)
 
 		expect(dbCalls.updateSet).not.toHaveBeenCalled()
 	})
 
 	it('sets activeOrganizationId from the user membership on sign-in', async () => {
 		dbCalls.selectResult = [{ organizationId: 'org_1' }]
-		const { restoreActiveOrganization } = await import('../logic/auth')
+		const { restoreActiveAgency } = await import('../logic/activeAgency')
 
-		await restoreActiveOrganization({
-			token: 'tok_1',
-			userId: 'user_1',
-		})
+		await restoreActiveAgency(
+			{
+				token: 'tok_1',
+				userId: 'user_1',
+			},
+			'user@example.com',
+		)
 
 		expect(dbCalls.updateSet).toHaveBeenCalledWith({ activeOrganizationId: 'org_1' })
 	})
 
 	it('does nothing when the user has no memberships', async () => {
 		dbCalls.selectResult = []
-		const { restoreActiveOrganization } = await import('../logic/auth')
+		const { restoreActiveAgency } = await import('../logic/activeAgency')
 
-		await restoreActiveOrganization({
-			token: 'tok_1',
-			userId: 'user_1',
-		})
+		await restoreActiveAgency(
+			{
+				token: 'tok_1',
+				userId: 'user_1',
+			},
+			'user@example.com',
+		)
 
 		expect(dbCalls.updateSet).not.toHaveBeenCalled()
 	})

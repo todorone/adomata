@@ -1,5 +1,4 @@
-import * as React from 'react'
-import { ChevronsUpDown } from 'lucide-react'
+import { Building2, Check, ChevronsUpDown } from 'lucide-react'
 
 import {
 	DropdownMenu,
@@ -9,22 +8,40 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from '@/ui/dropdown-menu'
+import { useMe, useSwitchAgency } from '@/data/me'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/ui/sidebar'
 
-export function TeamSwitcher({
-	teams,
-}: {
-	teams: {
-		name: string
-		logo: React.ElementType
-		plan: string
-	}[]
-}) {
-	const { isMobile } = useSidebar()
-	const [activeTeam, setActiveTeam] = React.useState(teams[0])
+function AgencyIcon() {
+	return (
+		<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+			<Building2 className="size-4" />
+		</div>
+	)
+}
 
-	if (!activeTeam) {
-		return null
+export function TeamSwitcher() {
+	const { isMobile } = useSidebar()
+	const { data } = useMe()
+	const switchAgency = useSwitchAgency()
+	const agencies = data?.memberships ?? []
+	const activeAgency = data?.activeOrganization ?? null
+	const name = activeAgency?.name ?? 'Adomata'
+
+	if (agencies.length < 2) {
+		return (
+			<SidebarMenu>
+				<SidebarMenuItem>
+					<SidebarMenuButton size="lg" asChild tooltip={name} className="cursor-default">
+						<div>
+							<AgencyIcon />
+							<div className="grid flex-1 text-left text-sm leading-tight">
+								<span className="truncate font-semibold">{name}</span>
+							</div>
+						</div>
+					</SidebarMenuButton>
+				</SidebarMenuItem>
+			</SidebarMenu>
+		)
 	}
 
 	return (
@@ -34,14 +51,13 @@ export function TeamSwitcher({
 					<DropdownMenuTrigger asChild>
 						<SidebarMenuButton
 							size="lg"
-							className="data-[open]:bg-sidebar-accent data-[open]:text-sidebar-accent-foreground"
+							aria-label="Змінити агенцію"
+							tooltip={name}
+							className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
 						>
-							<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-								<activeTeam.logo className="size-4" />
-							</div>
+							<AgencyIcon />
 							<div className="grid flex-1 text-left text-sm leading-tight">
-								<span className="truncate font-medium">{activeTeam.name}</span>
-								<span className="truncate text-xs">{activeTeam.plan}</span>
+								<span className="truncate font-semibold">{name}</span>
 							</div>
 							<ChevronsUpDown className="ml-auto" />
 						</SidebarMenuButton>
@@ -55,17 +71,24 @@ export function TeamSwitcher({
 						<DropdownMenuGroup>
 							<DropdownMenuLabel className="text-xs text-muted-foreground">Агенції</DropdownMenuLabel>
 						</DropdownMenuGroup>
-						{teams.map((team, index) => (
-							<DropdownMenuItem key={team.name} onClick={() => setActiveTeam(team)} className="gap-2 p-2">
-								<div className="flex size-6 items-center justify-center rounded-md border">
-									<team.logo className="size-3.5 shrink-0" />
-								</div>
-								{team.name}
-								{index < 9 && (
-									<span className="ml-auto text-xs tracking-widest text-muted-foreground">⌘{index + 1}</span>
-								)}
-							</DropdownMenuItem>
-						))}
+						{agencies.map(agency => {
+							const isActive = agency.id === activeAgency?.id
+							return (
+								<DropdownMenuItem
+									key={agency.id}
+									className="gap-2 p-2"
+									onSelect={() => {
+										if (!isActive) switchAgency.mutate(agency.id)
+									}}
+								>
+									<div className="flex size-6 items-center justify-center rounded-md border">
+										<Building2 className="size-3.5 shrink-0" />
+									</div>
+									<span className="truncate">{agency.name}</span>
+									{isActive && <Check className="ml-auto size-4" />}
+								</DropdownMenuItem>
+							)
+						})}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</SidebarMenuItem>

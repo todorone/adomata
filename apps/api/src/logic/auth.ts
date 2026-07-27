@@ -1,5 +1,5 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
-import { betterAuth } from 'better-auth'
+import { APIError, betterAuth } from 'better-auth'
 import { bearer } from 'better-auth/plugins/bearer'
 import { organization } from 'better-auth/plugins/organization'
 import { and, eq, gt } from 'drizzle-orm'
@@ -7,8 +7,10 @@ import { createMiddleware } from 'hono/factory'
 
 import { db } from '../db'
 import * as schema from '../db/schema'
-import { invitation, member, sessions } from '../db/schema'
+import { invitation } from '../db/schema'
+import { restoreActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
+import { sendInvitationEmail } from './email'
 
 export type AuthSession = {
 	session: {
@@ -38,22 +40,12 @@ export type OrgMember = {
 	role: 'owner' | 'admin' | 'member'
 }
 
-export async function restoreActiveOrganization(session: {
-	token: string
-	userId: string
-	activeOrganizationId?: string | null
-}) {
-	if (session.activeOrganizationId) return
-	const [membership] = await db
-		.select({ organizationId: member.organizationId })
-		.from(member)
-		.where(eq(member.userId, session.userId))
-		.limit(1)
-	if (!membership) return
-	await db
-		.update(sessions)
-		.set({ activeOrganizationId: membership.organizationId })
-		.where(eq(sessions.token, session.token))
+const ORGANIZATION_ROLES = ['owner', 'admin', 'member'] as const
+
+function assertOrganizationRole(role: string) {
+	if (!(ORGANIZATION_ROLES as readonly string[]).includes(role)) {
+		throw new APIError('BAD_REQUEST', { message: 'Непідтримувана роль агенції' })
+	}
 }
 
 export function createAuth() {
@@ -110,7 +102,14 @@ export function createAuth() {
 			},
 			session: {
 				create: {
-					after: async session => restoreActiveOrganization(session),
+					after: async session => {
+						const [user] = await db
+							.select({ email: schema.users.email })
+							.from(schema.users)
+							.where(eq(schema.users.id, session.userId))
+							.limit(1)
+						if (user) await restoreActiveAgency(session, user.email)
+					},
 				},
 			},
 		},
@@ -119,6 +118,19 @@ export function createAuth() {
 			organization({
 				invitationExpiresIn: 60 * 60 * 24 * 7,
 				allowUserToCreateOrganization: false,
+				organizationHooks: {
+					beforeAddMember: async ({ member }) => assertOrganizationRole(member.role),
+					beforeUpdateMemberRole: async ({ newRole }) => assertOrganizationRole(newRole),
+					beforeCreateInvitation: async ({ invitation }) => assertOrganizationRole(invitation.role),
+				},
+				sendInvitationEmail: async ({ email, organization, inviter, role }) => {
+					await sendInvitationEmail({
+						email,
+						organizationName: organization.name,
+						inviterName: inviter.user.name || inviter.user.email,
+						role,
+					})
+				},
 			}),
 		],
 	})
@@ -152,6 +164,8 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
+	const activeAgencyId = await restoreActiveAgency(session.session, session.user.email)
+	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)
 
@@ -159,17 +173,21 @@ export const requireAuth = createMiddleware(async (c, next) => {
 })
 
 export const requireOrg = createMiddleware(async (c, next) => {
-	let member: OrgMember | null = null
+	const authSession = c.get('authSession')
+	const agencyId = authSession.session.activeOrganizationId
+	if (!agencyId) return apiError(c, 'NO_ACTIVE_ORGANIZATION', { message: 'Немає активної агенції' })
 
-	try {
-		member = (await createAuth().api.getActiveMember({
-			headers: c.req.raw.headers,
-		})) as OrgMember | null
-	} catch {
-		return apiError(c, 'NO_ACTIVE_ORGANIZATION', { message: 'No active organization' })
-	}
-
-	if (!member) return apiError(c, 'NO_ACTIVE_ORGANIZATION', { message: 'No active organization' })
+	const [member] = await db
+		.select({
+			id: schema.member.id,
+			organizationId: schema.member.organizationId,
+			userId: schema.member.userId,
+			role: schema.member.role,
+		})
+		.from(schema.member)
+		.where(and(eq(schema.member.organizationId, agencyId), eq(schema.member.userId, authSession.user.id)))
+		.limit(1)
+	if (!member) return apiError(c, 'NO_ACTIVE_ORGANIZATION', { message: 'Немає активної агенції' })
 
 	c.set('orgId', member.organizationId)
 	c.set('orgMember', member)

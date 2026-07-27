@@ -48,15 +48,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
 	const superadminEmail = import.meta.env.VITE_SUPERADMIN_EMAIL as string | undefined
 	const isSuperadmin = superadminEmail && session?.data?.user.email.toLowerCase() === superadminEmail.toLowerCase()
-	const shouldFetchOrganization = Boolean(session?.data && !isSuperadmin)
-	const { data: me } = useMe(shouldFetchOrganization)
-	const organization = me?.activeOrganization
+	const { data: me } = useMe(Boolean(session?.data))
 
 	return (
 		<Sidebar collapsible="icon" {...props}>
-			{organization && (
+			{me?.activeOrganization && (
 				<SidebarHeader>
-					<TeamSwitcher teams={[{ name: organization.name, logo: Building2, plan: 'Агенція' }]} />
+					<TeamSwitcher />
 				</SidebarHeader>
 			)}
 			<SidebarContent>

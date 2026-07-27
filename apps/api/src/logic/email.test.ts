@@ -53,7 +53,7 @@ describe('sendInvitationEmail', () => {
 		expect(firstRequestBody().html).toContain(invitationLink)
 	})
 
-	it('fails when Cloudflare Email is not configured', async () => {
+	it('skips delivery when Cloudflare Email is not configured', async () => {
 		delete process.env.CLOUDFLARE_EMAIL_API_TOKEN
 		const { sendInvitationEmail } = await import('./email')
 
@@ -64,7 +64,7 @@ describe('sendInvitationEmail', () => {
 				inviterName: 'Адміністратор',
 				role: 'owner',
 			}),
-		).rejects.toThrow('CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_API_TOKEN, and EMAIL_FROM')
+		).resolves.toBeUndefined()
 		expect(fetchMock).not.toHaveBeenCalled()
 	})
 

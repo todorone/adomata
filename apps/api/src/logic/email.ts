@@ -1,3 +1,5 @@
+import { logger } from '../core/logger'
+
 type EmailMessage = {
 	to: string
 	subject: string
@@ -41,7 +43,8 @@ export async function sendEmail(message: EmailMessage) {
 	const from = process.env.EMAIL_FROM
 
 	if (!accountId || !token || !from) {
-		throw new Error('[email] CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_API_TOKEN, and EMAIL_FROM must be configured')
+		logger.warn('[email] delivery is not configured; skipping send', { to: message.to })
+		return
 	}
 
 	const response = await fetch(`${CLOUDFLARE_API}/accounts/${accountId}/email/sending/send`, {

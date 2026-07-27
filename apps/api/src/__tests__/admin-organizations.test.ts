@@ -170,12 +170,7 @@ describe('POST /admin/organizations', () => {
 			headers: expect.any(Headers),
 		})
 		expect(invitationCalls.acceptInvitationForExistingVerifiedUser).toHaveBeenCalledWith({ id: 'invitation_1' })
-		expect(emailCalls.sendInvitationEmail).toHaveBeenCalledWith({
-			email: 'owner@example.com',
-			organizationName: 'Frontpeek',
-			inviterName: 'Test User',
-			role: 'owner',
-		})
+		expect(emailCalls.sendInvitationEmail).not.toHaveBeenCalled()
 		expect(authCalls.deleteWhere).toHaveBeenCalledOnce()
 	})
 
@@ -198,28 +193,6 @@ describe('POST /admin/organizations', () => {
 		expect(res.status).toBe(201)
 		expect(authCalls.createInvitation).not.toHaveBeenCalled()
 		expect(emailCalls.sendInvitationEmail).not.toHaveBeenCalled()
-		expect(authCalls.deleteWhere).not.toHaveBeenCalled()
-	})
-
-	it('keeps the bootstrap owner when sending the owner invitation fails', async () => {
-		emailCalls.sendInvitationEmail.mockRejectedValueOnce(new Error('Email delivery failed'))
-		const { app } = await import('../app')
-
-		const res = await app.request('/admin/organizations', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'x-test-user-email': 'admin@example.com',
-			},
-			body: JSON.stringify({
-				orgName: 'Adomata',
-				orgSlug: 'adomata',
-				firstOwnerEmail: 'owner@example.com',
-			}),
-		})
-
-		expect(res.status).toBe(500)
-		expect(invitationCalls.acceptInvitationForExistingVerifiedUser).not.toHaveBeenCalled()
 		expect(authCalls.deleteWhere).not.toHaveBeenCalled()
 	})
 

@@ -25,6 +25,11 @@ export const activeOrganizationSchema = organizationRow.pick({
 })
 export type ActiveOrganization = z.infer<typeof activeOrganizationSchema>
 
+export const agencyMembershipSchema = activeOrganizationSchema.extend({
+	role: z.enum(['owner', 'admin', 'member']),
+})
+export type AgencyMembership = z.infer<typeof agencyMembershipSchema>
+
 export const meResponseSchema = z.object({
 	session: z.object({
 		id: z.string(),
@@ -46,5 +51,6 @@ export const meResponseSchema = z.object({
 	}),
 	activeOrgMember: activeOrgMemberSchema.nullable(),
 	activeOrganization: activeOrganizationSchema.nullable(),
+	memberships: z.array(agencyMembershipSchema),
 })
 export type Me = z.infer<typeof meResponseSchema>

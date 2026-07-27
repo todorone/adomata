@@ -8,15 +8,19 @@ const authCalls = vi.hoisted(() => ({
 }))
 
 const dbCalls = vi.hoisted(() => ({
-	organization: null as { id: string; name: string; slug: string | null; logo: string | null } | null,
+	memberships: [] as Array<{ id: string; name: string; slug: string | null; logo: string | null; role: string }>,
+	activeMember: null as { id: string; organizationId: string; userId: string; role: string } | null,
 }))
 
 vi.mock('../db', () => ({
 	db: {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
+				innerJoin: vi.fn(() => ({
+					where: vi.fn(() => ({ orderBy: vi.fn(() => dbCalls.memberships) })),
+				})),
 				where: vi.fn(() => ({
-					limit: vi.fn(() => (dbCalls.organization ? [dbCalls.organization] : [])),
+					limit: vi.fn(() => (dbCalls.activeMember ? [dbCalls.activeMember] : [])),
 				})),
 			})),
 		})),
@@ -59,22 +63,26 @@ vi.mock('../logic/auth', () => ({
 describe('GET /me', () => {
 	beforeEach(() => {
 		authCalls.getActiveMember.mockReset()
-		dbCalls.organization = null
+		dbCalls.memberships = []
+		dbCalls.activeMember = null
 	})
 
 	it('includes the active organization membership', async () => {
-		authCalls.getActiveMember.mockResolvedValue({
+		dbCalls.activeMember = {
 			id: 'member_1',
 			organizationId: 'org_1',
 			userId: 'user_1',
 			role: 'admin',
-		})
-		dbCalls.organization = {
-			id: 'org_1',
-			name: 'Acme Ops',
-			slug: 'acme-ops',
-			logo: null,
 		}
+		dbCalls.memberships = [
+			{
+				id: 'org_1',
+				name: 'Acme Ops',
+				slug: 'acme-ops',
+				logo: null,
+				role: 'admin',
+			},
+		]
 		const { app } = await import('../app')
 
 		const res = await app.request('/me')
@@ -103,6 +111,7 @@ describe('GET /me', () => {
 				slug: 'acme-ops',
 				logo: null,
 			},
+			memberships: [{ id: 'org_1', name: 'Acme Ops', slug: 'acme-ops', logo: null, role: 'admin' }],
 		})
 		expect(body).toEqual({
 			session: {
@@ -134,6 +143,7 @@ describe('GET /me', () => {
 				slug: 'acme-ops',
 				logo: null,
 			},
+			memberships: [{ id: 'org_1', name: 'Acme Ops', slug: 'acme-ops', logo: null, role: 'admin' }],
 		})
 	})
 })

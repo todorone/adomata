@@ -4,12 +4,13 @@ import { and, asc, eq, gt, ilike } from 'drizzle-orm'
 
 import { db } from '../db'
 import { invitation, member, users } from '../db/schema'
+import { setActiveAgency } from './activeAgency'
 import { createAuth } from './auth'
 
 export async function acceptPendingInvitation(email: string, sessionToken: string) {
 	const normalizedEmail = email.toLowerCase()
 	const [pendingInvitation] = await db
-		.select({ id: invitation.id })
+		.select({ id: invitation.id, organizationId: invitation.organizationId })
 		.from(invitation)
 		.where(
 			and(
@@ -27,6 +28,7 @@ export async function acceptPendingInvitation(email: string, sessionToken: strin
 		body: { invitationId: pendingInvitation.id },
 		headers: new Headers({ authorization: `Bearer ${sessionToken}` }),
 	})
+	await setActiveAgency(sessionToken, pendingInvitation.organizationId)
 	return true
 }
 

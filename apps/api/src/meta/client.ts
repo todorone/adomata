@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const accountTierFields = [
+const accountTierFallbackFields = [
 	'id',
 	'name',
 	'currency',
@@ -8,9 +8,11 @@ export const accountTierFields = [
 	'account_status',
 	'disable_reason',
 	'balance',
-	'is_prepay_account',
-	'funding_source_details',
 ] as const
+
+const accountTierPrepayFields = [...accountTierFallbackFields, 'is_prepay_account'] as const
+
+export const accountTierFields = [...accountTierPrepayFields, 'funding_source_details'] as const
 
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
@@ -24,7 +26,7 @@ const accountResponseSchema = z.object({
 	account_status: z.number().int(),
 	disable_reason: z.number().int(),
 	balance: z.string(),
-	is_prepay_account: z.boolean(),
+	is_prepay_account: z.boolean().optional(),
 	funding_source_details: z.object({ type: z.number().int() }).nullable().optional(),
 })
 const campaignSchema = z.object({
@@ -96,7 +98,7 @@ export type AccountHealth = {
 	metaAccountStatus: number
 	metaDisableReason: number
 	balance: string
-	isPrepayAccount: boolean
+	isPrepayAccount: boolean | null
 	fundingSourceType: number | null
 	throttle: MetaThrottleObservation
 }
@@ -174,8 +176,22 @@ export class MetaClient {
 	async getAccount(adAccountId: string): Promise<AccountHealth> {
 		const url = this.graphUrl(`/${formatAdAccountId(adAccountId)}`)
 		url.searchParams.set('fields', accountTierFields.join(','))
-		const { payload, throttle } = await this.request(url)
-		return normalizeAccount(payload, throttle)
+		try {
+			const { payload, throttle } = await this.request(url)
+			return normalizeAccount(payload, throttle)
+		} catch (error) {
+			if (!(error instanceof MetaApiError) || error.code !== 10) throw error
+			url.searchParams.set('fields', accountTierPrepayFields.join(','))
+			try {
+				const { payload, throttle } = await this.request(url)
+				return normalizeAccount(payload, throttle)
+			} catch (fallbackError) {
+				if (!(fallbackError instanceof MetaApiError) || fallbackError.code !== 10) throw fallbackError
+				url.searchParams.set('fields', accountTierFallbackFields.join(','))
+				const { payload, throttle } = await this.request(url)
+				return normalizeAccount(payload, throttle)
+			}
+		}
 	}
 
 	listCampaigns(adAccountId: string) {
@@ -331,7 +347,7 @@ function normalizeAccount(payload: unknown, throttle: MetaThrottleObservation): 
 		metaAccountStatus: account.account_status,
 		metaDisableReason: account.disable_reason,
 		balance: account.balance,
-		isPrepayAccount: account.is_prepay_account,
+		isPrepayAccount: account.is_prepay_account ?? null,
 		fundingSourceType: account.funding_source_details?.type ?? null,
 		throttle,
 	}

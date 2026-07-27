@@ -4,6 +4,8 @@ import { MetaApiError, MetaClient } from './client'
 
 const fields =
 	'id,name,currency,timezone_name,account_status,disable_reason,balance,is_prepay_account,funding_source_details'
+const prepayFields = 'id,name,currency,timezone_name,account_status,disable_reason,balance,is_prepay_account'
+const fallbackFields = 'id,name,currency,timezone_name,account_status,disable_reason,balance'
 
 describe('MetaClient', () => {
 	it('makes the strict Account Tier Graph request and normalizes raw signals', async () => {
@@ -42,6 +44,80 @@ describe('MetaClient', () => {
 		expect(request.origin + request.pathname).toBe('https://graph.facebook.com/v25.0/act_100000000000001')
 		expect(request.searchParams.get('fields')).toBe(fields)
 		expect(request.searchParams.get('access_token')).toBe('access token')
+	})
+
+	it('retries without funding-source details after a permission denial', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
+					{ status: 400 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: '100000000000001',
+						name: 'Reporting-only account',
+						currency: 'USD',
+						account_status: 1,
+						disable_reason: 0,
+						balance: '0',
+						is_prepay_account: true,
+						timezone_name: 'Europe/Kyiv',
+					}),
+					{ status: 200 },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'access token', fetch })
+
+		await expect(client.getAccount('100000000000001')).resolves.toMatchObject({
+			isPrepayAccount: true,
+			fundingSourceType: null,
+		})
+
+		expect(new URL(fetch.mock.calls[0][0]).searchParams.get('fields')).toBe(fields)
+		expect(new URL(fetch.mock.calls[1][0]).searchParams.get('fields')).toBe(prepayFields)
+	})
+
+	it('falls back to baseline fields when the prepay flag is also unavailable', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
+					{ status: 400 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
+					{ status: 400 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: '100000000000001',
+						name: 'Analyze-only account',
+						currency: 'USD',
+						account_status: 1,
+						disable_reason: 0,
+						balance: '0',
+						timezone_name: 'Europe/Kyiv',
+					}),
+					{ status: 200 },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'access token', fetch })
+
+		await expect(client.getAccount('100000000000001')).resolves.toMatchObject({
+			isPrepayAccount: null,
+			fundingSourceType: null,
+		})
+
+		expect(new URL(fetch.mock.calls[2][0]).searchParams.get('fields')).toBe(fallbackFields)
 	})
 
 	it('paginates hierarchy through Meta-owned cursors and never double-prefixes account IDs', async () => {
@@ -178,18 +254,21 @@ describe('MetaClient', () => {
 		expect(sleep).toHaveBeenNthCalledWith(2, 2000)
 	})
 
-	it('does not retry permission revocation errors', async () => {
+	it('tries the lower-privilege read once before reporting a permission revocation', async () => {
 		const fetch = vi
 			.fn()
-			.mockResolvedValue(
-				new Response(
-					JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
-					{ status: 400 },
+			.mockImplementation(() =>
+				Promise.resolve(
+					new Response(
+						JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
+						{ status: 400 },
+					),
 				),
 			)
 		const client = new MetaClient({ accessToken: 'token', fetch })
 
 		await expect(client.getAccount('100000000000006')).rejects.toBeInstanceOf(MetaApiError)
-		expect(fetch).toHaveBeenCalledOnce()
+		expect(fetch).toHaveBeenCalledTimes(3)
+		expect(new URL(fetch.mock.calls[2][0]).searchParams.get('fields')).toBe(fallbackFields)
 	})
 })

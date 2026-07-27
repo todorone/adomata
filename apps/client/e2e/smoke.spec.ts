@@ -30,7 +30,7 @@ test('a user can log out from a Fleet Board URL', async ({ page }) => {
 	await page.getByLabel('Email').fill(SUPERADMIN.email)
 	await page.getByLabel('Пароль').fill(SUPERADMIN.password)
 	await page.getByRole('button', { name: 'Увійти' }).click()
-	await expect(page).toHaveURL(/\/$/)
+	await expect(page).toHaveURL(url => url.pathname === '/')
 
 	await page.goto('/?metrics=spend%2Croas&needsAttention=true')
 	await page.getByRole('button', { name: `${SUPERADMIN.name} ${SUPERADMIN.email}` }).click()

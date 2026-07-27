@@ -9,8 +9,11 @@ if (existsSync(new URL('.env', import.meta.url))) {
 	process.loadEnvFile(new URL('.env', import.meta.url).pathname)
 }
 
-const baseURL = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
-const apiURL = process.env['VITE_API_URL'] ?? 'http://localhost:3000'
+// Local E2E uses ports distinct from the normal dev servers. Override either
+// URL when a port is already reserved; strict Vite binding prevents it from
+// silently selecting another port and testing the wrong stack.
+const baseURL = process.env['CLIENT_URL'] ?? 'http://localhost:4173'
+const apiURL = process.env['VITE_API_URL'] ?? 'http://localhost:4000'
 const clientPort = new URL(baseURL).port || '5173'
 const apiPort = new URL(apiURL).port || '3000'
 const e2eSuperadminEmail = process.env['E2E_SUPERADMIN_EMAIL'] ?? process.env['SUPERADMIN_EMAIL'] ?? 'super@adomata.com'
@@ -48,14 +51,14 @@ export default defineConfig({
 			command: 'pnpm dev',
 			cwd: '../api',
 			url: `${apiURL}/health`,
-			reuseExistingServer: true,
+			reuseExistingServer: Boolean(process.env['CI']),
 			timeout: 120_000,
 			env: e2eEnvironment,
 		},
 		{
-			command: `pnpm exec vite dev --port ${clientPort}`,
+			command: `pnpm exec vite dev --strictPort --port ${clientPort}`,
 			url: baseURL,
-			reuseExistingServer: true,
+			reuseExistingServer: Boolean(process.env['CI']),
 			timeout: 120_000,
 			env: e2eEnvironment,
 		},

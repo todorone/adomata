@@ -1,8 +1,8 @@
 // Shared constants + thin HTTP helpers for E2E specs. Everything is seeded
 // through the real API (no DB driver, no test-only endpoints).
 
-export const APP_URL = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
-export const API_URL = process.env['VITE_API_URL'] ?? 'http://localhost:3000'
+export const APP_URL = process.env['CLIENT_URL'] ?? 'http://localhost:4173'
+export const API_URL = process.env['VITE_API_URL'] ?? 'http://localhost:4000'
 
 // Must match the API's SUPERADMIN_EMAIL — that's the only email `/auth/sign-up/email`
 // accepts without a pending invitation (see apps/api/src/logic/auth.ts canSignUpWithEmail).

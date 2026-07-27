@@ -26,4 +26,11 @@ describe('Fleet Board URL state', () => {
 			direction: 'asc',
 		})
 	})
+
+	it('accepts normalized search values after the router serializes them', () => {
+		expect(fleetBoardSearchSchema.parse({ metrics: ['spend', 'roas'], needsAttention: false })).toMatchObject({
+			metrics: ['spend', 'roas'],
+			needsAttention: false,
+		})
+	})
 })

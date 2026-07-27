@@ -4,6 +4,7 @@ import { ChevronsUpDown } from 'lucide-react'
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
@@ -51,7 +52,9 @@ export function TeamSwitcher({
 						side={isMobile ? 'bottom' : 'right'}
 						sideOffset={4}
 					>
-						<DropdownMenuLabel className="text-xs text-muted-foreground">Агенції</DropdownMenuLabel>
+						<DropdownMenuGroup>
+							<DropdownMenuLabel className="text-xs text-muted-foreground">Агенції</DropdownMenuLabel>
+						</DropdownMenuGroup>
 						{teams.map((team, index) => (
 							<DropdownMenuItem key={team.name} onClick={() => setActiveTeam(team)} className="gap-2 p-2">
 								<div className="flex size-6 items-center justify-center rounded-md border">

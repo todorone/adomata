@@ -11,9 +11,6 @@ export function parseMetaConfig(environment: MetaEnvironment = process.env): Met
 		throw new Error('META_API_MODE must be either "fake" or "live"')
 	}
 
-	// Per-Agency tokens now live in organizationSettings (ADR 0028) and are
-	// resolved per Ad Account by the sync loop. This only backs the fake-mode
-	// placeholder client — live mode never reads it, so it's optional here.
 	const accessToken = environment.META_ACCESS_TOKEN?.trim()
 	return { mode, accessToken: accessToken || 'fake-meta-access-token' }
 }

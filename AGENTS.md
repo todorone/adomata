@@ -16,6 +16,10 @@ Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/ag
 
 After completing any task, run `pnpm checks` (type-check, lint, format-check, test) and fix any issues it reports before finishing.
 
+### Dev servers
+
+Kill any local dev servers you launched during the session before finishing.
+
 ## Apps
 
 - `apps/api`

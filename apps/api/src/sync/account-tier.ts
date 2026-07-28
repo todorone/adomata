@@ -34,9 +34,6 @@ export async function runHeartbeat({
 	return { accountTier, insightsTier }
 }
 
-// Fake mode never involves organizationSettings (ADR 0028) — the plain adAccount
-// query keeps its existing shape and buildMetaClient ignores the null token.
-// Live mode resolves each account's Agency token via Client → organizationSettings.
 async function selectDueAccounts(metaMode: 'fake' | 'live', where: SQL | undefined) {
 	if (metaMode === 'fake') {
 		return db

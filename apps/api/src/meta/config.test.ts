@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { parseMetaConfig, requireHeartbeatSecret } from './config'
 
 describe('parseMetaConfig', () => {
-	it('requires a declared fake or live mode', () => {
-		expect(() => parseMetaConfig({})).toThrow('META_API_MODE must be either "fake" or "live"')
-		expect(() => parseMetaConfig({ META_API_MODE: 'preview' })).toThrow(
-			'META_API_MODE must be either "fake" or "live"',
-		)
+	it('defaults to live mode when META_API_MODE is unset or not "fake"', () => {
+		expect(parseMetaConfig({})).toEqual({ mode: 'live', accessToken: 'fake-meta-access-token' })
+		expect(parseMetaConfig({ META_API_MODE: 'preview' })).toEqual({
+			mode: 'live',
+			accessToken: 'fake-meta-access-token',
+		})
 	})
 
 	it('does not require META_ACCESS_TOKEN in live mode (tokens are per-Agency)', () => {

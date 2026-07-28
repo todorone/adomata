@@ -1,5 +1,6 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { APIError, betterAuth } from 'better-auth'
+import { admin } from 'better-auth/plugins/admin'
 import { bearer } from 'better-auth/plugins/bearer'
 import { organization } from 'better-auth/plugins/organization'
 import { and, eq, gt } from 'drizzle-orm'
@@ -64,16 +65,6 @@ export function createAuth() {
 		emailAndPassword: {
 			enabled: true,
 			requireEmailVerification: true,
-		},
-		user: {
-			additionalFields: {
-				role: {
-					type: 'string',
-					defaultValue: 'user',
-					// Only ever set by the create.before hook below, never from client input.
-					input: false,
-				},
-			},
 		},
 		emailVerification: {
 			sendOnSignUp: true,
@@ -143,6 +134,10 @@ export function createAuth() {
 		},
 		plugins: [
 			bearer(),
+			admin({
+				defaultRole: 'user',
+				adminRoles: ['super'],
+			}),
 			organization({
 				invitationExpiresIn: 60 * 60 * 24 * 7,
 				allowUserToCreateOrganization: false,

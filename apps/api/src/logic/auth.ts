@@ -136,6 +136,12 @@ export function createAuth() {
 					beforeAddMember: async ({ member }) => assertOrganizationRole(member.role),
 					beforeUpdateMemberRole: async ({ newRole }) => assertOrganizationRole(newRole),
 					beforeCreateInvitation: async ({ invitation }) => assertOrganizationRole(invitation.role),
+					afterCancelInvitation: async ({ invitation: inv }) => {
+						await db.delete(invitation).where(eq(invitation.id, inv.id))
+					},
+					afterRejectInvitation: async ({ invitation: inv }) => {
+						await db.delete(invitation).where(eq(invitation.id, inv.id))
+					},
 				},
 				sendInvitationEmail: async ({ email, organization, inviter, role }) => {
 					await sendInvitationEmail({

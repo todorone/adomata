@@ -18,13 +18,14 @@ export function SignUpForm({ initialEmail = '' }: SignUpFormProps) {
 	const [password, setPassword] = useState('')
 	const [error, setError] = useState<string | null>(null)
 	const [loading, setLoading] = useState(false)
+	const [checkEmail, setCheckEmail] = useState(false)
 
 	async function handleSubmit(event: React.FormEvent) {
 		event.preventDefault()
 		setError(null)
 		setLoading(true)
 
-		const { error: signUpError } = await authClient.signUp.email({ name, email, password })
+		const { data, error: signUpError } = await authClient.signUp.email({ name, email, password })
 
 		setLoading(false)
 
@@ -33,8 +34,27 @@ export function SignUpForm({ initialEmail = '' }: SignUpFormProps) {
 			return
 		}
 
+		if (!data?.token) {
+			setCheckEmail(true)
+			return
+		}
+
 		await refreshCachedSession()
 		await router.navigate({ to: '/' })
+	}
+
+	if (checkEmail) {
+		return (
+			<div className="flex flex-col gap-4 text-center">
+				<h1 className="text-2xl font-bold tracking-tight">Перевірте електронну пошту</h1>
+				<p className="text-muted-foreground text-sm">
+					Ми надіслали посилання для підтвердження на {email}. Підтвердьте адресу, а потім увійдіть.
+				</p>
+				<Button className="w-full" onClick={() => router.navigate({ to: '/login' })}>
+					Перейти до входу
+				</Button>
+			</div>
+		)
 	}
 
 	return (

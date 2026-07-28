@@ -5,7 +5,7 @@ import { and, eq, asc } from 'drizzle-orm'
 import { db } from '../db'
 import { invitation, member, organization, users } from '../db/schema'
 import { wipeDatabase } from '../db/wipe'
-import { createAuth, requireAuth } from '../logic/auth'
+import { createAuth, requireAuth, requireVerifiedAuth } from '../logic/auth'
 import { HQ_SLUG } from '../logic/hq'
 import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
 import {
@@ -37,7 +37,7 @@ function serializeOrganization(org: typeof organization.$inferSelect) {
 
 const adminHono = new Hono()
 
-adminHono.use('*', requireAuth)
+adminHono.use('*', requireAuth, requireVerifiedAuth)
 
 const withCreateOrganizationRoutes = adminHono.post(
 	'/organizations',

@@ -45,6 +45,7 @@ vi.mock('../logic/auth', () => ({
 		return next()
 	}),
 	requireOrg: createMiddleware(async (_c, next) => next()),
+	requireVerifiedAuth: createMiddleware(async (_c, next) => next()),
 }))
 
 const now = new Date('2025-06-01T00:00:00.000Z')

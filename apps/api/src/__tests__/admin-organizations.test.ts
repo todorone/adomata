@@ -58,6 +58,7 @@ vi.mock('../logic/auth', () => ({
 		return next()
 	}),
 	requireOrg: createMiddleware(async (_c, next) => next()),
+	requireVerifiedAuth: createMiddleware(async (_c, next) => next()),
 }))
 
 vi.mock('../db', () => ({

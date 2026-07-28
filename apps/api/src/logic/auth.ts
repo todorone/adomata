@@ -8,9 +8,11 @@ import { createMiddleware } from 'hono/factory'
 import { db } from '../db'
 import * as schema from '../db/schema'
 import { invitation } from '../db/schema'
+import { isAdomataEmail } from './adomataEmail'
 import { restoreActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
-import { sendInvitationEmail } from './email'
+import { sendInvitationEmail, sendVerificationEmail } from './email'
+import { isSuperadmin } from './superadmin'
 
 export type AuthSession = {
 	session: {
@@ -60,6 +62,15 @@ export function createAuth() {
 		}),
 		emailAndPassword: {
 			enabled: true,
+			requireEmailVerification: true,
+		},
+		emailVerification: {
+			sendOnSignUp: true,
+			sendOnSignIn: true,
+			sendVerificationEmail: async ({ user, url }) => {
+				if (skipsEmailVerification(user.email)) return
+				await sendVerificationEmail({ email: user.email, name: user.name, url })
+			},
 		},
 		trustedOrigins: request => {
 			const base = ['https://appleid.apple.com', 'https://*.adomata.com']
@@ -96,6 +107,9 @@ export function createAuth() {
 					before: async user => {
 						if (!(await canSignUpWithEmail(user.email))) {
 							return false
+						}
+						if (skipsEmailVerification(user.email)) {
+							return { data: { ...user, emailVerified: true } }
 						}
 					},
 				},
@@ -158,6 +172,13 @@ export async function canSignUpWithEmail(email: string) {
 	return pendingInvitation.length > 0
 }
 
+// Accounts that bypass email confirmation and are signed in immediately: the configured
+// superadmin (whose initial sign-up happens right after env creation, before any mailbox
+// exists to confirm) and @adomata.com staff accounts, which are trusted by domain.
+export function skipsEmailVerification(email: string) {
+	return isSuperadmin(email) || isAdomataEmail(email)
+}
+
 export const requireAuth = createMiddleware(async (c, next) => {
 	const session = (await createAuth().api.getSession({
 		headers: c.req.raw.headers,
@@ -168,6 +189,15 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)
+
+	return next()
+})
+
+export const requireVerifiedAuth = createMiddleware(async (c, next) => {
+	const authSession = c.get('authSession')
+	if (!authSession.user.emailVerified) {
+		return apiError(c, 'FORBIDDEN', { message: 'Потрібне підтвердження електронної пошти' })
+	}
 
 	return next()
 })

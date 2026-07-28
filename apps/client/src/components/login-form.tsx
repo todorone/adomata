@@ -6,6 +6,16 @@ import { Label } from '@/ui/label'
 import { authClient } from '@/lib/auth-client'
 import { refreshCachedSession } from '@/data/session'
 
+function signInErrorMessage(message?: string) {
+	if (message?.toLowerCase().includes('invalid email or password')) {
+		return 'Неправильний email або пароль'
+	}
+	if (message?.toLowerCase().includes('verif')) {
+		return 'Перевірте електронну пошту, щоб підтвердити обліковий запис'
+	}
+	return message ?? 'Неправильний email або пароль'
+}
+
 export function LoginForm() {
 	const router = useRouter()
 	const [email, setEmail] = useState('')
@@ -26,7 +36,7 @@ export function LoginForm() {
 		setLoading(false)
 
 		if (signInError) {
-			setError(signInError.message ?? 'Неправильний email або пароль')
+			setError(signInErrorMessage(signInError.message))
 			return
 		}
 

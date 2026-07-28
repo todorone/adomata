@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { member, organization } from '../db/schema'
 import { setActiveAgency } from '../logic/activeAgency'
-import { requireAuth } from '../logic/auth'
+import { requireAuth, requireVerifiedAuth } from '../logic/auth'
 import { apiError } from '../logic/apiError'
 import { isSuperadmin } from '../logic/superadmin'
 import { meResponseSchema } from '../client/me'
@@ -18,7 +18,7 @@ function serializeDate(value: Date) {
 
 const meHono = new Hono()
 
-meHono.use('*', requireAuth)
+meHono.use('*', requireAuth, requireVerifiedAuth)
 
 const withGetMeRoute = meHono.get('/', async c => {
 	const authSession = c.get('authSession')

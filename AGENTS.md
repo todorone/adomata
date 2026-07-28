@@ -27,7 +27,7 @@ All user-facing application text (UI copy, labels, placeholders, button text, er
 
 ## Testing accounts
 
-- Local/dev superuser: `email: pmahotsava@gmail.com | password: smartdrv0`.
+- Local/dev superuser: `email: super@adomata.com | password: smartdrv0`.
 - Production superuser (https://api.adomata.com): `email: pmahotsava@gmail.com | password: smartdrv0`.
 
 ## Code guidelines

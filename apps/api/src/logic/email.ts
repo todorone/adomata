@@ -95,3 +95,25 @@ export async function sendInvitationEmail(params: {
 
 	await sendEmail({ to: params.email, subject, text, html })
 }
+
+export async function sendVerificationEmail(params: { email: string; name?: string | null; url: string }) {
+	const subject = 'Підтвердіть електронну пошту Adomata'
+	const greeting = params.name ? `Вітаємо, ${params.name}!` : 'Вітаємо!'
+	const text = [
+		greeting,
+		'',
+		'Підтвердіть електронну адресу, щоб завершити налаштування облікового запису Adomata.',
+		'',
+		params.url,
+		'',
+		'Якщо ви не робили цей запит, просто проігноруйте лист.',
+	].join('\n')
+	const html = [
+		`<p>${escapeHtml(greeting)}</p>`,
+		'<p>Підтвердіть електронну адресу, щоб завершити налаштування облікового запису Adomata.</p>',
+		`<p><a href="${escapeHtml(params.url)}">Підтвердити пошту</a></p>`,
+		'<p>Якщо ви не робили цей запит, просто проігноруйте лист.</p>',
+	].join('')
+
+	await sendEmail({ to: params.email, subject, text, html })
+}

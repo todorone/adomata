@@ -12,7 +12,7 @@ import { logger } from '../core/logger'
 import { db } from '../db'
 import { ad, adAccount, adCreative, adSet, campaign, client } from '../db/schema'
 import { apiError } from '../logic/apiError'
-import { requireAuth, requireOrg } from '../logic/auth'
+import { requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import {
 	normalizeCreative,
 	readCreative,
@@ -69,7 +69,7 @@ const mediaRoute = createRoute({
 })
 
 const fleetBoardBase = new OpenAPIHono()
-fleetBoardBase.use('*', requireAuth, requireOrg)
+fleetBoardBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
 export const fleetBoardRoutes = fleetBoardBase
 	.openapi(rootRoute, async c => {

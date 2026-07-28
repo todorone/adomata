@@ -129,6 +129,20 @@ export const fakeMetaHandlers = [
 			return graphContractError('Unsupported /me fields requested')
 		return HttpResponse.json({ id: 'fake-user', name: 'Fake Meta User' })
 	}),
+	http.get(`${graph}/me/adaccounts`, ({ request }) => {
+		if (!requireToken(request)) return graphContractError('Missing access token')
+		if (new URL(request.url).searchParams.get('fields') !== 'id,name,currency,timezone_name')
+			return graphContractError('Unsupported Ad Account fields requested')
+		return paginate(
+			request,
+			fakeMetaAccounts.map(account => ({
+				id: account.id,
+				name: account.name,
+				currency: account.currency,
+				timezone_name: account.timezoneName,
+			})),
+		)
+	}),
 	http.get(`${graph}/:adId`, ({ params, request }) => {
 		const id = String(params.adId)
 		const url = new URL(request.url)

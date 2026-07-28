@@ -50,6 +50,12 @@ const adSchema = z.object({
 	name: z.string(),
 	effective_status: z.string(),
 })
+const adAccountSummarySchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	currency: z.string(),
+	timezone_name: z.string().nullable().optional(),
+})
 const creativeResponseSchema = z.object({
 	id: z.string(),
 	name: z.string().nullable().optional(),
@@ -114,6 +120,7 @@ export type MetaAdSet = {
 	resultActionType: string | null
 }
 export type MetaAd = { id: string; adSetId: string; name: string; effectiveStatus: string }
+export type MetaAdAccount = { id: string; name: string; currency: string; timezoneName: string | null }
 export type MetaCreative = { id: string; adId: string; name: string | null; payload: Record<string, unknown> }
 export type MetaAction = z.infer<typeof actionItemSchema>
 export type MetaDailyInsight = {
@@ -244,6 +251,15 @@ export class MetaClient {
 				effectiveStatus: ad.effective_status,
 			}),
 		)
+	}
+
+	listAdAccounts() {
+		return this.listPage('/me/adaccounts', 'id,name,currency,timezone_name', adAccountSummarySchema, account => ({
+			id: formatAdAccountId(account.id),
+			name: account.name,
+			currency: account.currency,
+			timezoneName: account.timezone_name ?? null,
+		}))
 	}
 
 	async getCreative(adId: string): Promise<MetaCreative | null> {

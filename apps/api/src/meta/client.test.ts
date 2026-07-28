@@ -156,6 +156,45 @@ describe('MetaClient', () => {
 		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,effective_status,objective')
 	})
 
+	it('lists Ad Accounts and normalizes missing timezones to null', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						data: [
+							{
+								id: 'act_100000000000001',
+								name: 'Funded prepay',
+								currency: 'USD',
+								timezone_name: 'Europe/Kyiv',
+							},
+						],
+						paging: { next: 'https://graph.facebook.com/v25.0/me/adaccounts?after=page-2' },
+					}),
+					{ status: 200 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ data: [{ id: '100000000000002', name: 'No timezone yet', currency: 'USD' }] }),
+					{ status: 200 },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.listAdAccounts()).resolves.toMatchObject({
+			items: [
+				{ id: 'act_100000000000001', name: 'Funded prepay', currency: 'USD', timezoneName: 'Europe/Kyiv' },
+				{ id: 'act_100000000000002', name: 'No timezone yet', currency: 'USD', timezoneName: null },
+			],
+		})
+
+		const [firstUrl] = fetch.mock.calls[0] as [string]
+		expect(new URL(firstUrl).pathname).toBe('/v25.0/me/adaccounts')
+		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,currency,timezone_name')
+	})
+
 	it('rejects an untrusted pagination cursor before requesting it', async () => {
 		const fetch = vi.fn().mockResolvedValue(
 			new Response(

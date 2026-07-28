@@ -79,6 +79,7 @@ vi.mock('../logic/auth', () => ({
 		})
 		return next()
 	}),
+	isOwner: (member: { role: string }) => member.role === 'owner',
 }))
 
 beforeEach(() => {

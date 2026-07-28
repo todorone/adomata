@@ -10,8 +10,7 @@ import {
 import { db } from '../db'
 import { organizationSettings } from '../db/schema'
 import { apiError } from '../logic/apiError'
-import { requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
-import type { OrgMember } from '../logic/auth'
+import { isOwner, requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import { MetaApiError } from '../meta/client'
 import { getHeartbeatDependencies } from '../sync/runtime'
 
@@ -45,10 +44,6 @@ const putRoute = createRoute({
 
 const organizationSettingsBase = new OpenAPIHono()
 organizationSettingsBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
-
-function isOwner(member: OrgMember) {
-	return member.role === 'owner'
-}
 
 export const organizationSettingsRoutes = organizationSettingsBase
 	.openapi(getRoute, async c => {

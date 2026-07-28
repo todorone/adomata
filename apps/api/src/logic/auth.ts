@@ -45,6 +45,10 @@ export type OrgMember = {
 	role: 'owner' | 'admin' | 'member'
 }
 
+export function isOwner(member: OrgMember) {
+	return member.role === 'owner'
+}
+
 const ORGANIZATION_ROLES = ['owner', 'admin', 'member'] as const
 
 function assertOrganizationRole(role: string) {

@@ -8,6 +8,7 @@ import { wipeDatabase } from '../db/wipe'
 import { createAuth, requireAuth, requireVerifiedAuth } from '../logic/auth'
 import { HQ_SLUG } from '../logic/hq'
 import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
+import { isSuperadminRole } from '../logic/superadmin'
 import {
 	adminOrganizationsResponseSchema,
 	createAdminOrganizationBodySchema,
@@ -20,10 +21,6 @@ import {
 	updateAdminUserResponseSchema,
 } from '../client/admin/users'
 import { apiError } from '../logic/apiError'
-
-function isSuperadmin(email: string, superadminEmail?: string) {
-	return Boolean(superadminEmail && email.toLowerCase() === superadminEmail.toLowerCase())
-}
 
 function serializeOrganization(org: typeof organization.$inferSelect) {
 	return {
@@ -46,9 +43,9 @@ const withCreateOrganizationRoutes = adminHono.post(
 			return apiError(c, 'BAD_REQUEST', { message: 'Invalid request', details: result.error.issues })
 	}),
 	async c => {
-		const { email: callerEmail, id: callerId } = c.get('authSession').user
+		const { email: callerEmail, id: callerId, role: callerRole } = c.get('authSession').user
 
-		if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+		if (!isSuperadminRole(callerRole)) {
 			return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 		}
 
@@ -97,9 +94,9 @@ const withCreateOrganizationRoutes = adminHono.post(
 )
 
 const withListOrganizationRoutes = withCreateOrganizationRoutes.get('/organizations', async c => {
-	const { email: callerEmail } = c.get('authSession').user
+	const { role: callerRole } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(callerRole)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
@@ -108,9 +105,9 @@ const withListOrganizationRoutes = withCreateOrganizationRoutes.get('/organizati
 })
 
 const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', async c => {
-	const { email: callerEmail } = c.get('authSession').user
+	const { role: callerRole } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(callerRole)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
@@ -142,9 +139,9 @@ const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', 
 })
 
 const withDeleteOrganizationRoutes = withListInvitationRoutes.delete('/organizations/:id', async c => {
-	const { email: callerEmail } = c.get('authSession').user
+	const { role: callerRole } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(callerRole)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
@@ -153,9 +150,9 @@ const withDeleteOrganizationRoutes = withListInvitationRoutes.delete('/organizat
 })
 
 const withListUsersRoutes = withDeleteOrganizationRoutes.get('/users', async c => {
-	const { email: callerEmail } = c.get('authSession').user
+	const { role: callerRole } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(callerRole)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
@@ -178,9 +175,9 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 			return apiError(c, 'BAD_REQUEST', { message: 'Invalid request', details: result.error.issues })
 	}),
 	async c => {
-		const { email: callerEmail } = c.get('authSession').user
+		const { role: callerRole } = c.get('authSession').user
 
-		if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+		if (!isSuperadminRole(callerRole)) {
 			return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 		}
 
@@ -208,9 +205,9 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 )
 
 const withWipeDatabaseRoutes = withUpdateUserRoutes.delete('/database', async c => {
-	const { email } = c.get('authSession').user
+	const { role } = c.get('authSession').user
 
-	if (!isSuperadmin(email, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(role)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 
@@ -219,9 +216,9 @@ const withWipeDatabaseRoutes = withUpdateUserRoutes.delete('/database', async c 
 })
 
 export const adminRoutes = withWipeDatabaseRoutes.delete('/users/:id', async c => {
-	const { email: callerEmail } = c.get('authSession').user
+	const { role: callerRole } = c.get('authSession').user
 
-	if (!isSuperadmin(callerEmail, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadminRole(callerRole)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 

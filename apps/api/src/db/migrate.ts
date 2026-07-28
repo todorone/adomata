@@ -9,9 +9,6 @@ if (!connectionString) {
 	process.exit(1)
 }
 
-// Dedicated single-use connection, separate from the app's pool. A one-shot
-// migration process should not spin up the runtime pool, and a single
-// connection is the recommended setup for applying migrations.
 const sql = new SQL({ url: connectionString, max: 1 })
 const db = drizzle({ client: sql })
 

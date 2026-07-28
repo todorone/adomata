@@ -22,6 +22,20 @@
       "when": 1785081272768,
       "tag": "0002_open_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785211461285,
+      "tag": "0003_high_gravity",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785212980018,
+      "tag": "0004_dizzy_random",
+      "breakpoints": true
     }
   ]
 }

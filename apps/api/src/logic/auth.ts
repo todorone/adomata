@@ -1,5 +1,7 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { APIError, betterAuth } from 'better-auth'
+import { admin } from 'better-auth/plugins/admin'
+import { adminAc, userAc } from 'better-auth/plugins/admin/access'
 import { bearer } from 'better-auth/plugins/bearer'
 import { organization } from 'better-auth/plugins/organization'
 import { and, eq, gt } from 'drizzle-orm'
@@ -12,7 +14,7 @@ import { isAdomataEmail } from './adomataEmail'
 import { restoreActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
 import { sendInvitationEmail, sendVerificationEmail } from './email'
-import { isSuperadmin } from './superadmin'
+import { isBootstrapSuperadminEmail } from './superadmin'
 
 export type AuthSession = {
 	session: {
@@ -28,6 +30,7 @@ export type AuthSession = {
 		id: string
 		email: string
 		emailVerified: boolean
+		role: 'user' | 'super'
 		name: string
 		image?: string | null
 		createdAt: Date
@@ -108,8 +111,11 @@ export function createAuth() {
 						if (!(await canSignUpWithEmail(user.email))) {
 							return false
 						}
-						if (skipsEmailVerification(user.email)) {
-							return { data: { ...user, emailVerified: true } }
+						const overrides: { emailVerified?: boolean; role?: 'user' | 'super' } = {}
+						if (skipsEmailVerification(user.email)) overrides.emailVerified = true
+						if (isBootstrapSuperadminEmail(user.email)) overrides.role = 'super'
+						if (Object.keys(overrides).length > 0) {
+							return { data: { ...user, ...overrides } }
 						}
 					},
 				},
@@ -118,17 +124,24 @@ export function createAuth() {
 				create: {
 					after: async session => {
 						const [user] = await db
-							.select({ email: schema.users.email })
+							.select({ role: schema.users.role })
 							.from(schema.users)
 							.where(eq(schema.users.id, session.userId))
 							.limit(1)
-						if (user) await restoreActiveAgency(session, user.email)
+						if (user) await restoreActiveAgency(session, user.role)
 					},
 				},
 			},
 		},
 		plugins: [
 			bearer(),
+			admin({
+				defaultRole: 'user',
+				adminRoles: ['super'],
+				// Renames the plugin's built-in 'admin' role to 'super', since 'admin' already
+				// means an organization-member role (member.role) elsewhere in this codebase.
+				roles: { user: userAc, super: adminAc },
+			}),
 			organization({
 				invitationExpiresIn: 60 * 60 * 24 * 7,
 				allowUserToCreateOrganization: false,
@@ -159,7 +172,7 @@ export function createAuth() {
 export async function canSignUpWithEmail(email: string) {
 	const normalizedEmail = email.toLowerCase()
 
-	if (process.env.SUPERADMIN_EMAIL && normalizedEmail === process.env.SUPERADMIN_EMAIL.toLowerCase()) {
+	if (isBootstrapSuperadminEmail(normalizedEmail)) {
 		return true
 	}
 
@@ -182,7 +195,7 @@ export async function canSignUpWithEmail(email: string) {
 // superadmin (whose initial sign-up happens right after env creation, before any mailbox
 // exists to confirm) and @adomata.com staff accounts, which are trusted by domain.
 export function skipsEmailVerification(email: string) {
-	return isSuperadmin(email) || isAdomataEmail(email)
+	return isBootstrapSuperadminEmail(email) || isAdomataEmail(email)
 }
 
 export const requireAuth = createMiddleware(async (c, next) => {
@@ -191,7 +204,7 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
-	const activeAgencyId = await restoreActiveAgency(session.session, session.user.email)
+	const activeAgencyId = await restoreActiveAgency(session.session, session.user.role)
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)

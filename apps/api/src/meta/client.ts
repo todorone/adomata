@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const accountTierFallbackFields = [
+export const accountTierFallbackFields = [
 	'id',
 	'name',
 	'currency',
@@ -10,7 +10,7 @@ const accountTierFallbackFields = [
 	'balance',
 ] as const
 
-const accountTierPrepayFields = [...accountTierFallbackFields, 'is_prepay_account'] as const
+export const accountTierPrepayFields = [...accountTierFallbackFields, 'is_prepay_account'] as const
 
 export const accountTierFields = [...accountTierPrepayFields, 'funding_source_details'] as const
 

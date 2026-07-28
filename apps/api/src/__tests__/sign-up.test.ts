@@ -41,6 +41,7 @@ vi.mock('../logic/auth', () => ({
 				id: 'user_1',
 				email: 'user@example.com',
 				emailVerified: true,
+				role: 'user',
 				name: 'Test User',
 				createdAt: new Date(),
 				updatedAt: new Date(),

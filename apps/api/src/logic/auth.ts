@@ -12,7 +12,7 @@ import { isAdomataEmail } from './adomataEmail'
 import { restoreActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
 import { sendInvitationEmail, sendVerificationEmail } from './email'
-import { isSuperadmin } from './superadmin'
+import { isBootstrapSuperadminEmail } from './superadmin'
 
 export type AuthSession = {
 	session: {
@@ -28,6 +28,7 @@ export type AuthSession = {
 		id: string
 		email: string
 		emailVerified: boolean
+		role: 'user' | 'super'
 		name: string
 		image?: string | null
 		createdAt: Date
@@ -63,6 +64,16 @@ export function createAuth() {
 		emailAndPassword: {
 			enabled: true,
 			requireEmailVerification: true,
+		},
+		user: {
+			additionalFields: {
+				role: {
+					type: 'string',
+					defaultValue: 'user',
+					// Only ever set by the create.before hook below, never from client input.
+					input: false,
+				},
+			},
 		},
 		emailVerification: {
 			sendOnSignUp: true,
@@ -108,8 +119,11 @@ export function createAuth() {
 						if (!(await canSignUpWithEmail(user.email))) {
 							return false
 						}
-						if (skipsEmailVerification(user.email)) {
-							return { data: { ...user, emailVerified: true } }
+						const overrides: { emailVerified?: boolean; role?: 'user' | 'super' } = {}
+						if (skipsEmailVerification(user.email)) overrides.emailVerified = true
+						if (isBootstrapSuperadminEmail(user.email)) overrides.role = 'super'
+						if (Object.keys(overrides).length > 0) {
+							return { data: { ...user, ...overrides } }
 						}
 					},
 				},
@@ -118,11 +132,11 @@ export function createAuth() {
 				create: {
 					after: async session => {
 						const [user] = await db
-							.select({ email: schema.users.email })
+							.select({ role: schema.users.role })
 							.from(schema.users)
 							.where(eq(schema.users.id, session.userId))
 							.limit(1)
-						if (user) await restoreActiveAgency(session, user.email)
+						if (user) await restoreActiveAgency(session, user.role)
 					},
 				},
 			},
@@ -159,7 +173,7 @@ export function createAuth() {
 export async function canSignUpWithEmail(email: string) {
 	const normalizedEmail = email.toLowerCase()
 
-	if (process.env.SUPERADMIN_EMAIL && normalizedEmail === process.env.SUPERADMIN_EMAIL.toLowerCase()) {
+	if (isBootstrapSuperadminEmail(normalizedEmail)) {
 		return true
 	}
 
@@ -182,7 +196,7 @@ export async function canSignUpWithEmail(email: string) {
 // superadmin (whose initial sign-up happens right after env creation, before any mailbox
 // exists to confirm) and @adomata.com staff accounts, which are trusted by domain.
 export function skipsEmailVerification(email: string) {
-	return isSuperadmin(email) || isAdomataEmail(email)
+	return isBootstrapSuperadminEmail(email) || isAdomataEmail(email)
 }
 
 export const requireAuth = createMiddleware(async (c, next) => {
@@ -191,7 +205,7 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
-	const activeAgencyId = await restoreActiveAgency(session.session, session.user.email)
+	const activeAgencyId = await restoreActiveAgency(session.session, session.user.role)
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)

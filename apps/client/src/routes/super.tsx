@@ -1,12 +1,14 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 
+import { meQueries } from '@/data/me'
 import { requireSession } from '@/data/session'
+import { queryClient } from '@/data/core/queryClient'
 
 export const Route = createFileRoute('/super')({
 	beforeLoad: async () => {
-		const session = await requireSession()
-		const superadminEmail = import.meta.env.VITE_SUPERADMIN_EMAIL as string | undefined
-		if (superadminEmail && session.user.email.toLowerCase() !== superadminEmail.toLowerCase()) {
+		await requireSession()
+		const me = await queryClient.ensureQueryData(meQueries.current())
+		if (!me.isSuperadmin) {
 			throw redirect({ to: '/' })
 		}
 	},

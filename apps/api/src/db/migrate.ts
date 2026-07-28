@@ -20,6 +20,13 @@ let failed = false
 try {
 	await migrate(db, { migrationsFolder: './drizzle' })
 	console.log('migrations applied')
+
+	// Self-healing backfill: keeps the configured superadmin's role in sync with
+	// SUPERADMIN_EMAIL, so promoting the column from an env-var check never locks
+	// out an already-existing account (e.g. right after this migration first runs).
+	if (process.env.SUPERADMIN_EMAIL) {
+		await sql`UPDATE "user" SET role = 'super' WHERE lower(email) = lower(${process.env.SUPERADMIN_EMAIL})`
+	}
 } catch (err) {
 	console.error('migration failed:', err)
 	failed = true

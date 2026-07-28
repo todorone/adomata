@@ -19,6 +19,9 @@ export const users = pgTable(
 		name: text().notNull(),
 		email: text().notNull(),
 		emailVerified: boolean().notNull().default(false),
+		role: text({ enum: ['user', 'super'] })
+			.notNull()
+			.default('user'),
 		image: text(),
 		createdAt: timestamp({ withTimezone: true }).notNull(),
 		updatedAt: timestamp({ withTimezone: true }).notNull(),

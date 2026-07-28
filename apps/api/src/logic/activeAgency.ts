@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../db'
 import { member, sessions } from '../db/schema'
 import { ensureSuperadminHq } from './hq'
-import { isSuperadmin } from './superadmin'
+import { isSuperadminRole } from './superadmin'
 
 async function firstMembershipForUser(userId: string) {
 	const [membership] = await db
@@ -26,11 +26,11 @@ export async function restoreActiveAgency(
 		userId: string
 		activeOrganizationId?: string | null
 	},
-	email: string,
+	role: string,
 ) {
 	if (session.activeOrganizationId) return session.activeOrganizationId
 
-	const agencyId = isSuperadmin(email)
+	const agencyId = isSuperadminRole(role)
 		? await ensureSuperadminHq(session.userId)
 		: (await firstMembershipForUser(session.userId))?.organizationId
 	if (!agencyId) return null

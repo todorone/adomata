@@ -63,27 +63,27 @@ describe('DELETE /admin/database', () => {
 		expect(wipeDatabase).not.toHaveBeenCalled()
 	})
 
-	it('rejects non-superadmin and unverified callers', async () => {
-		const rejectedRequests: Record<string, string>[] = [
-			{ 'x-test-user-email': 'member@example.com' },
-			{ 'x-test-user-email': 'admin@example.com', 'x-test-email-verified': 'false' },
-		]
-		for (const headers of rejectedRequests) {
-			const res = await app.request('/admin/database', { method: 'DELETE', headers })
+	it('rejects non-superadmin callers', async () => {
+		const res = await app.request('/admin/database', {
+			method: 'DELETE',
+			headers: { 'x-test-user-email': 'member@example.com' },
+		})
 
-			expect(res.status).toBe(403)
-			expect(apiErrorSchema.parse(await res.json()).error.code).toBe('FORBIDDEN')
-		}
+		expect(res.status).toBe(403)
+		expect(apiErrorSchema.parse(await res.json()).error.code).toBe('FORBIDDEN')
 		expect(wipeDatabase).not.toHaveBeenCalled()
 	})
 
-	it('wipes every table for a verified superadmin', async () => {
-		const res = await app.request('/admin/database', {
-			method: 'DELETE',
-			headers: { 'x-test-user-email': 'admin@example.com' },
-		})
+	it('wipes every table for a superadmin, verified or not', async () => {
+		const requests: Record<string, string>[] = [
+			{ 'x-test-user-email': 'admin@example.com' },
+			{ 'x-test-user-email': 'admin@example.com', 'x-test-email-verified': 'false' },
+		]
+		for (const headers of requests) {
+			const res = await app.request('/admin/database', { method: 'DELETE', headers })
 
-		expect(res.status).toBe(204)
-		expect(wipeDatabase).toHaveBeenCalledOnce()
+			expect(res.status).toBe(204)
+		}
+		expect(wipeDatabase).toHaveBeenCalledTimes(2)
 	})
 })

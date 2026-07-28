@@ -208,9 +208,9 @@ const withUpdateUserRoutes = withListUsersRoutes.patch(
 )
 
 const withWipeDatabaseRoutes = withUpdateUserRoutes.delete('/database', async c => {
-	const { email, emailVerified } = c.get('authSession').user
+	const { email } = c.get('authSession').user
 
-	if (!emailVerified || !isSuperadmin(email, process.env.SUPERADMIN_EMAIL)) {
+	if (!isSuperadmin(email, process.env.SUPERADMIN_EMAIL)) {
 		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
 	}
 

@@ -36,6 +36,16 @@ export async function signInOrSignUp({ name, email, password }: Credentials) {
 		throw new Error(`sign-up failed for ${email}: ${signUp.status} ${await signUp.text()}`)
 	}
 	const signUpToken = signUp.headers.get('set-auth-token')
-	if (!signUpToken) throw new Error(`no set-auth-token header after sign-up for ${email}`)
-	return signUpToken
+	if (signUpToken) return signUpToken
+
+	// better-auth withholds a session on sign-up whenever emailVerification.sendOnSignUp
+	// is on, even for accounts the API immediately marks emailVerified (SUPERADMIN_EMAIL,
+	// @adomata.com) — same "check your email" UX the sign-up form shows real users. Those
+	// accounts can sign in right away, so do that instead of treating it as a failure.
+	const signInAfterSignUp = await postAuth('sign-in/email', { email, password })
+	const tokenAfterSignUp = signInAfterSignUp.ok ? signInAfterSignUp.headers.get('set-auth-token') : null
+	if (!tokenAfterSignUp) {
+		throw new Error(`no set-auth-token header after sign-up+sign-in for ${email}: ${await signInAfterSignUp.text()}`)
+	}
+	return tokenAfterSignUp
 }

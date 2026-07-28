@@ -1,6 +1,7 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { APIError, betterAuth } from 'better-auth'
 import { admin } from 'better-auth/plugins/admin'
+import { adminAc, userAc } from 'better-auth/plugins/admin/access'
 import { bearer } from 'better-auth/plugins/bearer'
 import { organization } from 'better-auth/plugins/organization'
 import { and, eq, gt } from 'drizzle-orm'
@@ -137,6 +138,9 @@ export function createAuth() {
 			admin({
 				defaultRole: 'user',
 				adminRoles: ['super'],
+				// Renames the plugin's built-in 'admin' role to 'super', since 'admin' already
+				// means an organization-member role (member.role) elsewhere in this codebase.
+				roles: { user: userAc, super: adminAc },
 			}),
 			organization({
 				invitationExpiresIn: 60 * 60 * 24 * 7,

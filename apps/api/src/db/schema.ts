@@ -22,6 +22,11 @@ export const users = pgTable(
 		role: text({ enum: ['user', 'super'] })
 			.notNull()
 			.default('user'),
+		// better-auth's admin plugin: unused (no ban UI), but it sets these on every
+		// user creation regardless, so the columns must exist.
+		banned: boolean(),
+		banReason: text(),
+		banExpires: timestamp({ withTimezone: true }),
 		image: text(),
 		createdAt: timestamp({ withTimezone: true }).notNull(),
 		updatedAt: timestamp({ withTimezone: true }).notNull(),
@@ -41,6 +46,8 @@ export const sessions = pgTable(
 		ipAddress: text(),
 		userAgent: text(),
 		activeOrganizationId: text(),
+		// better-auth's admin plugin: unused (no impersonation UI), set only when impersonating.
+		impersonatedBy: text(),
 		userId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),

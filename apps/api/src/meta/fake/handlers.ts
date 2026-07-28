@@ -1,6 +1,6 @@
 import { HttpResponse, http } from 'msw'
 
-import { accountTierFields } from '../client'
+import { accountTierFallbackFields, accountTierFields, accountTierPrepayFields } from '../client'
 import {
 	fakeMetaAccounts,
 	fakeMetaAdSets,
@@ -129,7 +129,11 @@ export const fakeMetaHandlers = [
 		if (!requireToken(request)) return graphContractError('Missing access token')
 		const account = accountFor(id)
 		if (account) {
-			if (url.searchParams.get('fields') !== accountTierFields.join(','))
+			// A real ad account rejected at the account level (throttled, revoked) stays
+			// rejected no matter which field tier is requested — MetaClient.getAccount
+			// retries with narrower tiers only to work around per-field permission gaps.
+			const accountTierFieldTiers = [accountTierFields, accountTierPrepayFields, accountTierFallbackFields]
+			if (!accountTierFieldTiers.some(tier => url.searchParams.get('fields') === tier.join(',')))
 				return graphContractError('Unsupported Graph fields requested')
 			if (account.kind === 'throttle') {
 				return HttpResponse.json(

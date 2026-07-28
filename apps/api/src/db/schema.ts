@@ -155,10 +155,6 @@ export const invitation = pgTable(
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 
-// Per-Agency Meta credentials (ADR 0028). Deliberate exception to the
-// Agency-not-Organization naming convention — do not generalize this naming
-// elsewhere. metaAccessToken is plaintext (matches account.accessToken) and
-// write-only from the client's perspective; only the owner role may read/edit it.
 export const organizationSettings = pgTable('organization_settings', {
 	id: text().primaryKey(),
 	organizationId: text()
@@ -236,9 +232,6 @@ export const adAccount = pgTable(
 export type AdAccount = typeof adAccount.$inferSelect
 export type NewAdAccount = typeof adAccount.$inferInsert
 
-// Fleet Board: Meta's own Campaign, vendor-mirrored (see CONTEXT.md — Campaign / Ad Set / Ad).
-// PK is Meta's own campaign id (ADR 0009). deletedAt is set, never cleared, when a sync no
-// longer sees this object (ADR 0011) — rows are never hard-deleted.
 export const campaign = pgTable(
 	'campaign',
 	{
@@ -259,8 +252,6 @@ export const campaign = pgTable(
 export type Campaign = typeof campaign.$inferSelect
 export type NewCampaign = typeof campaign.$inferInsert
 
-// Fleet Board: Meta's own Ad Set, vendor-mirrored. PK is Meta's own ad set id (ADR 0009).
-// optimizationGoal drives which action_type an ad's CPA/ROAS is computed against (ADR 0010).
 export const adSet = pgTable(
 	'ad_set',
 	{
@@ -282,8 +273,6 @@ export const adSet = pgTable(
 export type AdSet = typeof adSet.$inferSelect
 export type NewAdSet = typeof adSet.$inferInsert
 
-// Fleet Board: Meta's own Ad, vendor-mirrored. PK is Meta's own ad id (ADR 0009). The tree
-// stops here — Creative is this row's property, not a fifth level (ADR 0007).
 export const ad = pgTable(
 	'ad',
 	{
@@ -303,9 +292,6 @@ export const ad = pgTable(
 export type Ad = typeof ad.$inferSelect
 export type NewAd = typeof ad.$inferInsert
 
-// Fleet Board: an Ad's Creative, 1:1 (see CONTEXT.md — Creative; ADR 0007). PK is Meta's own
-// creative id (ADR 0009). payload holds the format-specific content (single image, carousel
-// child_attachments, Advantage+ asset_feed_spec) — too variable in shape to normalize into columns.
 export const adCreative = pgTable(
 	'ad_creative',
 	{
@@ -324,12 +310,6 @@ export const adCreative = pgTable(
 export type AdCreative = typeof adCreative.$inferSelect
 export type NewAdCreative = typeof adCreative.$inferInsert
 
-// Fleet Board: one Ad's Insights for one day — the only grain Insights are stored at (ADR 0010).
-// Campaign/Ad Set/Ad Account/Client numbers are always a computed rollup over these rows, never
-// a separate Meta call. actions/actionValues keep Meta's raw arrays so CPA/ROAS can pick the right
-// action_type per campaign at read time, rather than baking in one fixed type at ingestion.
-// Today's row is Provisional; older rows are Final once they age out of the Reconciliation Window
-// (see CONTEXT.md — Provisional, Reconciliation Window) — both are derived from `date`, not stored.
 export const adInsight = pgTable(
 	'ad_insight',
 	{

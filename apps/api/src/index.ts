@@ -11,7 +11,15 @@ if (metaConfig.mode === 'fake') {
 	fakeMetaServer.listen({ onUnhandledRequest: rejectUnhandledMetaRequest })
 }
 
-configureHeartbeat({ metaClient: new MetaClient({ accessToken: metaConfig.accessToken }), heartbeatSecret })
+configureHeartbeat({
+	heartbeatSecret,
+	metaMode: metaConfig.mode,
+	buildMetaClient: accessToken => {
+		if (metaConfig.mode === 'fake') return new MetaClient({ accessToken: metaConfig.accessToken })
+		if (!accessToken) throw new Error('Meta live mode requires a resolved Agency access token')
+		return new MetaClient({ accessToken })
+	},
+})
 
 const { app } = await import('./app')
 

@@ -10,15 +10,16 @@ import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fa
 import { accountTierAdvisoryLock, insightsTierAdvisoryLock, runHeartbeat } from '../sync/account-tier'
 
 const fakeAccessToken = 'integration-test-token'
-function clientWithAttemptCounter(attempts: { count: number }) {
-	return new MetaClient({
-		accessToken: fakeAccessToken,
-		fetch: async url => {
-			attempts.count += 1
-			return fetch(url)
-		},
-		sleep: async () => undefined,
-	})
+function buildMetaClientWithAttemptCounter(attempts: { count: number }) {
+	return (accessToken?: string) =>
+		new MetaClient({
+			accessToken: accessToken ?? fakeAccessToken,
+			fetch: async url => {
+				attempts.count += 1
+				return fetch(url)
+			},
+			sleep: async () => undefined,
+		})
 }
 
 async function readFixtureAccounts() {
@@ -59,9 +60,11 @@ describe('Account Tier heartbeat integration', () => {
 	it('persists exact successful raw signals, retries throttle, and records access loss', async () => {
 		const attempts = { count: 0 }
 		const now = new Date('2026-07-26T08:00:00.000Z')
-		await expect(runHeartbeat({ metaClient: clientWithAttemptCounter(attempts), now })).resolves.toEqual({
-			accountTier: { processed: 5, failed: 2, skipped: 0 },
-			insightsTier: { processed: 5, failed: 0, skipped: 0 },
+		await expect(
+			runHeartbeat({ metaMode: 'fake', buildMetaClient: buildMetaClientWithAttemptCounter(attempts), now }),
+		).resolves.toEqual({
+			accountTier: { processed: 5, failed: 2, skipped: 0, skippedNoToken: 0 },
+			insightsTier: { processed: 5, failed: 0, skipped: 0, skippedNoToken: 0 },
 		})
 		expect(attempts.count).toBeGreaterThan(8)
 
@@ -91,8 +94,36 @@ describe('Account Tier heartbeat integration', () => {
 		expect(revoked?.lastPollError).toContain('code=10')
 
 		const firstAttemptCount = attempts.count
-		await runHeartbeat({ metaClient: clientWithAttemptCounter(attempts), now: new Date(now.getTime() + 1000) })
+		await runHeartbeat({
+			metaMode: 'fake',
+			buildMetaClient: buildMetaClientWithAttemptCounter(attempts),
+			now: new Date(now.getTime() + 1000),
+		})
 		expect(attempts.count).toBeGreaterThan(firstAttemptCount)
+	})
+
+	it('skips due accounts in live mode when the Agency has no organizationSettings token', async () => {
+		const now = new Date('2026-07-29T08:00:00.000Z')
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'pending', accountTierRefreshedAt: null, lastPollError: null })
+			.where(drizzleSql`${adAccount.id} in ${fakeMetaAccounts.map(account => account.id)}`)
+
+		const buildMetaClient = (): MetaClient => {
+			throw new Error('buildMetaClient should not be called when no Agency token is configured')
+		}
+
+		await expect(runHeartbeat({ metaMode: 'live', buildMetaClient, now })).resolves.toEqual({
+			accountTier: { processed: 0, failed: 0, skipped: 0, skippedNoToken: fakeMetaAccounts.length },
+			insightsTier: { processed: 0, failed: 0, skipped: 0, skippedNoToken: 0 },
+		})
+
+		const accounts = await readFixtureAccounts()
+		for (const account of accounts) {
+			expect(account.connectionStatus).toBe('pending')
+			expect(account.lastPollError).toBe('No Meta token configured for this Agency')
+			expect(account.accountTierRefreshedAt).toBeNull()
+		}
 	})
 
 	it('does nothing when another Account Tier sync holds the advisory lock', async () => {
@@ -101,9 +132,11 @@ describe('Account Tier heartbeat integration', () => {
 		await competingSql`select pg_advisory_lock(${accountTierAdvisoryLock})`
 		await competingSql`select pg_advisory_lock(${insightsTierAdvisoryLock})`
 		try {
-			await expect(runHeartbeat({ metaClient: clientWithAttemptCounter(attempts) })).resolves.toEqual({
-				accountTier: { processed: 0, failed: 0, skipped: 1 },
-				insightsTier: { processed: 0, failed: 0, skipped: 1 },
+			await expect(
+				runHeartbeat({ metaMode: 'fake', buildMetaClient: buildMetaClientWithAttemptCounter(attempts) }),
+			).resolves.toEqual({
+				accountTier: { processed: 0, failed: 0, skipped: 1, skippedNoToken: 0 },
+				insightsTier: { processed: 0, failed: 0, skipped: 1, skippedNoToken: 0 },
 			})
 			expect(attempts.count).toBe(0)
 		} finally {

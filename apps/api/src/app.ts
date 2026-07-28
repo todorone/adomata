@@ -11,6 +11,7 @@ import { invitationRoutes } from './routes/invitation'
 import { meRoutes } from './routes/me'
 import { heartbeatRoutes } from './routes/heartbeat'
 import { fleetBoardRoutes } from './routes/fleet-board'
+import { organizationSettingsRoutes } from './routes/organization-settings'
 import { apiError } from './logic/apiError'
 import { logger } from './core/logger'
 
@@ -65,4 +66,5 @@ const withAdminRoutes = withMeRoutes.route('/admin', adminRoutes)
 const withInvitationRoutes = withAdminRoutes.route('/invitation', invitationRoutes)
 const withHeartbeatRoutes = withInvitationRoutes.route('/heartbeat', heartbeatRoutes)
 const withFleetBoardRoutes = withHeartbeatRoutes.route('/fleet-board', fleetBoardRoutes)
-export const app = withFleetBoardRoutes.get('/', c => c.text('🟢 api works'))
+const withOrganizationSettingsRoutes = withFleetBoardRoutes.route('/organization-settings', organizationSettingsRoutes)
+export const app = withOrganizationSettingsRoutes.get('/', c => c.text('🟢 api works'))

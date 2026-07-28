@@ -1,8 +1,9 @@
 import type { MetaClient } from '../meta/client'
 
 type HeartbeatDependencies = {
-	metaClient: MetaClient
 	heartbeatSecret: string
+	metaMode: 'fake' | 'live'
+	buildMetaClient: (accessToken?: string) => MetaClient
 }
 
 let heartbeatDependencies: HeartbeatDependencies | undefined

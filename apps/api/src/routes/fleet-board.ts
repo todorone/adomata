@@ -10,7 +10,7 @@ import {
 } from '../client/fleet-board'
 import { logger } from '../core/logger'
 import { db } from '../db'
-import { ad, adAccount, adCreative, adSet, campaign, client } from '../db/schema'
+import { ad, adAccount, adCreative, adSet, campaign, client, organizationSettings } from '../db/schema'
 import { apiError } from '../logic/apiError'
 import { requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import {
@@ -90,12 +90,13 @@ export const fleetBoardRoutes = fleetBoardBase
 	})
 	.openapi(mediaRoute, async c => {
 		const params = c.req.valid('param')
-		let record = await readCreativeByCreativeId(c.get('orgId'), params.creativeId)
+		const agencyId = c.get('orgId')
+		let record = await readCreativeByCreativeId(agencyId, params.creativeId)
 		if (!record) return apiError(c, 'NOT_FOUND')
 		let media = await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key))
 		if (!media) {
-			await refreshCreative(record)
-			record = await readCreativeByCreativeId(c.get('orgId'), params.creativeId)
+			await refreshCreative(agencyId, record)
+			record = await readCreativeByCreativeId(agencyId, params.creativeId)
 			media = record ? await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key)) : null
 		}
 		if (!media) return apiError(c, 'NOT_FOUND', { message: 'MEDIA_UNAVAILABLE' })
@@ -104,8 +105,8 @@ export const fleetBoardRoutes = fleetBoardBase
 
 function startBackgroundSync() {
 	try {
-		const { metaClient } = getHeartbeatDependencies()
-		runHeartbeat({ metaClient }).catch(error =>
+		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		runHeartbeat({ metaMode, buildMetaClient }).catch(error =>
 			logger.warn('Fleet Board background sync failed', { category: errorCategory(error) }),
 		)
 	} catch {
@@ -127,9 +128,13 @@ async function readCreativeByCreativeId(agencyId: string, creativeId: string) {
 	return owned ?? null
 }
 
-async function refreshCreative(record: NonNullable<Awaited<ReturnType<typeof readCreativeByCreativeId>>>) {
+async function refreshCreative(
+	agencyId: string,
+	record: NonNullable<Awaited<ReturnType<typeof readCreativeByCreativeId>>>,
+) {
 	try {
-		const { metaClient } = getHeartbeatDependencies()
+		const metaClient = await resolveMetaClient(agencyId)
+		if (!metaClient) return
 		const refreshed = await metaClient.getCreative(record.ad.id)
 		if (!refreshed || refreshed.id !== record.creative.id) return
 		await db
@@ -142,6 +147,18 @@ async function refreshCreative(record: NonNullable<Awaited<ReturnType<typeof rea
 			category: errorCategory(error),
 		})
 	}
+}
+
+async function resolveMetaClient(agencyId: string) {
+	const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+	if (metaMode === 'fake') return buildMetaClient()
+	const [row] = await db
+		.select({ metaAccessToken: organizationSettings.metaAccessToken })
+		.from(organizationSettings)
+		.where(eq(organizationSettings.organizationId, agencyId))
+		.limit(1)
+	if (!row?.metaAccessToken) return null
+	return buildMetaClient(row.metaAccessToken)
 }
 
 async function fetchCreativeMedia(url: string | null) {

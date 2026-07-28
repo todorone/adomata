@@ -13,12 +13,13 @@ describe('POST /heartbeat', () => {
 	beforeEach(() => {
 		sync.runHeartbeat.mockReset()
 		sync.runHeartbeat.mockResolvedValue({
-			accountTier: { processed: 2, failed: 0, skipped: 0 },
-			insightsTier: { processed: 1, failed: 0, skipped: 0 },
+			accountTier: { processed: 2, failed: 0, skipped: 0, skippedNoToken: 0 },
+			insightsTier: { processed: 1, failed: 0, skipped: 0, skippedNoToken: 0 },
 		})
 		configureHeartbeat({
-			metaClient: new MetaClient({ accessToken: 'test-token' }),
 			heartbeatSecret: 'heartbeat-secret',
+			metaMode: 'fake',
+			buildMetaClient: () => new MetaClient({ accessToken: 'test-token' }),
 		})
 	})
 
@@ -39,8 +40,8 @@ describe('POST /heartbeat', () => {
 		expect(response.status).toBe(200)
 		expect(await response.json()).toEqual({
 			ok: true,
-			accountTier: { processed: 2, failed: 0, skipped: 0 },
-			insightsTier: { processed: 1, failed: 0, skipped: 0 },
+			accountTier: { processed: 2, failed: 0, skipped: 0, skippedNoToken: 0 },
+			insightsTier: { processed: 1, failed: 0, skipped: 0, skippedNoToken: 0 },
 		})
 		expect(sync.runHeartbeat).toHaveBeenCalledOnce()
 	})

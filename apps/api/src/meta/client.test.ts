@@ -254,6 +254,35 @@ describe('MetaClient', () => {
 		expect(sleep).toHaveBeenNthCalledWith(2, 2000)
 	})
 
+	it('verifies a token against GET /me', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValue(new Response(JSON.stringify({ id: 'user-1', name: 'Test User' }), { status: 200 }))
+		const client = new MetaClient({ accessToken: 'access token', fetch })
+
+		await expect(client.verifyToken()).resolves.toEqual({ id: 'user-1', name: 'Test User' })
+
+		const [url] = fetch.mock.calls[0] as [string]
+		const request = new URL(url)
+		expect(request.origin + request.pathname).toBe('https://graph.facebook.com/v25.0/me')
+		expect(request.searchParams.get('fields')).toBe('id,name')
+		expect(request.searchParams.get('access_token')).toBe('access token')
+	})
+
+	it('rejects verifyToken with a MetaApiError for an invalid token', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({ error: { message: 'Invalid OAuth access token', type: 'OAuthException', code: 190 } }),
+				{
+					status: 401,
+				},
+			),
+		)
+		const client = new MetaClient({ accessToken: 'bad token', fetch })
+
+		await expect(client.verifyToken()).rejects.toMatchObject({ code: 190, message: 'Invalid OAuth access token' })
+	})
+
 	it('tries the lower-privilege read once before reporting a permission revocation', async () => {
 		const fetch = vi
 			.fn()

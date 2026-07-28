@@ -12,10 +12,6 @@ export function parseMetaConfig(environment: MetaEnvironment = process.env): Met
 	}
 
 	const accessToken = environment.META_ACCESS_TOKEN?.trim()
-	if (mode === 'live' && !accessToken) {
-		throw new Error('META_ACCESS_TOKEN must be set in live mode')
-	}
-
 	return { mode, accessToken: accessToken || 'fake-meta-access-token' }
 }
 

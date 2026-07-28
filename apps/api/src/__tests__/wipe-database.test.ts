@@ -32,6 +32,7 @@ vi.mock('../logic/auth', () => ({
 				id: 'user_1',
 				email,
 				emailVerified: c.req.header('x-test-email-verified') !== 'false',
+				role: email.toLowerCase() === process.env.SUPERADMIN_EMAIL?.toLowerCase() ? 'super' : 'user',
 				name: 'Test User',
 				createdAt: new Date(),
 				updatedAt: new Date(),

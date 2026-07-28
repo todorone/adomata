@@ -1,6 +1,6 @@
 {
-  "id": "a9994819-ff11-4edb-9956-bcece4b079ef",
-  "prevId": "5d4121ef-0bcc-4542-9927-dc46835fc34b",
+  "id": "6049033d-92b6-48d2-9dd1-9af42dafcaf6",
+  "prevId": "a9994819-ff11-4edb-9956-bcece4b079ef",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1214,6 +1214,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "impersonated_by": {
+          "name": "impersonated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "user_id": {
           "name": "user_id",
           "type": "text",
@@ -1309,6 +1315,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'user'"
+        },
+        "banned": {
+          "name": "banned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ban_reason": {
+          "name": "ban_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ban_expires": {
+          "name": "ban_expires",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "image": {
           "name": "image",

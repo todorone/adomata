@@ -11,7 +11,8 @@ import {
 	type InviteRole,
 	type AdminInvitation,
 } from '@/data/invitations'
-import { requireSession, useSession } from '@/data/session'
+import { useMe } from '@/data/me'
+import { requireSession } from '@/data/session'
 import { Button } from '@/ui/button'
 import { Input } from '@/ui/input'
 import { Label } from '@/ui/label'
@@ -177,9 +178,8 @@ function AdminInvitesPage() {
 }
 
 function InvitesPage() {
-	const { data: session } = useSession()
-	const superadminEmail = import.meta.env.VITE_SUPERADMIN_EMAIL as string | undefined
-	const isSuperadmin = superadminEmail && session?.data?.user.email.toLowerCase() === superadminEmail.toLowerCase()
+	const { data: me } = useMe()
+	const isSuperadmin = me?.isSuperadmin ?? false
 
 	const { data: invitations, isLoading, isError } = useInvitations(!isSuperadmin)
 	const cancel = useCancelInvitation()

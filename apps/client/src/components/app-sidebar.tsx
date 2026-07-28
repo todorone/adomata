@@ -59,9 +59,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 		avatar: session?.data?.user.image ?? undefined,
 	}
 
-	const superadminEmail = import.meta.env.VITE_SUPERADMIN_EMAIL as string | undefined
-	const isSuperadmin = superadminEmail && session?.data?.user.email.toLowerCase() === superadminEmail.toLowerCase()
 	const { data: me } = useMe(Boolean(session?.data))
+	const isSuperadmin = me?.isSuperadmin ?? false
 
 	return (
 		<Sidebar collapsible="icon" {...props}>

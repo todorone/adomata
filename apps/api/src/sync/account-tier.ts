@@ -1,7 +1,7 @@
-import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
 
 import { db } from '../db'
-import { ad, adAccount, adCreative, adInsight, adSet, campaign } from '../db/schema'
+import { ad, adAccount, adCreative, adInsight, adSet, campaign, client, organizationSettings } from '../db/schema'
 import { firstConnectStart, reconciliationWindow } from '../fleet-board/domain'
 import { logger } from '../core/logger'
 import { MetaApiError } from '../meta/client'
@@ -13,47 +13,88 @@ const accountTierIntervalMilliseconds = 5 * 60 * 1000
 const insightsTierIntervalMilliseconds = 60 * 60 * 1000
 const accountTierConcurrency = 3
 const insightsTierConcurrency = 2
+const noTokenMessage = 'No Meta token configured for this Agency'
 
-type TierCounts = { processed: number; failed: number; skipped: number }
+type TierCounts = { processed: number; failed: number; skipped: number; skippedNoToken: number }
 export type HeartbeatResult = { accountTier: TierCounts; insightsTier: TierCounts }
 
 type RunHeartbeatOptions = {
-	metaClient: MetaClient
+	metaMode: 'fake' | 'live'
+	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
 }
 
-export async function runHeartbeat({ metaClient, now = new Date() }: RunHeartbeatOptions): Promise<HeartbeatResult> {
-	const accountTier = await runAccountTier(metaClient, now)
-	const insightsTier = await runInsightsTier(metaClient, now)
+export async function runHeartbeat({
+	metaMode,
+	buildMetaClient,
+	now = new Date(),
+}: RunHeartbeatOptions): Promise<HeartbeatResult> {
+	const accountTier = await runAccountTier(metaMode, buildMetaClient, now)
+	const insightsTier = await runInsightsTier(metaMode, buildMetaClient, now)
 	return { accountTier, insightsTier }
 }
 
-async function runAccountTier(metaClient: MetaClient, now: Date): Promise<TierCounts> {
-	const result = await withAdvisoryLock(accountTierAdvisoryLock, async () => {
-		const dueAccounts = await db
-			.select()
+// Fake mode never involves organizationSettings (ADR 0028) — the plain adAccount
+// query keeps its existing shape and buildMetaClient ignores the null token.
+// Live mode resolves each account's Agency token via Client → organizationSettings.
+async function selectDueAccounts(metaMode: 'fake' | 'live', where: SQL | undefined) {
+	if (metaMode === 'fake') {
+		return db
+			.select({ adAccount, metaAccessToken: sql<string | null>`null` })
 			.from(adAccount)
-			.where(
-				and(
-					inArray(adAccount.connectionStatus, ['pending', 'connected']),
-					or(
-						isNull(adAccount.accountTierRefreshedAt),
-						lte(adAccount.accountTierRefreshedAt, new Date(now.getTime() - accountTierIntervalMilliseconds)),
-					),
+			.where(where)
+	}
+	return db
+		.select({ adAccount, metaAccessToken: organizationSettings.metaAccessToken })
+		.from(adAccount)
+		.innerJoin(client, eq(adAccount.clientId, client.id))
+		.leftJoin(organizationSettings, eq(organizationSettings.organizationId, client.agencyId))
+		.where(where)
+}
+
+async function runAccountTier(
+	metaMode: 'fake' | 'live',
+	buildMetaClient: (accessToken?: string) => MetaClient,
+	now: Date,
+): Promise<TierCounts> {
+	const result = await withAdvisoryLock(accountTierAdvisoryLock, async () => {
+		const dueAccounts = await selectDueAccounts(
+			metaMode,
+			and(
+				inArray(adAccount.connectionStatus, ['pending', 'connected']),
+				or(
+					isNull(adAccount.accountTierRefreshedAt),
+					lte(adAccount.accountTierRefreshedAt, new Date(now.getTime() - accountTierIntervalMilliseconds)),
 				),
-			)
-		const outcomes = await mapWithConcurrency(dueAccounts, accountTierConcurrency, async account => {
-			try {
-				await syncAccountTierAccount(metaClient, account, now)
-				return 'processed' as const
-			} catch (error) {
-				await recordAccountTierFailure(account.id, error, now)
-				return 'failed' as const
-			}
-		})
+			),
+		)
+		const outcomes = await mapWithConcurrency(
+			dueAccounts,
+			accountTierConcurrency,
+			async ({ adAccount: account, metaAccessToken }) => {
+				if (metaMode === 'live' && !metaAccessToken) {
+					await recordAccountTierSkippedNoToken(account.id, now)
+					return 'skippedNoToken' as const
+				}
+				try {
+					await syncAccountTierAccount(buildMetaClient(metaAccessToken ?? undefined), account, now)
+					return 'processed' as const
+				} catch (error) {
+					await recordAccountTierFailure(account.id, error, now)
+					return 'failed' as const
+				}
+			},
+		)
 		return countOutcomes(outcomes)
 	})
-	return result ?? { processed: 0, failed: 0, skipped: 1 }
+	return result ?? { processed: 0, failed: 0, skipped: 1, skippedNoToken: 0 }
+}
+
+async function recordAccountTierSkippedNoToken(accountId: string, now: Date) {
+	await db
+		.update(adAccount)
+		.set({ lastPollAttemptAt: now, lastPollError: noTokenMessage, updatedAt: now })
+		.where(eq(adAccount.id, accountId))
 }
 
 async function syncAccountTierAccount(metaClient: MetaClient, account: typeof adAccount.$inferSelect, now: Date) {
@@ -246,35 +287,56 @@ async function recordAccountTierFailure(accountId: string, error: unknown, now: 
 	logger.warn('Fleet Board Account Tier sync failed', { accountId, category: errorCategory(error), accessLost })
 }
 
-async function runInsightsTier(metaClient: MetaClient, now: Date): Promise<TierCounts> {
+async function runInsightsTier(
+	metaMode: 'fake' | 'live',
+	buildMetaClient: (accessToken?: string) => MetaClient,
+	now: Date,
+): Promise<TierCounts> {
 	const result = await withAdvisoryLock(insightsTierAdvisoryLock, async () => {
-		const dueAccounts = await db
-			.select()
-			.from(adAccount)
-			.where(
-				and(
-					eq(adAccount.connectionStatus, 'connected'),
-					or(
-						isNull(adAccount.insightsTierRefreshedAt),
-						lte(adAccount.insightsTierRefreshedAt, new Date(now.getTime() - insightsTierIntervalMilliseconds)),
-					),
+		const dueAccounts = await selectDueAccounts(
+			metaMode,
+			and(
+				eq(adAccount.connectionStatus, 'connected'),
+				or(
+					isNull(adAccount.insightsTierRefreshedAt),
+					lte(adAccount.insightsTierRefreshedAt, new Date(now.getTime() - insightsTierIntervalMilliseconds)),
 				),
-			)
+			),
+		)
 		let stoppedByThrottle = false
-		const outcomes = await mapWithConcurrency(dueAccounts, insightsTierConcurrency, async account => {
-			if (stoppedByThrottle) return 'skipped' as const
-			try {
-				const exhausted = await syncInsightsTierAccount(metaClient, account, now)
-				if (exhausted) stoppedByThrottle = true
-				return 'processed' as const
-			} catch (error) {
-				await recordInsightsTierFailure(account.id, error, now)
-				return 'failed' as const
-			}
-		})
+		const outcomes = await mapWithConcurrency(
+			dueAccounts,
+			insightsTierConcurrency,
+			async ({ adAccount: account, metaAccessToken }) => {
+				if (stoppedByThrottle) return 'skipped' as const
+				if (metaMode === 'live' && !metaAccessToken) {
+					await recordInsightsTierSkippedNoToken(account.id, now)
+					return 'skippedNoToken' as const
+				}
+				try {
+					const exhausted = await syncInsightsTierAccount(
+						buildMetaClient(metaAccessToken ?? undefined),
+						account,
+						now,
+					)
+					if (exhausted) stoppedByThrottle = true
+					return 'processed' as const
+				} catch (error) {
+					await recordInsightsTierFailure(account.id, error, now)
+					return 'failed' as const
+				}
+			},
+		)
 		return countOutcomes(outcomes)
 	})
-	return result ?? { processed: 0, failed: 0, skipped: 1 }
+	return result ?? { processed: 0, failed: 0, skipped: 1, skippedNoToken: 0 }
+}
+
+async function recordInsightsTierSkippedNoToken(accountId: string, now: Date) {
+	await db
+		.update(adAccount)
+		.set({ insightsTierAttemptAt: now, insightsTierError: noTokenMessage, updatedAt: now })
+		.where(eq(adAccount.id, accountId))
 }
 
 async function syncInsightsTierAccount(metaClient: MetaClient, account: typeof adAccount.$inferSelect, now: Date) {
@@ -398,11 +460,12 @@ async function mapWithConcurrency<T, R>(items: readonly T[], concurrency: number
 	return results
 }
 
-function countOutcomes(outcomes: readonly ('processed' | 'failed' | 'skipped')[]): TierCounts {
+function countOutcomes(outcomes: readonly ('processed' | 'failed' | 'skipped' | 'skippedNoToken')[]): TierCounts {
 	return outcomes.reduce((counts, outcome) => ({ ...counts, [outcome]: counts[outcome] + 1 }), {
 		processed: 0,
 		failed: 0,
 		skipped: 0,
+		skippedNoToken: 0,
 	})
 }
 

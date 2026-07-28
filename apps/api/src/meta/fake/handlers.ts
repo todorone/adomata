@@ -123,6 +123,12 @@ export const fakeMetaHandlers = [
 				})),
 		)
 	}),
+	http.get(`${graph}/me`, ({ request }) => {
+		if (!requireToken(request)) return graphContractError('Missing access token')
+		if (new URL(request.url).searchParams.get('fields') !== 'id,name')
+			return graphContractError('Unsupported /me fields requested')
+		return HttpResponse.json({ id: 'fake-user', name: 'Fake Meta User' })
+	}),
 	http.get(`${graph}/:adId`, ({ params, request }) => {
 		const id = String(params.adId)
 		const url = new URL(request.url)

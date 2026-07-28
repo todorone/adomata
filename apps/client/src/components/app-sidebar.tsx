@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Building2, Database, LayoutDashboard, Users, UsersRound } from 'lucide-react'
+import { Building2, Database, LayoutDashboard, Settings, Users, UsersRound } from 'lucide-react'
 
 import { NavMain } from '@/components/nav-main'
 import { NavUser } from '@/components/nav-user'
@@ -21,6 +21,14 @@ const navMain = [
 		url: '/users/invites',
 		icon: Users,
 		items: [{ title: 'Запрошення', url: '/users/invites' }],
+	},
+]
+
+const ownerNav = [
+	{
+		title: 'Налаштування',
+		url: '/organization/settings',
+		icon: Settings,
 	},
 ]
 
@@ -64,6 +72,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			)}
 			<SidebarContent>
 				<NavMain items={navMain} />
+				{me?.activeOrgMember?.role === 'owner' && <NavMain items={ownerNav} />}
 				{isSuperadmin && <NavMain items={superadminNav} />}
 			</SidebarContent>
 			<SidebarFooter>

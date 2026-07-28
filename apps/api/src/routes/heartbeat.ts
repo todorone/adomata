@@ -13,8 +13,18 @@ const route = createRoute({
 				'application/json': {
 					schema: z.object({
 						ok: z.literal(true),
-						accountTier: z.object({ processed: z.number(), failed: z.number(), skipped: z.number() }),
-						insightsTier: z.object({ processed: z.number(), failed: z.number(), skipped: z.number() }),
+						accountTier: z.object({
+							processed: z.number(),
+							failed: z.number(),
+							skipped: z.number(),
+							skippedNoToken: z.number(),
+						}),
+						insightsTier: z.object({
+							processed: z.number(),
+							failed: z.number(),
+							skipped: z.number(),
+							skippedNoToken: z.number(),
+						}),
 					}),
 				},
 			},
@@ -24,8 +34,8 @@ const route = createRoute({
 })
 
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
-	const { heartbeatSecret, metaClient } = getHeartbeatDependencies()
+	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const result = await runHeartbeat({ metaClient })
+	const result = await runHeartbeat({ metaMode, buildMetaClient })
 	return c.json({ ok: true as const, ...result }, 200)
 })

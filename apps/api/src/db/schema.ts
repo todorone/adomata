@@ -145,6 +145,25 @@ export const invitation = pgTable(
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 
+// Per-Agency Meta credentials (ADR 0028). Deliberate exception to the
+// Agency-not-Organization naming convention — do not generalize this naming
+// elsewhere. metaAccessToken is plaintext (matches account.accessToken) and
+// write-only from the client's perspective; only the owner role may read/edit it.
+export const organizationSettings = pgTable('organization_settings', {
+	id: text().primaryKey(),
+	organizationId: text()
+		.notNull()
+		.unique()
+		.references(() => organization.id, { onDelete: 'cascade' }),
+	metaAccessToken: text(),
+	lastValidatedAt: timestamp({ withTimezone: true }),
+	createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+})
+
+export type OrganizationSettings = typeof organizationSettings.$inferSelect
+export type NewOrganizationSettings = typeof organizationSettings.$inferInsert
+
 // Fleet Board: Adomata-owned end-brand, scoped under an Agency (see CONTEXT.md — Client)
 export const client = pgTable(
 	'client',

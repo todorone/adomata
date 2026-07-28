@@ -10,11 +10,15 @@ describe('parseMetaConfig', () => {
 		)
 	})
 
-	it('requires a non-blank access token in live mode', () => {
-		expect(() => parseMetaConfig({ META_API_MODE: 'live' })).toThrow('META_ACCESS_TOKEN must be set in live mode')
-		expect(() => parseMetaConfig({ META_API_MODE: 'live', META_ACCESS_TOKEN: '  ' })).toThrow(
-			'META_ACCESS_TOKEN must be set in live mode',
-		)
+	it('does not require META_ACCESS_TOKEN in live mode (tokens are per-Agency)', () => {
+		expect(parseMetaConfig({ META_API_MODE: 'live' })).toEqual({
+			mode: 'live',
+			accessToken: 'fake-meta-access-token',
+		})
+		expect(parseMetaConfig({ META_API_MODE: 'live', META_ACCESS_TOKEN: '  ' })).toEqual({
+			mode: 'live',
+			accessToken: 'fake-meta-access-token',
+		})
 	})
 
 	it('uses an explicit local token only for fake-mode requests', () => {

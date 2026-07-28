@@ -17,6 +17,7 @@ export const accountTierFields = [...accountTierPrepayFields, 'funding_source_de
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
 
+const meSchema = z.object({ id: z.string(), name: z.string() })
 const actionItemSchema = z.object({ action_type: z.string().min(1), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) })
 const accountResponseSchema = z.object({
 	id: z.string(),
@@ -171,6 +172,13 @@ export class MetaClient {
 	constructor(private readonly options: MetaClientOptions) {
 		this.fetch = options.fetch ?? (input => fetch(input))
 		this.sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)))
+	}
+
+	async verifyToken(): Promise<{ id: string; name: string }> {
+		const url = this.graphUrl('/me')
+		url.searchParams.set('fields', 'id,name')
+		const { payload } = await this.request(url)
+		return meSchema.parse(payload)
 	}
 
 	async getAccount(adAccountId: string): Promise<AccountHealth> {

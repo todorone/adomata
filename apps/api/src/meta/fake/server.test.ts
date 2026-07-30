@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { fakeMetaAccounts } from './roster'
+import { fakeMetaAccounts, fakeMetaBusinesses } from './roster'
 import { fakeMetaServer, rejectUnhandledMetaRequest } from './server'
 
 describe('rejectUnhandledMetaRequest', () => {
@@ -20,7 +20,7 @@ describe('GET /me/adaccounts', () => {
 	it('serves the fixture roster, paginated', async () => {
 		const items: unknown[] = []
 		let url: string | undefined =
-			'https://graph.facebook.com/v25.0/me/adaccounts?access_token=token&fields=id,name,currency,timezone_name'
+			'https://graph.facebook.com/v25.0/me/adaccounts?access_token=token&fields=id,name,currency,timezone_name,business{id,name}'
 		while (url) {
 			const res = await fetch(url)
 			expect(res.ok).toBe(true)
@@ -35,12 +35,15 @@ describe('GET /me/adaccounts', () => {
 				name: account.name,
 				currency: account.currency,
 				timezone_name: account.timezoneName,
+				business: fakeMetaBusinesses[account.clientId],
 			})),
 		)
 	})
 
 	it('rejects a request missing the access token', async () => {
-		const res = await fetch('https://graph.facebook.com/v25.0/me/adaccounts?fields=id,name,currency,timezone_name')
+		const res = await fetch(
+			'https://graph.facebook.com/v25.0/me/adaccounts?fields=id,name,currency,timezone_name,business{id,name}',
+		)
 		expect(res.status).toBe(500)
 		const body = (await res.json()) as { error: { message: string } }
 		expect(body.error.message).toBe('Missing access token')

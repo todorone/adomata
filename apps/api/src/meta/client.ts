@@ -55,6 +55,7 @@ const adAccountSummarySchema = z.object({
 	name: z.string(),
 	currency: z.string(),
 	timezone_name: z.string().nullable().optional(),
+	business: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
 })
 const creativeResponseSchema = z.object({
 	id: z.string(),
@@ -254,12 +255,19 @@ export class MetaClient {
 	}
 
 	listAdAccounts() {
-		return this.listPage('/me/adaccounts', 'id,name,currency,timezone_name', adAccountSummarySchema, account => ({
-			id: formatAdAccountId(account.id),
-			name: account.name,
-			currency: account.currency,
-			timezoneName: account.timezone_name ?? null,
-		}))
+		return this.listPage(
+			'/me/adaccounts',
+			'id,name,currency,timezone_name,business{id,name}',
+			adAccountSummarySchema,
+			account => ({
+				id: formatAdAccountId(account.id),
+				name: account.name,
+				currency: account.currency,
+				timezoneName: account.timezone_name ?? null,
+				businessId: account.business?.id ?? null,
+				businessName: account.business?.name ?? null,
+			}),
+		)
 	}
 
 	async getCreative(adId: string): Promise<MetaCreative | null> {

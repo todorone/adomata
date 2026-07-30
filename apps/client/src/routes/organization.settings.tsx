@@ -10,18 +10,12 @@ import { Button } from '@/ui/button'
 import { Input } from '@/ui/input'
 import { Label } from '@/ui/label'
 
-const newClientOption = '__new__'
-
-type RowSelection = { kind: 'unset' } | { kind: 'client'; clientId: string } | { kind: 'new'; name: string }
-
 function MetaAccountsSection() {
 	const [discoveryEnabled, setDiscoveryEnabled] = useState(false)
 	const discovery = useMetaAccountsDiscovery(discoveryEnabled)
 	const connect = useConnectMetaAccounts()
-	const [selections, setSelections] = useState<Record<string, RowSelection>>({})
 
 	const accounts = discovery.data?.accounts ?? []
-	const clients = discovery.data?.clients ?? []
 	const connectedAccounts = accounts.filter(account => account.connected)
 	const unconnectedAccounts = accounts.filter(account => !account.connected)
 
@@ -30,48 +24,18 @@ function MetaAccountsSection() {
 		else setDiscoveryEnabled(true)
 	}
 
-	function handleSelectChange(metaAccountId: string, value: string) {
-		setSelections(prev => ({
-			...prev,
-			[metaAccountId]:
-				value === ''
-					? { kind: 'unset' }
-					: value === newClientOption
-						? { kind: 'new', name: '' }
-						: { kind: 'client', clientId: value },
-		}))
-	}
-
-	function handleNewClientNameChange(metaAccountId: string, name: string) {
-		setSelections(prev => ({ ...prev, [metaAccountId]: { kind: 'new', name } }))
-	}
-
 	function handleConnect() {
-		const items: ConnectMetaAccountItem[] = []
-		for (const account of unconnectedAccounts) {
-			const selection = selections[account.metaAccountId]
-			if (!selection || selection.kind === 'unset') continue
-			if (selection.kind === 'new' && !selection.name.trim()) continue
-			items.push({
-				metaAccountId: account.metaAccountId,
-				name: account.name,
-				currency: account.currency,
-				timezoneName: account.timezoneName,
-				...(selection.kind === 'client'
-					? { clientId: selection.clientId }
-					: { newClientName: selection.name.trim() }),
-			})
-		}
+		const items: ConnectMetaAccountItem[] = unconnectedAccounts.map(account => ({
+			metaAccountId: account.metaAccountId,
+			name: account.name,
+			currency: account.currency,
+			timezoneName: account.timezoneName,
+			businessId: account.businessId,
+			businessName: account.businessName,
+		}))
 		if (items.length === 0) return
-		connect.mutate({ accounts: items }, { onSuccess: () => setSelections({}) })
+		connect.mutate({ accounts: items })
 	}
-
-	const hasReadySelection = unconnectedAccounts.some(account => {
-		const selection = selections[account.metaAccountId]
-		return (
-			selection && (selection.kind === 'client' || (selection.kind === 'new' && selection.name.trim().length > 0))
-		)
-	})
 
 	return (
 		<div className="flex max-w-2xl flex-col gap-4">
@@ -95,57 +59,28 @@ function MetaAccountsSection() {
 
 			{unconnectedAccounts.length > 0 && (
 				<div className="flex flex-col gap-3">
-					{unconnectedAccounts.map(account => {
-						const selection = selections[account.metaAccountId]
-						const selectValue =
-							!selection || selection.kind === 'unset'
-								? ''
-								: selection.kind === 'new'
-									? newClientOption
-									: selection.clientId
-						return (
-							<div
-								key={account.metaAccountId}
-								className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
-							>
-								<div>
-									<p className="font-medium">{account.name}</p>
-									<p className="text-muted-foreground text-sm">
-										{account.currency}
-										{account.timezoneName ? ` · ${account.timezoneName}` : ''}
-									</p>
-								</div>
-								<div className="flex flex-wrap items-center gap-2">
-									<select
-										className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-										value={selectValue}
-										onChange={e => handleSelectChange(account.metaAccountId, e.target.value)}
-									>
-										<option value="" disabled>
-											Виберіть клієнта
-										</option>
-										{clients.map(clientOption => (
-											<option key={clientOption.id} value={clientOption.id}>
-												{clientOption.name}
-											</option>
-										))}
-										<option value={newClientOption}>+ Новий клієнт</option>
-									</select>
-									{selection?.kind === 'new' && (
-										<Input
-											value={selection.name}
-											onChange={e => handleNewClientNameChange(account.metaAccountId, e.target.value)}
-											placeholder="Назва нового клієнта"
-											className="w-48"
-										/>
-									)}
-								</div>
+					{unconnectedAccounts.map(account => (
+						<div
+							key={account.metaAccountId}
+							className="flex flex-col gap-1 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+						>
+							<div>
+								<p className="font-medium">{account.name}</p>
+								<p className="text-muted-foreground text-sm">
+									{account.currency}
+									{account.timezoneName ? ` · ${account.timezoneName}` : ''}
+								</p>
 							</div>
-						)
-					})}
+							<p className="text-muted-foreground text-sm">
+								{account.clientId
+									? `Буде підключено до «${account.clientName}»`
+									: `Буде створено клієнта «${account.businessName ?? account.name}»`}
+							</p>
+						</div>
+					))}
 					<div>
-						<Button type="button" onClick={handleConnect} disabled={connect.isPending || !hasReadySelection}>
-							{connect.isPending ? 'Підключення…' : 'Підключити'}
+						<Button type="button" onClick={handleConnect} disabled={connect.isPending}>
+							{connect.isPending ? 'Підключення…' : `Підключити всі (${unconnectedAccounts.length})`}
 						</Button>
 					</div>
 					{connect.isError && <p className="text-destructive text-sm">{connect.error.message}</p>}

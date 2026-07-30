@@ -168,6 +168,7 @@ describe('MetaClient', () => {
 								name: 'Funded prepay',
 								currency: 'USD',
 								timezone_name: 'Europe/Kyiv',
+								business: { id: 'biz_1', name: 'Northstar Holdings' },
 							},
 						],
 						paging: { next: 'https://graph.facebook.com/v25.0/me/adaccounts?after=page-2' },
@@ -185,14 +186,28 @@ describe('MetaClient', () => {
 
 		await expect(client.listAdAccounts()).resolves.toMatchObject({
 			items: [
-				{ id: 'act_100000000000001', name: 'Funded prepay', currency: 'USD', timezoneName: 'Europe/Kyiv' },
-				{ id: 'act_100000000000002', name: 'No timezone yet', currency: 'USD', timezoneName: null },
+				{
+					id: 'act_100000000000001',
+					name: 'Funded prepay',
+					currency: 'USD',
+					timezoneName: 'Europe/Kyiv',
+					businessId: 'biz_1',
+					businessName: 'Northstar Holdings',
+				},
+				{
+					id: 'act_100000000000002',
+					name: 'No timezone yet',
+					currency: 'USD',
+					timezoneName: null,
+					businessId: null,
+					businessName: null,
+				},
 			],
 		})
 
 		const [firstUrl] = fetch.mock.calls[0] as [string]
 		expect(new URL(firstUrl).pathname).toBe('/v25.0/me/adaccounts')
-		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,currency,timezone_name')
+		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,currency,timezone_name,business{id,name}')
 	})
 
 	it('rejects an untrusted pagination cursor before requesting it', async () => {

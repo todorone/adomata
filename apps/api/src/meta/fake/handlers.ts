@@ -5,6 +5,7 @@ import {
 	fakeMetaAccounts,
 	fakeMetaAdSets,
 	fakeMetaAds,
+	fakeMetaBusinesses,
 	fakeMetaCampaigns,
 	fakeMetaCreatives,
 	fakeMetaInsights,
@@ -131,7 +132,7 @@ export const fakeMetaHandlers = [
 	}),
 	http.get(`${graph}/me/adaccounts`, ({ request }) => {
 		if (!requireToken(request)) return graphContractError('Missing access token')
-		if (new URL(request.url).searchParams.get('fields') !== 'id,name,currency,timezone_name')
+		if (new URL(request.url).searchParams.get('fields') !== 'id,name,currency,timezone_name,business{id,name}')
 			return graphContractError('Unsupported Ad Account fields requested')
 		return paginate(
 			request,
@@ -140,6 +141,7 @@ export const fakeMetaHandlers = [
 				name: account.name,
 				currency: account.currency,
 				timezone_name: account.timezoneName,
+				business: fakeMetaBusinesses[account.clientId],
 			})),
 		)
 	}),

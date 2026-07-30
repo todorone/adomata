@@ -179,11 +179,18 @@ export const client = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
 		name: text().notNull(),
+		// Meta Business Manager id this Client was auto-derived from (ADR pending — Meta Ad
+		// Account discovery). Null for manually-named Clients and for Ad Accounts with no
+		// Business Manager. Lets re-discovery match future Ad Accounts to the same Client.
+		metaBusinessId: text(),
 		deletedAt: timestamp({ withTimezone: true }),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},
-	table => [index('client_agency_id_idx').on(table.agencyId)],
+	table => [
+		index('client_agency_id_idx').on(table.agencyId),
+		index('client_agency_business_idx').on(table.agencyId, table.metaBusinessId),
+	],
 )
 
 export type Client = typeof client.$inferSelect

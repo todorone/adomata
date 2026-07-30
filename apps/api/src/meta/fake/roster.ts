@@ -14,6 +14,14 @@ export const fakeMetaClients = [
 	{ id: 'fake-meta-orbit', name: 'Orbit Studio' },
 ] as const
 
+// The Meta Business Manager each fixture Ad Account belongs to (distinct from `client.id`
+// above, which is Adomata's own Client PK used only by the direct-seed path).
+export const fakeMetaBusinesses: Record<(typeof fakeMetaClients)[number]['id'], { id: string; name: string }> = {
+	'fake-meta-northstar': { id: 'biz-northstar', name: 'Northstar Commerce' },
+	'fake-meta-meridian': { id: 'biz-meridian', name: 'Meridian Services' },
+	'fake-meta-orbit': { id: 'biz-orbit', name: 'Orbit Studio' },
+}
+
 type SuccessfulAccount = {
 	id: string
 	clientId: (typeof fakeMetaClients)[number]['id']

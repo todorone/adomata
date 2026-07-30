@@ -43,6 +43,13 @@
       "when": 1785213794496,
       "tag": "0005_violet_dust",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785297186246,
+      "tag": "0006_material_johnny_blaze",
+      "breakpoints": true
     }
   ]
 }

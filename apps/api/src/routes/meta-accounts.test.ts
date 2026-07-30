@@ -24,15 +24,14 @@ function chain(result: unknown): Chain {
 	return self
 }
 
-type InsertedClient = { id: string; agencyId: string; name: string }
+type InsertedClient = { id: string; agencyId: string; name: string; metaBusinessId: string | null }
 type UpsertedAdAccount = Record<string, unknown>
 
 function buildTransaction(options: {
-	ownershipResults: boolean[]
+	existingClientsByBusinessId: Array<{ id: string; metaBusinessId: string | null }>
 	insertedClients: InsertedClient[]
 	upsertedAdAccounts: UpsertedAdAccount[]
 }) {
-	let ownershipIndex = 0
 	return {
 		insert: (table: unknown) => ({
 			values: (values: Record<string, unknown>) => {
@@ -53,13 +52,7 @@ function buildTransaction(options: {
 		}),
 		select: () => ({
 			from: () => ({
-				where: () => ({
-					limit: async () => {
-						const owned = options.ownershipResults[ownershipIndex] ?? false
-						ownershipIndex += 1
-						return owned ? [{ id: 'owned' }] : []
-					},
-				}),
+				where: () => Promise.resolve(options.existingClientsByBusinessId),
 			}),
 		}),
 	}
@@ -164,17 +157,44 @@ describe('GET /meta-accounts', () => {
 		expect(body.error.code).toBe('BAD_REQUEST')
 	})
 
-	it('splits discovered accounts into connected/unconnected and returns the Agency Clients', async () => {
+	it('resolves connected, business-matched, and unmatched accounts', async () => {
 		dbCalls.select
 			.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 			.mockImplementationOnce(() =>
 				chain([{ metaAccountId: 'act_1', clientId: 'client_1', clientName: 'Northstar' }]),
 			)
-			.mockImplementationOnce(() => chain([{ id: 'client_1', name: 'Northstar' }]))
+			.mockImplementationOnce(() =>
+				chain([
+					{ id: 'client_1', name: 'Northstar', metaBusinessId: 'biz_1' },
+					{ id: 'client_2', name: 'Meridian', metaBusinessId: 'biz_2' },
+				]),
+			)
 		metaCalls.listAdAccounts.mockResolvedValue({
 			items: [
-				{ id: 'act_1', name: 'Already connected', currency: 'USD', timezoneName: 'Europe/Kyiv' },
-				{ id: 'act_2', name: 'Undiscovered', currency: 'USD', timezoneName: null },
+				{
+					id: 'act_1',
+					name: 'Already connected',
+					currency: 'USD',
+					timezoneName: 'Europe/Kyiv',
+					businessId: 'biz_1',
+					businessName: 'Northstar',
+				},
+				{
+					id: 'act_2',
+					name: 'Same business, new account',
+					currency: 'USD',
+					timezoneName: null,
+					businessId: 'biz_2',
+					businessName: 'Meridian',
+				},
+				{
+					id: 'act_3',
+					name: 'No business',
+					currency: 'USD',
+					timezoneName: null,
+					businessId: null,
+					businessName: null,
+				},
 			],
 			throttle: { exhausted: false },
 		})
@@ -194,18 +214,32 @@ describe('GET /meta-accounts', () => {
 					connected: true,
 					clientId: 'client_1',
 					clientName: 'Northstar',
+					businessId: 'biz_1',
+					businessName: 'Northstar',
 				},
 				{
 					metaAccountId: 'act_2',
-					name: 'Undiscovered',
+					name: 'Same business, new account',
+					currency: 'USD',
+					timezoneName: null,
+					connected: false,
+					clientId: 'client_2',
+					clientName: 'Meridian',
+					businessId: 'biz_2',
+					businessName: 'Meridian',
+				},
+				{
+					metaAccountId: 'act_3',
+					name: 'No business',
 					currency: 'USD',
 					timezoneName: null,
 					connected: false,
 					clientId: null,
 					clientName: null,
+					businessId: null,
+					businessName: null,
 				},
 			],
-			clients: [{ id: 'client_1', name: 'Northstar' }],
 		})
 		expect(metaCalls.buildMetaClient).toHaveBeenCalledWith('a-token')
 	})
@@ -224,7 +258,7 @@ describe('POST /meta-accounts/connect', () => {
 
 	it('rejects a non-owner member', async () => {
 		const res = await postConnect(
-			{ accounts: [{ metaAccountId: 'act_1', name: 'A', currency: 'USD', timezoneName: null, clientId: 'c1' }] },
+			{ accounts: [{ metaAccountId: 'act_1', name: 'A', currency: 'USD', timezoneName: null }] },
 			{ 'x-test-role': 'member' },
 		)
 
@@ -238,7 +272,7 @@ describe('POST /meta-accounts/connect', () => {
 		dbCalls.select.mockImplementationOnce(() => chain([]))
 
 		const res = await postConnect({
-			accounts: [{ metaAccountId: 'act_1', name: 'A', currency: 'USD', timezoneName: null, clientId: 'c1' }],
+			accounts: [{ metaAccountId: 'act_1', name: 'A', currency: 'USD', timezoneName: null }],
 		})
 
 		expect(res.status).toBe(400)
@@ -247,12 +281,18 @@ describe('POST /meta-accounts/connect', () => {
 		expect(dbCalls.transaction).not.toHaveBeenCalled()
 	})
 
-	it('connects an account to an existing Client', async () => {
+	it('attaches an account to the existing Client matched by Meta business id', async () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
 		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(buildTransaction({ ownershipResults: [true], insertedClients, upsertedAdAccounts })),
+			callback(
+				buildTransaction({
+					existingClientsByBusinessId: [{ id: 'client_1', metaBusinessId: 'biz_1' }],
+					insertedClients,
+					upsertedAdAccounts,
+				}),
+			),
 		)
 
 		const res = await postConnect({
@@ -262,7 +302,8 @@ describe('POST /meta-accounts/connect', () => {
 					name: 'Account 1',
 					currency: 'USD',
 					timezoneName: 'Europe/Kyiv',
-					clientId: 'client_1',
+					businessId: 'biz_1',
+					businessName: 'Northstar',
 				},
 			],
 		})
@@ -276,37 +317,12 @@ describe('POST /meta-accounts/connect', () => {
 		])
 	})
 
-	it('creates exactly one Client when two accounts share the same newClientName', async () => {
+	it('creates exactly one Client, named after the business, when two accounts share a Meta business id', async () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
 		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(buildTransaction({ ownershipResults: [], insertedClients, upsertedAdAccounts })),
-		)
-
-		const res = await postConnect({
-			accounts: [
-				{ metaAccountId: 'act_1', name: 'Account 1', currency: 'USD', timezoneName: null, newClientName: 'Acme' },
-				{ metaAccountId: 'act_2', name: 'Account 2', currency: 'USD', timezoneName: null, newClientName: 'Acme' },
-			],
-		})
-
-		expect(res.status).toBe(200)
-		const body = connectMetaAccountsResponseSchema.parse(await res.json())
-		expect(body).toEqual({ connected: 2 })
-		expect(insertedClients).toHaveLength(1)
-		expect(insertedClients[0]).toMatchObject({ agencyId: 'org_1', name: 'Acme' })
-		expect(upsertedAdAccounts).toHaveLength(2)
-		expect(upsertedAdAccounts[0]?.clientId).toBe(insertedClients[0]?.id)
-		expect(upsertedAdAccounts[1]?.clientId).toBe(insertedClients[0]?.id)
-	})
-
-	it('rejects a clientId belonging to a different Agency and writes nothing', async () => {
-		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
-		const insertedClients: InsertedClient[] = []
-		const upsertedAdAccounts: UpsertedAdAccount[] = []
-		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(buildTransaction({ ownershipResults: [false], insertedClients, upsertedAdAccounts })),
+			callback(buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })),
 		)
 
 		const res = await postConnect({
@@ -316,15 +332,47 @@ describe('POST /meta-accounts/connect', () => {
 					name: 'Account 1',
 					currency: 'USD',
 					timezoneName: null,
-					clientId: 'other-agency-client',
+					businessId: 'biz_1',
+					businessName: 'Acme Holdings',
+				},
+				{
+					metaAccountId: 'act_2',
+					name: 'Account 2',
+					currency: 'USD',
+					timezoneName: null,
+					businessId: 'biz_1',
+					businessName: 'Acme Holdings',
 				},
 			],
 		})
 
-		expect(res.status).toBe(400)
-		const body = apiErrorSchema.parse(await res.json())
-		expect(body.error.code).toBe('BAD_REQUEST')
-		expect(insertedClients).toEqual([])
-		expect(upsertedAdAccounts).toEqual([])
+		expect(res.status).toBe(200)
+		const body = connectMetaAccountsResponseSchema.parse(await res.json())
+		expect(body).toEqual({ connected: 2 })
+		expect(insertedClients).toHaveLength(1)
+		expect(insertedClients[0]).toMatchObject({ agencyId: 'org_1', name: 'Acme Holdings', metaBusinessId: 'biz_1' })
+		expect(upsertedAdAccounts).toHaveLength(2)
+		expect(upsertedAdAccounts[0]?.clientId).toBe(insertedClients[0]?.id)
+		expect(upsertedAdAccounts[1]?.clientId).toBe(insertedClients[0]?.id)
+	})
+
+	it('creates a standalone Client per account when Meta reports no business', async () => {
+		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
+		const insertedClients: InsertedClient[] = []
+		const upsertedAdAccounts: UpsertedAdAccount[] = []
+		dbCalls.transaction.mockImplementationOnce(async callback =>
+			callback(buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })),
+		)
+
+		const res = await postConnect({
+			accounts: [{ metaAccountId: 'act_1', name: 'Solo account', currency: 'USD', timezoneName: null }],
+		})
+
+		expect(res.status).toBe(200)
+		const body = connectMetaAccountsResponseSchema.parse(await res.json())
+		expect(body).toEqual({ connected: 1 })
+		expect(insertedClients).toHaveLength(1)
+		expect(insertedClients[0]).toMatchObject({ agencyId: 'org_1', name: 'Solo account', metaBusinessId: null })
+		expect(upsertedAdAccounts[0]?.clientId).toBe(insertedClients[0]?.id)
 	})
 })

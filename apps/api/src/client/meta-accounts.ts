@@ -8,27 +8,24 @@ export const discoveredMetaAccountSchema = z.object({
 	connected: z.boolean(),
 	clientId: z.string().nullable(),
 	clientName: z.string().nullable(),
+	businessId: z.string().nullable(),
+	businessName: z.string().nullable(),
 })
 export type DiscoveredMetaAccount = z.infer<typeof discoveredMetaAccountSchema>
 
 export const metaAccountsDiscoveryResponseSchema = z.object({
 	accounts: z.array(discoveredMetaAccountSchema),
-	clients: z.array(z.object({ id: z.string(), name: z.string() })),
 })
 export type MetaAccountsDiscoveryResponse = z.infer<typeof metaAccountsDiscoveryResponseSchema>
 
-export const connectMetaAccountItemSchema = z
-	.object({
-		metaAccountId: z.string().min(1),
-		name: z.string().min(1),
-		currency: z.string().min(1),
-		timezoneName: z.string().nullable(),
-		clientId: z.string().min(1).optional(),
-		newClientName: z.string().trim().min(1).optional(),
-	})
-	.refine(item => Boolean(item.clientId) !== Boolean(item.newClientName), {
-		message: 'Provide exactly one of clientId or newClientName',
-	})
+export const connectMetaAccountItemSchema = z.object({
+	metaAccountId: z.string().min(1),
+	name: z.string().min(1),
+	currency: z.string().min(1),
+	timezoneName: z.string().nullable(),
+	businessId: z.string().nullable().optional(),
+	businessName: z.string().nullable().optional(),
+})
 export type ConnectMetaAccountItem = z.infer<typeof connectMetaAccountItemSchema>
 
 export const connectMetaAccountsBodySchema = z.object({

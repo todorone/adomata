@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
 import {
 	connectMetaAccountsBodySchema,
@@ -37,15 +37,13 @@ const connectRoute = createRoute({
 			description: 'Ad Accounts connected',
 			content: { 'application/json': { schema: connectMetaAccountsResponseSchema } },
 		},
-		400: { description: 'No Meta token configured, or an unknown Client was referenced' },
+		400: { description: 'No Meta token configured' },
 		403: { description: 'Only the Agency owner may connect Meta Ad Accounts' },
 	},
 })
 
 const metaAccountsBase = new OpenAPIHono()
 metaAccountsBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
-
-class UnknownClientError extends Error {}
 
 async function loadToken(orgId: string) {
 	const [row] = await db
@@ -85,25 +83,33 @@ export const metaAccountsRoutes = metaAccountsBase
 				.from(adAccount)
 				.innerJoin(client, eq(adAccount.clientId, client.id))
 				.where(eq(client.agencyId, orgId)),
-			db.select({ id: client.id, name: client.name }).from(client).where(eq(client.agencyId, orgId)),
+			db
+				.select({ id: client.id, name: client.name, metaBusinessId: client.metaBusinessId })
+				.from(client)
+				.where(eq(client.agencyId, orgId)),
 		])
 		const existingByAccountId = new Map(existingRows.map(row => [row.metaAccountId, row]))
+		const clientByBusinessId = new Map(
+			clientRows.filter(row => row.metaBusinessId).map(row => [row.metaBusinessId, row]),
+		)
 
 		return c.json(
 			metaAccountsDiscoveryResponseSchema.parse({
 				accounts: discovered.items.map(item => {
 					const existing = existingByAccountId.get(item.id)
+					const businessMatch = !existing && item.businessId ? clientByBusinessId.get(item.businessId) : undefined
 					return {
 						metaAccountId: item.id,
 						name: item.name,
 						currency: item.currency,
 						timezoneName: item.timezoneName,
 						connected: Boolean(existing),
-						clientId: existing?.clientId ?? null,
-						clientName: existing?.clientName ?? null,
+						clientId: existing?.clientId ?? businessMatch?.id ?? null,
+						clientName: existing?.clientName ?? businessMatch?.name ?? null,
+						businessId: item.businessId,
+						businessName: item.businessName,
 					}
 				}),
-				clients: clientRows,
 			}),
 			200,
 		)
@@ -120,62 +126,70 @@ export const metaAccountsRoutes = metaAccountsBase
 		const { accounts } = c.req.valid('json')
 		const now = new Date()
 
-		try {
-			const connected = await db.transaction(async transaction => {
-				const newClientNames = new Set(
-					accounts.flatMap(account => (account.newClientName ? [account.newClientName] : [])),
-				)
-				const clientIdByNewName = new Map<string, string>()
-				for (const name of newClientNames) {
+		const connected = await db.transaction(async transaction => {
+			const businessIds = [...new Set(accounts.flatMap(account => (account.businessId ? [account.businessId] : [])))]
+			const clientIdByBusinessId = new Map<string, string>()
+			if (businessIds.length > 0) {
+				const existing = await transaction
+					.select({ id: client.id, metaBusinessId: client.metaBusinessId })
+					.from(client)
+					.where(and(eq(client.agencyId, orgId), inArray(client.metaBusinessId, businessIds)))
+				for (const row of existing) if (row.metaBusinessId) clientIdByBusinessId.set(row.metaBusinessId, row.id)
+			}
+
+			for (const account of accounts) {
+				if (account.businessId && !clientIdByBusinessId.has(account.businessId)) {
 					const id = randomUUID()
-					await transaction.insert(client).values({ id, agencyId: orgId, name, createdAt: now, updatedAt: now })
-					clientIdByNewName.set(name, id)
+					await transaction.insert(client).values({
+						id,
+						agencyId: orgId,
+						name: account.businessName ?? account.name,
+						metaBusinessId: account.businessId,
+						createdAt: now,
+						updatedAt: now,
+					})
+					clientIdByBusinessId.set(account.businessId, id)
 				}
+			}
 
-				const explicitClientIds = new Set(accounts.flatMap(account => (account.clientId ? [account.clientId] : [])))
-				for (const clientId of explicitClientIds) {
-					const [owned] = await transaction
-						.select({ id: client.id })
-						.from(client)
-						.where(and(eq(client.id, clientId), eq(client.agencyId, orgId)))
-						.limit(1)
-					if (!owned) throw new UnknownClientError(clientId)
+			for (const account of accounts) {
+				let resolvedClientId = account.businessId ? clientIdByBusinessId.get(account.businessId) : undefined
+				if (!resolvedClientId) {
+					resolvedClientId = randomUUID()
+					await transaction.insert(client).values({
+						id: resolvedClientId,
+						agencyId: orgId,
+						name: account.name,
+						metaBusinessId: null,
+						createdAt: now,
+						updatedAt: now,
+					})
 				}
-
-				for (const account of accounts) {
-					const resolvedClientId = account.clientId ?? clientIdByNewName.get(account.newClientName ?? '')
-					if (!resolvedClientId) throw new UnknownClientError(account.newClientName ?? '')
-					await transaction
-						.insert(adAccount)
-						.values({
-							id: account.metaAccountId,
+				await transaction
+					.insert(adAccount)
+					.values({
+						id: account.metaAccountId,
+						clientId: resolvedClientId,
+						name: account.name,
+						currency: account.currency,
+						timezoneName: account.timezoneName,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.onConflictDoUpdate({
+						target: adAccount.id,
+						set: {
 							clientId: resolvedClientId,
 							name: account.name,
 							currency: account.currency,
 							timezoneName: account.timezoneName,
-							createdAt: now,
 							updatedAt: now,
-						})
-						.onConflictDoUpdate({
-							target: adAccount.id,
-							set: {
-								clientId: resolvedClientId,
-								name: account.name,
-								currency: account.currency,
-								timezoneName: account.timezoneName,
-								updatedAt: now,
-							},
-						})
-				}
-
-				return accounts.length
-			})
-
-			return c.json(connectMetaAccountsResponseSchema.parse({ connected }), 200)
-		} catch (error) {
-			if (error instanceof UnknownClientError) {
-				return apiError(c, 'BAD_REQUEST', { message: 'Клієнта не знайдено для цієї агенції' })
+						},
+					})
 			}
-			throw error
-		}
+
+			return accounts.length
+		})
+
+		return c.json(connectMetaAccountsResponseSchema.parse({ connected }), 200)
 	})

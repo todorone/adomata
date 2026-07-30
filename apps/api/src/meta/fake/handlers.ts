@@ -12,6 +12,7 @@ import {
 } from './roster'
 
 const graph = 'https://graph.facebook.com/v25.0'
+const hierarchyEffectiveStatuses = '["ACTIVE","PAUSED","ARCHIVED","DELETED"]'
 
 function accountFor(id: string) {
 	return fakeMetaAccounts.find(account => account.id === id)
@@ -36,6 +37,8 @@ export const fakeMetaHandlers = [
 		if (!requireToken(request)) return graphContractError('Missing access token')
 		if (new URL(request.url).searchParams.get('fields') !== 'id,name,effective_status,objective')
 			return graphContractError('Unsupported Campaign fields requested')
+		if (new URL(request.url).searchParams.get('effective_status') !== hierarchyEffectiveStatuses)
+			return graphContractError('Archived Campaigns were not requested')
 		const id = String(params.accountId)
 		if (!accountFor(id)) return graphContractError(`Unknown fake Meta account: ${id}`)
 		return paginate(
@@ -57,6 +60,8 @@ export const fakeMetaHandlers = [
 			'id,campaign_id,name,effective_status,optimization_goal,promoted_object'
 		)
 			return graphContractError('Unsupported Ad Set fields requested')
+		if (new URL(request.url).searchParams.get('effective_status') !== hierarchyEffectiveStatuses)
+			return graphContractError('Archived Ad Sets were not requested')
 		const accountId = String(params.accountId)
 		const campaignIds = new Set(
 			fakeMetaCampaigns.filter(campaign => campaign.adAccountId === accountId).map(campaign => campaign.id),
@@ -79,6 +84,8 @@ export const fakeMetaHandlers = [
 		if (!requireToken(request)) return graphContractError('Missing access token')
 		if (new URL(request.url).searchParams.get('fields') !== 'id,adset_id,name,effective_status')
 			return graphContractError('Unsupported Ad fields requested')
+		if (new URL(request.url).searchParams.get('effective_status') !== hierarchyEffectiveStatuses)
+			return graphContractError('Archived Ads were not requested')
 		const accountId = String(params.accountId)
 		const campaignIds = new Set(
 			fakeMetaCampaigns.filter(campaign => campaign.adAccountId === accountId).map(campaign => campaign.id),

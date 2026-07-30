@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
 
 import { db } from '../db'
 import { ad, adAccount, adCreative, adInsight, adSet, campaign, client, organizationSettings } from '../db/schema'
@@ -294,6 +294,7 @@ async function runInsightsTier(
 			metaMode,
 			and(
 				eq(adAccount.connectionStatus, 'connected'),
+				isNotNull(adAccount.accountTierRefreshedAt),
 				or(
 					isNull(adAccount.insightsTierRefreshedAt),
 					lte(adAccount.insightsTierRefreshedAt, new Date(now.getTime() - insightsTierIntervalMilliseconds)),

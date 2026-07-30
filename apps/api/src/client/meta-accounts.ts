@@ -35,3 +35,6 @@ export type ConnectMetaAccountsBody = z.infer<typeof connectMetaAccountsBodySche
 
 export const connectMetaAccountsResponseSchema = z.object({ connected: z.number().int() })
 export type ConnectMetaAccountsResponse = z.infer<typeof connectMetaAccountsResponseSchema>
+
+export const resyncMetaAccountsResponseSchema = z.object({ acknowledged: z.literal(true) })
+export type ResyncMetaAccountsResponse = z.infer<typeof resyncMetaAccountsResponseSchema>

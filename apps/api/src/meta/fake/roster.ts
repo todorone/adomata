@@ -170,7 +170,7 @@ export const fakeMetaCampaigns: readonly FakeCampaign[] = [
 		id: 'campaign-002',
 		adAccountId: 'act_100000000000001',
 		name: 'Paused catalog',
-		effectiveStatus: 'PAUSED',
+		effectiveStatus: 'ARCHIVED',
 		objective: 'OUTCOME_SALES',
 	},
 	{
@@ -209,7 +209,7 @@ export const fakeMetaAdSets: readonly FakeAdSet[] = [
 		id: 'adset-002',
 		campaignId: 'campaign-002',
 		name: 'Catalog purchase',
-		effectiveStatus: 'PAUSED',
+		effectiveStatus: 'ARCHIVED',
 		optimizationGoal: 'OFFSITE_CONVERSIONS',
 		promotedObject: null,
 	},
@@ -242,7 +242,7 @@ export const fakeMetaAdSets: readonly FakeAdSet[] = [
 export const fakeMetaAds: readonly FakeAd[] = [
 	{ id: 'ad-001', adSetId: 'adset-001', name: 'Image lead', effectiveStatus: 'ACTIVE' },
 	{ id: 'ad-002', adSetId: 'adset-001', name: 'Carousel lead', effectiveStatus: 'ACTIVE' },
-	{ id: 'ad-003', adSetId: 'adset-002', name: 'Video catalog', effectiveStatus: 'PAUSED' },
+	{ id: 'ad-003', adSetId: 'adset-002', name: 'Video catalog', effectiveStatus: 'ARCHIVED' },
 	{ id: 'ad-004', adSetId: 'adset-003', name: 'Asset feed', effectiveStatus: 'ACTIVE' },
 	{ id: 'ad-005', adSetId: 'adset-004', name: 'Existing post', effectiveStatus: 'ACTIVE' },
 	{ id: 'ad-006', adSetId: 'adset-005', name: 'Expired media', effectiveStatus: 'PAUSED' },
@@ -306,8 +306,8 @@ export const fakeMetaCreatives: readonly FakeCreative[] = [
 	},
 ]
 
-const dates = Array.from({ length: 31 }, (_, index) => {
-	const date = new Date('2026-06-26T00:00:00.000Z')
+const dates = Array.from({ length: 91 }, (_, index) => {
+	const date = new Date('2026-04-27T00:00:00.000Z')
 	date.setUTCDate(date.getUTCDate() + index)
 	return date.toISOString().slice(0, 10)
 })

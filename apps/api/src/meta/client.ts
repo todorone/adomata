@@ -16,6 +16,7 @@ export const accountTierFields = [...accountTierPrepayFields, 'funding_source_de
 
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
+const hierarchyEffectiveStatuses = ['ACTIVE', 'PAUSED', 'ARCHIVED', 'DELETED']
 
 const meSchema = z.object({ id: z.string(), name: z.string() })
 const actionItemSchema = z.object({ action_type: z.string().min(1), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) })
@@ -221,6 +222,7 @@ export class MetaClient {
 				effectiveStatus: campaign.effective_status,
 				objective: campaign.objective ?? null,
 			}),
+			{ effective_status: JSON.stringify(hierarchyEffectiveStatuses) },
 		)
 	}
 
@@ -237,6 +239,7 @@ export class MetaClient {
 				optimizationGoal: adSet.optimization_goal ?? null,
 				resultActionType: resolveResultActionType(adSet.optimization_goal ?? null, adSet.promoted_object ?? null),
 			}),
+			{ effective_status: JSON.stringify(hierarchyEffectiveStatuses) },
 		)
 	}
 
@@ -251,6 +254,7 @@ export class MetaClient {
 				name: ad.name,
 				effectiveStatus: ad.effective_status,
 			}),
+			{ effective_status: JSON.stringify(hierarchyEffectiveStatuses) },
 		)
 	}
 
@@ -308,9 +312,11 @@ export class MetaClient {
 		fields: string,
 		schema: T,
 		normalize: (value: z.output<T>) => U,
+		params: Record<string, string> = {},
 	) {
 		const url = this.graphUrl(path)
 		url.searchParams.set('fields', fields)
+		for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value)
 		return this.collectPages(url, schema, normalize)
 	}
 

@@ -1,9 +1,9 @@
-import { eq, sql as drizzleSql } from 'drizzle-orm'
+import { asc, eq, inArray, sql as drizzleSql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { SQL } from 'bun'
 
 import { db, sql } from '../db'
-import { adAccount, organization } from '../db/schema'
+import { ad, adAccount, adInsight, adSet, campaign, organization } from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
 import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
@@ -100,6 +100,56 @@ describe('Account Tier heartbeat integration', () => {
 			now: new Date(now.getTime() + 1000),
 		})
 		expect(attempts.count).toBeGreaterThan(firstAttemptCount)
+	})
+
+	it('backfills 90 local days and persists archived Ads with their tree', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'pending', accountTierRefreshedAt: now, insightsTierRefreshedAt: now })
+			.where(
+				inArray(
+					adAccount.id,
+					fakeMetaAccounts.map(account => account.id),
+				),
+			)
+		await db
+			.update(adAccount)
+			.set({ accountTierRefreshedAt: null, insightsTierRefreshedAt: null })
+			.where(eq(adAccount.id, 'act_100000000000001'))
+
+		await runHeartbeat({ metaMode: 'fake', buildMetaClient: buildMetaClientWithAttemptCounter({ count: 0 }), now })
+
+		const archivedInsights = await db
+			.select({ date: adInsight.date })
+			.from(adInsight)
+			.where(eq(adInsight.adId, 'ad-003'))
+			.orderBy(asc(adInsight.date))
+		expect(archivedInsights).toHaveLength(91)
+		expect(archivedInsights[0]?.date).toBe('2026-04-27')
+		expect(archivedInsights.at(-1)?.date).toBe('2026-07-26')
+
+		const [archivedAd] = await db
+			.select({
+				adId: ad.id,
+				adStatus: ad.effectiveStatus,
+				adSetId: adSet.id,
+				adSetStatus: adSet.effectiveStatus,
+				campaignId: campaign.id,
+				campaignStatus: campaign.effectiveStatus,
+			})
+			.from(ad)
+			.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(eq(ad.id, 'ad-003'))
+		expect(archivedAd).toEqual({
+			adId: 'ad-003',
+			adStatus: 'ARCHIVED',
+			adSetId: 'adset-002',
+			adSetStatus: 'ARCHIVED',
+			campaignId: 'campaign-002',
+			campaignStatus: 'ARCHIVED',
+		})
 	})
 
 	it('skips due accounts in live mode when the Agency has no organizationSettings token', async () => {

@@ -1,17 +1,47 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronRight, ImageOff, RefreshCw, Search } from 'lucide-react'
+import {
+	ArrowDown,
+	ArrowUp,
+	ChevronDown,
+	ChevronRight,
+	Columns3,
+	ExternalLink,
+	Image as ImageIcon,
+	ImageOff,
+	RefreshCw,
+	Search,
+	SlidersHorizontal,
+	X,
+} from 'lucide-react'
 import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
 
 import { fleetBoardQueries, type FleetBoardParent, type FleetBoardRoot, useFleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
+import { Button } from '@/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from '@/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
 
 type Account = FleetBoardRoot['accounts'][number]
 type Client = FleetBoardRoot['clients'][number]
 type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
 type Node = Account | HierarchyNode
-type TreeRow = { node: Node; level: number; client?: Client }
+/**
+ * A flattened board row. `currency` is inherited from the ancestor Ad Account: hierarchy nodes
+ * carry no currency of their own, and every one of them descends from exactly one Ad Account
+ * that has exactly one currency. `mergedClient` is set on the single row that stands in for a
+ * Client with exactly one Ad Account.
+ */
+type TreeRow = { node: Node; level: number; currency: string | null; mergedClient?: Client }
+type BoardRow = ({ kind: 'client'; client: Client } | ({ kind: 'node' } & TreeRow)) & { key: string }
+type SortKey = FleetBoardSearch['sort']
 
 const metricLabels: Record<FleetBoardMetricKey, string> = {
 	spend: 'Витрати',
@@ -23,12 +53,16 @@ const metricLabels: Record<FleetBoardMetricKey, string> = {
 }
 const depthValues = ['account', 'campaign', 'adset', 'ad'] as const
 const depthLabels = { account: 'Кабінети', campaign: 'Кампанії', adset: 'Групи оголошень', ad: 'Оголошення' } as const
+const rangeLabels = { today: 'Сьогодні', last7: 'Останні 7 днів', month: 'З початку місяця' } as const
+const groupLabels = { client: 'За клієнтом', flat: 'Без групування' } as const
+const viewLabels = { tree: 'Дерево', control: 'Пульт', signals: 'Сигнали' } as const
 const laneLabels = {
 	needs_attention: 'Потрібна увага',
 	postpay: 'Післяплата',
 	active: 'Активні',
 	awaiting_data: 'Очікують даних',
 } as const
+const noData = '—'
 
 export function FleetBoard({
 	search,
@@ -55,7 +89,7 @@ export function FleetBoard({
 		const parents = parentsNeededForDepth(root.data.accounts, loadedNodes, search.depth)
 		if (parents.length === 0) return
 		queryClient.fetchQuery(fleetBoardQueries.children(search.range, parents)).then(response => {
-			setLoadedNodes(current => mergeChildren(current, response.nodes))
+			setLoadedNodes(current => mergeChildren(current, parents, response.nodes))
 		})
 	}, [loadedNodes, queryClient, root.data, search.depth, search.range])
 
@@ -63,7 +97,7 @@ export function FleetBoard({
 		const missing = parents.filter(parent => loadedNodes[parentKey(parent.type, parent.id)] === undefined)
 		if (missing.length === 0) return
 		queryClient.fetchQuery(fleetBoardQueries.children(search.range, missing)).then(response => {
-			setLoadedNodes(current => mergeChildren(current, response.nodes))
+			setLoadedNodes(current => mergeChildren(current, missing, response.nodes))
 		})
 	}
 
@@ -84,8 +118,20 @@ export function FleetBoard({
 		loadChildren([{ type: node.type, id: node.id }])
 	}
 
+	const viewProps = {
+		accounts: root.data?.accounts ?? [],
+		clients: root.data?.clients ?? [],
+		search,
+		setSearch,
+		loadedNodes,
+		expanded,
+		creativeAdId,
+		onToggle: toggle,
+	}
+	const hasRows = Boolean(root.data && root.data.accounts.length > 0)
+
 	return (
-		<div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-8">
+		<div className="mx-auto flex h-full w-full min-h-0 min-w-0 max-w-[1500px] flex-col gap-2">
 			<FleetToolbar
 				search={search}
 				setSearch={setSearch}
@@ -95,40 +141,9 @@ export function FleetBoard({
 			{root.isPending && !root.data ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}
 			{root.data && root.data.accounts.length === 0 ? <EmptyState /> : null}
-			{root.data && root.data.accounts.length > 0 && search.view === 'tree' ? (
-				<TreeView
-					accounts={root.data.accounts}
-					clients={root.data.clients}
-					search={search}
-					loadedNodes={loadedNodes}
-					expanded={expanded}
-					creativeAdId={creativeAdId}
-					onToggle={toggle}
-				/>
-			) : null}
-			{root.data && root.data.accounts.length > 0 && search.view === 'control' ? (
-				<ControlRoom
-					accounts={root.data.accounts}
-					clients={root.data.clients}
-					search={search}
-					loadedNodes={loadedNodes}
-					expanded={expanded}
-					creativeAdId={creativeAdId}
-					onToggle={toggle}
-					setSearch={setSearch}
-				/>
-			) : null}
-			{root.data && root.data.accounts.length > 0 && search.view === 'signals' ? (
-				<SignalsView
-					accounts={root.data.accounts}
-					clients={root.data.clients}
-					search={search}
-					loadedNodes={loadedNodes}
-					expanded={expanded}
-					creativeAdId={creativeAdId}
-					onToggle={toggle}
-				/>
-			) : null}
+			{hasRows && search.view === 'tree' ? <TreeView {...viewProps} /> : null}
+			{hasRows && search.view === 'control' ? <ControlRoom {...viewProps} /> : null}
+			{hasRows && search.view === 'signals' ? <SignalsView {...viewProps} /> : null}
 		</div>
 	)
 }
@@ -144,235 +159,328 @@ function FleetToolbar({
 	header?: FleetBoardRoot['header']
 	clients: Client[]
 }) {
+	const activeFilters =
+		Number(search.search.length > 0) + Number(search.needsAttention) + Number(Boolean(search.clientId))
+	// Sits outside the table's scroller rather than scrolling with the rows, so Time Range stays
+	// reachable without scrolling back to the top.
 	return (
-		<section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-			<div className="flex flex-wrap items-start justify-between gap-4">
-				<div>
-					<p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Meta Fleet Board</p>
-					<h1 className="display-title text-3xl font-semibold text-foreground">Огляд рекламних кабінетів</h1>
-				</div>
-				<div className="text-right text-xs text-muted-foreground" aria-live="polite">
-					<div>
-						Операційні дані: {freshnessText(header?.accountTierRefreshedAt, header?.accountTierStale ?? false)}
-					</div>
-					<div>
-						Показники: {freshnessText(header?.insightsTierRefreshedAt, header?.insightsTierStale ?? false)}
-					</div>
-					{header?.provisional ? (
-						<div className="mt-1 font-medium text-amber-700">Поточні показники можуть уточнюватися Meta.</div>
-					) : null}
-				</div>
-			</div>
-			<div className="mt-4 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Вигляд Fleet Board">
-				{(
-					[
-						['tree', 'Дерево'],
-						['control', 'Пульт'],
-						['signals', 'Сигнали'],
-					] as const
-				).map(([view, label]) => (
-					<button
-						key={view}
-						type="button"
-						role="radio"
-						aria-checked={search.view === view}
-						onClick={() => setSearch({ view })}
-						className={choiceClass(search.view === view)}
-					>
-						{label}
-					</button>
-				))}
-			</div>
-			<div className="mt-4 grid gap-3 xl:grid-cols-[auto_auto_auto_auto_1fr_auto]">
-				<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-					Часовий період
-					<select
-						value={search.range}
-						onChange={event => setSearch({ range: event.target.value as FleetBoardSearch['range'] })}
-						className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
-					>
-						<option value="today">Сьогодні</option>
-						<option value="last7">Останні 7 днів</option>
-						<option value="month">З початку місяця</option>
-					</select>
-				</label>
-				<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-					Групування
-					<select
-						value={search.group}
-						onChange={event => setSearch({ group: event.target.value as FleetBoardSearch['group'] })}
-						className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
-					>
-						<option value="client">За клієнтом</option>
-						<option value="flat">Без групування</option>
-					</select>
-				</label>
-				{search.group === 'flat' ? (
-					<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-						Клієнт
-						<select
-							value={search.clientId ?? ''}
-							onChange={event => setSearch({ clientId: event.target.value || undefined })}
-							className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
-						>
-							<option value="">Усі клієнти</option>
-							{clients.map(client => (
-								<option key={client.id} value={client.id}>
-									{client.name}
-								</option>
-							))}
-						</select>
-					</label>
-				) : null}
-				<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-					Глибина перегляду
-					<select
-						value={search.depth}
-						onChange={event => setSearch({ depth: event.target.value as FleetBoardSearch['depth'] })}
-						className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
-					>
-						{depthValues.map(value => (
-							<option key={value} value={value}>
-								{depthLabels[value]}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-					Сортування
-					<select
-						value={search.sort}
-						onChange={event => setSearch({ sort: event.target.value as FleetBoardSearch['sort'] })}
-						className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
-					>
-						<option value="attention">Потреба уваги</option>
-						<option value="name">Назва</option>
-						{search.metrics.map(metric => (
-							<option key={metric} value={metric}>
-								{metricLabels[metric]}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="flex min-w-0 items-end gap-2 rounded-md border bg-background px-2 text-sm text-muted-foreground">
-					<Search size={16} />
-					<input
-						value={search.search}
-						onChange={event => setSearch({ search: event.target.value })}
-						placeholder="Пошук клієнта або кабінету"
-						className="h-9 min-w-0 flex-1 bg-transparent outline-none"
-					/>
-				</label>
-				<label className="flex items-end gap-2 text-sm text-foreground">
-					<input
-						checked={search.needsAttention}
-						onChange={event => setSearch({ needsAttention: event.target.checked })}
-						type="checkbox"
-					/>
-					Потрібна увага
-				</label>
-			</div>
-			<div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Вибір показників">
-				<span className="mr-1 text-xs font-semibold text-muted-foreground">Показники</span>
-				{fleetBoardMetricKeys.map(metric => {
-					const active = search.metrics.includes(metric)
-					return (
-						<button
-							key={metric}
+		<section className="flex shrink-0 flex-col gap-2 border-b border-border pb-2">
+			<div className="flex items-center gap-x-3 overflow-hidden">
+				<h1 className="sr-only">Огляд рекламних кабінетів</h1>
+				<div className="flex shrink-0 items-center gap-1" role="radiogroup" aria-label="Вигляд Fleet Board">
+					{(Object.keys(viewLabels) as Array<keyof typeof viewLabels>).map(view => (
+						<Button
+							key={view}
 							type="button"
-							aria-pressed={active}
-							onClick={() => setSearch({ metrics: nextMetrics(search, metric) })}
-							className={choiceClass(active)}
+							role="radio"
+							size="xs"
+							variant={search.view === view ? 'default' : 'ghost'}
+							aria-checked={search.view === view}
+							onClick={() => setSearch({ view })}
 						>
-							{metricLabels[metric]}
-						</button>
-					)
-				})}
+							{viewLabels[view]}
+						</Button>
+					))}
+				</div>
+				{/* One line, never two: a wrapping freshness readout costs the board a row of fleet. */}
+				<p className="ml-auto truncate text-xs text-muted-foreground" aria-live="polite">
+					<span>
+						Операційні:{' '}
+						{freshnessText(
+							header?.accountTierRefreshedAt,
+							header?.accountTierStale ?? false,
+							header?.accountTierNeverSynced ?? 0,
+						)}
+					</span>
+					<span className="ml-3">
+						Показники:{' '}
+						{freshnessText(
+							header?.insightsTierRefreshedAt,
+							header?.insightsTierStale ?? false,
+							header?.insightsTierNeverSynced ?? 0,
+						)}
+					</span>
+					{header?.provisional ? (
+						<span className="ml-3 font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
+					) : null}
+				</p>
+			</div>
+			<div className="flex flex-wrap items-center gap-2">
+				<CompactSelect
+					label="Період"
+					value={search.range}
+					labels={rangeLabels}
+					onChange={range => setSearch({ range })}
+				/>
+				<CompactSelect
+					label="Групування"
+					value={search.group}
+					labels={groupLabels}
+					onChange={group => setSearch({ group })}
+				/>
+				<CompactSelect
+					label="Глибина"
+					value={search.depth}
+					labels={depthLabels}
+					onChange={depth => setSearch({ depth })}
+				/>
+				{/* A rendering toggle in the same family as collapse, not a filter: it hides rows
+				    and never changes a parent's numbers, so it stays outside the Filters popover. */}
+				<Button
+					type="button"
+					size="sm"
+					variant={search.hidePaused ? 'default' : 'outline'}
+					aria-pressed={search.hidePaused}
+					onClick={() => setSearch({ hidePaused: !search.hidePaused })}
+				>
+					Лише активні рядки
+				</Button>
+				<Popover>
+					<PopoverTrigger asChild>
+						<Button type="button" size="sm" variant="outline">
+							<SlidersHorizontal />
+							Фільтри
+							{/* The badge always occupies its slot: appearing from nothing would widen the
+							    trigger and shove the controls beside it sideways. */}
+							<span
+								className={`w-4 rounded-full text-xs ${activeFilters > 0 ? 'bg-primary text-primary-foreground' : 'invisible'}`}
+								aria-label={activeFilters > 0 ? `активних фільтрів: ${activeFilters}` : undefined}
+							>
+								{activeFilters > 0 ? activeFilters : null}
+							</span>
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="flex flex-col gap-3">
+						<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+							Пошук
+							<span className="flex items-center gap-2 rounded-md border bg-background px-2">
+								<Search size={14} />
+								<input
+									value={search.search}
+									onChange={event => setSearch({ search: event.target.value })}
+									placeholder="Клієнт або кабінет"
+									className="h-8 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+								/>
+							</span>
+						</label>
+						<label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+							Клієнт
+							<select
+								value={search.clientId ?? ''}
+								onChange={event => setSearch({ clientId: event.target.value || undefined })}
+								className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+							>
+								<option value="">Усі клієнти</option>
+								{clients.map(client => (
+									<option key={client.id} value={client.id}>
+										{client.name}
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="flex items-center gap-2 text-sm text-foreground">
+							<input
+								checked={search.needsAttention}
+								onChange={event => setSearch({ needsAttention: event.target.checked })}
+								type="checkbox"
+							/>
+							Потрібна увага
+						</label>
+					</PopoverContent>
+				</Popover>
+				<Popover>
+					<PopoverTrigger asChild>
+						<Button type="button" size="sm" variant="outline">
+							<Columns3 />
+							Показники
+							<span className="text-xs text-muted-foreground">{search.metrics.length}</span>
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="flex flex-col gap-1" aria-label="Вибір показників">
+						{fleetBoardMetricKeys.map(metric => {
+							const active = search.metrics.includes(metric)
+							return (
+								<Button
+									key={metric}
+									type="button"
+									size="sm"
+									variant={active ? 'secondary' : 'ghost'}
+									className="justify-start"
+									aria-pressed={active}
+									onClick={() => setSearch({ metrics: nextMetrics(search, metric) })}
+								>
+									{metricLabels[metric]}
+								</Button>
+							)
+						})}
+					</PopoverContent>
+				</Popover>
 			</div>
 		</section>
 	)
 }
 
-function TreeView({
-	accounts,
-	clients,
-	search,
-	loadedNodes,
-	expanded,
-	creativeAdId,
-	onToggle,
+function CompactSelect<Value extends string>({
+	label,
+	value,
+	labels,
+	onChange,
 }: {
+	label: string
+	value: Value
+	labels: Record<Value, string>
+	onChange: (value: Value) => void
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button type="button" size="sm" variant="outline" aria-label={label}>
+					<span className="text-muted-foreground">{label}:</span>
+					{labels[value]}
+					<ChevronDown />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent>
+				<DropdownMenuRadioGroup value={value} onValueChange={next => onChange(next as Value)}>
+					{(Object.keys(labels) as Value[]).map(option => (
+						<DropdownMenuRadioItem key={option} value={option}>
+							{labels[option]}
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	)
+}
+
+type ViewProps = {
 	accounts: Account[]
 	clients: Client[]
 	search: FleetBoardSearch
+	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	loadedNodes: Record<string, HierarchyNode[]>
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
-}) {
-	const rows = flattenRows(accounts, clients, search.group, search.depth, loadedNodes, expanded)
+}
+
+function TreeView({ accounts, clients, search, setSearch, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
+	const rows = flattenRows(accounts, clients, search, loadedNodes, expanded)
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => scrollRef.current,
-		estimateSize: () => 58,
-		overscan: 8,
+		estimateSize: () => 36,
+		overscan: 12,
 	})
 	return (
-		<section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-			<div className="overflow-x-auto">
+		// No fixed height: the table fills whatever the viewport leaves after the toolbar, so it
+		// is the page's only vertical scroller rather than one nested inside a scrolling page.
+		<section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+			<div className="flex min-h-0 flex-1 flex-col overflow-x-auto">
+				{/* treegrid wraps the header row and the row group directly, so the grid relationship
+				    survives the wrappers the horizontal scroller and the virtualizer need. */}
 				<div
-					className="grid min-w-[760px] border-b bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground"
-					style={{ gridTemplateColumns: columns(search.metrics) }}
-				>
-					<span>Структура</span>
-					<span>Стан</span>
-					{search.metrics.map(metric => (
-						<span key={metric} className="text-right">
-							{metricLabels[metric]}
-						</span>
-					))}
-				</div>
-				<div
-					ref={scrollRef}
-					className="h-[min(68vh,780px)] overflow-auto"
+					className="flex min-h-0 flex-1 flex-col"
 					role="treegrid"
 					aria-label="Дерево рекламних кабінетів"
+					style={{ minWidth: gridMinWidth(search.metrics) }}
 				>
-					<div style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: 760 }}>
-						{virtualizer.getVirtualItems().map(item => {
-							const row = rows[item.index]!
-							return (
-								<div
-									key={rowKey(row, item.index)}
-									ref={virtualizer.measureElement}
-									data-index={item.index}
-									style={{
-										position: 'absolute',
-										top: 0,
-										left: 0,
-										width: '100%',
-										transform: `translateY(${item.start}px)`,
-									}}
-								>
-									{row.kind === 'client' ? (
-										<ClientRow row={row.client} metrics={search.metrics} />
-									) : (
-										<NodeRow
-											row={row}
-											metrics={search.metrics}
-											expanded={expanded}
-											creativeAdId={creativeAdId}
-											onToggle={onToggle}
-										/>
-									)}
-								</div>
-							)
-						})}
+					<ColumnHeader search={search} setSearch={setSearch} />
+					<div ref={scrollRef} role="rowgroup" className="min-h-0 flex-1 overflow-y-auto">
+						<div style={{ height: virtualizer.getTotalSize(), position: 'relative' }} role="presentation">
+							{virtualizer.getVirtualItems().map(item => {
+								const row = rows[item.index]!
+								return (
+									<div
+										key={row.key}
+										ref={virtualizer.measureElement}
+										data-index={item.index}
+										role="presentation"
+										style={{
+											position: 'absolute',
+											top: 0,
+											left: 0,
+											width: '100%',
+											transform: `translateY(${item.start}px)`,
+										}}
+									>
+										{row.kind === 'client' ? (
+											<ClientRow client={row.client} metrics={search.metrics} />
+										) : (
+											<NodeRow
+												row={row}
+												metrics={search.metrics}
+												expanded={expanded}
+												creativeAdId={creativeAdId}
+												onToggle={onToggle}
+											/>
+										)}
+									</div>
+								)
+							})}
+						</div>
 					</div>
 				</div>
 			</div>
 		</section>
+	)
+}
+
+function ColumnHeader({
+	search,
+	setSearch,
+}: {
+	search: FleetBoardSearch
+	setSearch: (changes: Partial<FleetBoardSearch>) => void
+}) {
+	function sortBy(sort: SortKey) {
+		setSearch(
+			search.sort === sort
+				? { direction: search.direction === 'asc' ? 'desc' : 'asc' }
+				: { sort, direction: 'desc' },
+		)
+	}
+	const cell = (sort: SortKey | null, label: string, alignRight = false) => (
+		<span
+			key={label}
+			role="columnheader"
+			aria-sort={
+				sort === null || search.sort !== sort ? 'none' : search.direction === 'asc' ? 'ascending' : 'descending'
+			}
+			className={alignRight ? 'text-right' : undefined}
+		>
+			{sort === null ? (
+				label
+			) : (
+				<button
+					type="button"
+					onClick={() => sortBy(sort)}
+					aria-label={`Сортувати за: ${label}`}
+					className="inline-flex items-center gap-1 hover:text-foreground"
+				>
+					{label}
+					{search.sort !== sort ? null : search.direction === 'asc' ? (
+						<ArrowUp size={12} />
+					) : (
+						<ArrowDown size={12} />
+					)}
+				</button>
+			)}
+		</span>
+	)
+	return (
+		<div
+			role="row"
+			className="grid shrink-0 items-center gap-2 border-b bg-muted/40 px-2 py-1 text-xs font-semibold text-muted-foreground"
+			style={{ gridTemplateColumns: gridTemplate(search.metrics) }}
+		>
+			{cell('name', 'Структура')}
+			{cell('attention', 'Здоров’я')}
+			{cell(null, 'Стан')}
+			{cell('owed', 'Заборгованість', true)}
+			{search.metrics.map(metric => cell(metric, metricLabels[metric], true))}
+		</div>
 	)
 }
 
@@ -380,21 +488,12 @@ function ControlRoom({
 	accounts,
 	clients,
 	search,
+	setSearch,
 	loadedNodes,
 	expanded,
 	creativeAdId,
 	onToggle,
-	setSearch,
-}: {
-	accounts: Account[]
-	clients: Client[]
-	search: FleetBoardSearch
-	loadedNodes: Record<string, HierarchyNode[]>
-	expanded: Set<string>
-	creativeAdId: string | null
-	onToggle: (node: Node) => void
-	setSearch: (changes: Partial<FleetBoardSearch>) => void
-}) {
+}: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
 	const railItems: Array<{ client: Client } | { account: Account }> =
 		search.group === 'client'
@@ -407,20 +506,18 @@ function ControlRoom({
 	const rail = useVirtualizer({
 		count: railItems.length,
 		getScrollElement: () => railRef.current,
-		estimateSize: () => 54,
+		// Rail rows now carry name, Health and the selected KPIs, so their height varies with the
+		// metric selection and is measured rather than assumed.
+		estimateSize: () => 72,
 		overscan: 8,
 	})
 	return (
-		<section className="grid overflow-hidden rounded-2xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(260px,0.34fr)_minmax(0,1fr)]">
+		<section className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:grid-cols-[minmax(240px,0.3fr)_minmax(0,1fr)]">
 			<aside
-				className="border-b bg-muted/35 p-3 lg:max-h-[75vh] lg:overflow-auto lg:border-r lg:border-b-0"
+				className="flex min-h-0 flex-col border-b bg-muted/35 p-2 lg:border-r lg:border-b-0"
 				aria-label="Список рекламних кабінетів"
 			>
-				<div
-					ref={railRef}
-					className="max-h-64 overflow-auto lg:max-h-none"
-					style={{ height: Math.min(railItems.length * 54, 600) }}
-				>
+				<div ref={railRef} className="max-h-64 min-h-0 overflow-auto lg:max-h-none lg:flex-1">
 					<div style={{ height: rail.getTotalSize(), position: 'relative' }}>
 						{rail.getVirtualItems().map(item => {
 							const itemValue = railItems[item.index]!
@@ -428,7 +525,9 @@ function ControlRoom({
 								return (
 									<p
 										key={`client:${itemValue.client.id}`}
-										className="absolute w-full px-2 py-2 text-xs font-semibold text-muted-foreground"
+										ref={rail.measureElement}
+										data-index={item.index}
+										className="absolute w-full truncate px-2 py-2 text-xs font-semibold text-muted-foreground"
 										style={{ transform: `translateY(${item.start}px)` }}
 									>
 										{itemValue.client.name}
@@ -436,34 +535,50 @@ function ControlRoom({
 								)
 							}
 							const { account } = itemValue
+							const isSelected = account.id === selected.id
 							return (
 								<button
 									key={account.id}
 									type="button"
+									ref={rail.measureElement}
+									data-index={item.index}
+									aria-current={isSelected ? 'true' : undefined}
 									onClick={() => setSearch({ account: account.id })}
-									className={`absolute flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${account.id === selected.id ? 'bg-background shadow-sm' : ''}`}
+									className={`absolute flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm ${
+										isSelected
+											? 'border-l-2 border-primary bg-background font-medium shadow-sm'
+											: 'border-l-2 border-transparent hover:bg-background/60'
+									}`}
 									style={{ transform: `translateY(${item.start}px)` }}
 								>
+									{/* The name leads and must not be the element that truncates away. */}
+									<span className="w-full truncate">{account.name}</span>
 									<HealthLabel health={account.health} />
-									<span className="min-w-0 flex-1 truncate">{account.name}</span>
+									<span className="flex w-full flex-wrap gap-x-2 text-xs text-muted-foreground">
+										{search.metrics.map(metric => (
+											<span key={metric}>
+												{metricLabels[metric]}:{' '}
+												<strong className="font-medium text-foreground">
+													{formatKpi(metric, account.kpis[metric], account.currency)}
+												</strong>
+											</span>
+										))}
+									</span>
 								</button>
 							)
 						})}
 					</div>
 				</div>
 			</aside>
-			<div className="min-w-0 p-4">
-				<div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-					<div>
-						<p className="text-xs text-muted-foreground">{selected.clientName}</p>
-						<h2 className="text-xl font-semibold">{selected.name}</h2>
-					</div>
-					<HealthLabel health={selected.health} />
-				</div>
+			<div className="flex min-h-0 min-w-0 flex-col p-3">
+				{/* The Ad Account name and its Meta link belong to the row below, which carries them
+				    in aligned cells; repeating them here is what made the pane say the name thrice. */}
+				<p className="mb-2 shrink-0 text-xs text-muted-foreground">{selected.clientName}</p>
 				<TreeView
 					accounts={[selected]}
 					clients={clients.filter(client => client.id === selected.clientId)}
 					search={{ ...search, group: 'flat' }}
+					setSearch={setSearch}
 					loadedNodes={loadedNodes}
 					expanded={expanded}
 					creativeAdId={creativeAdId}
@@ -474,27 +589,13 @@ function ControlRoom({
 	)
 }
 
-function SignalsView({
-	accounts,
-	clients,
-	search,
-	loadedNodes,
-	expanded,
-	creativeAdId,
-	onToggle,
-}: {
-	accounts: Account[]
-	clients: Client[]
-	search: FleetBoardSearch
-	loadedNodes: Record<string, HierarchyNode[]>
-	expanded: Set<string>
-	creativeAdId: string | null
-	onToggle: (node: Node) => void
-}) {
+function SignalsView({ accounts, clients, search, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
 	const [openedClients, setOpenedClients] = useState<Set<string>>(new Set())
 	const items = search.group === 'client' ? clients : accounts
 	return (
-		<div className="grid gap-4 xl:grid-cols-2">
+		// content-start so the lanes pack against the top: a stretched grid row would give an
+		// empty lane the height the spec just took away from it.
+		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
 				<SignalLane
 					key={lane}
@@ -537,36 +638,25 @@ function SignalLane({
 	openedClients: Set<string>
 	setOpenedClients: (next: Set<string>) => void
 }) {
-	const scrollRef = useRef<HTMLDivElement>(null)
-	const virtualizer = useVirtualizer({
-		count: items.length,
-		getScrollElement: () => scrollRef.current,
-		estimateSize: () => 130,
-		overscan: 5,
-	})
+	// Lanes size to their contents: an empty lane is a thin labelled header with its count,
+	// never a fixed-height empty box holding a quarter of the screen.
 	return (
-		<section className="rounded-2xl border border-border bg-card p-3 shadow-sm" aria-labelledby={`lane-${lane}`}>
-			<header className="mb-3 flex items-center justify-between">
-				<h2 id={`lane-${lane}`} className="font-semibold">
+		<section className="rounded-xl border border-border bg-card p-2 shadow-sm" aria-labelledby={`lane-${lane}`}>
+			<header className="flex items-center justify-between px-1">
+				<h2 id={`lane-${lane}`} className="text-sm font-semibold">
 					{laneLabels[lane]}
 				</h2>
 				<span className="rounded-full bg-muted px-2 py-0.5 text-xs">{items.length}</span>
 			</header>
-			<div ref={scrollRef} className="max-h-[56vh] overflow-auto">
-				<div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-					{virtualizer.getVirtualItems().map(item => {
-						const value = items[item.index]!
+			{items.length === 0 ? null : (
+				<div className="mt-2 flex flex-col gap-2">
+					{items.map(value => {
 						const isClient = !('type' in value)
 						const isOpen = isClient ? openedClients.has(value.id) : expanded.has(parentKey('account', value.id))
 						const childAccounts = isClient ? accounts.filter(account => account.clientId === value.id) : [value]
+						const sync = syncNote(childAccounts)
 						return (
-							<article
-								key={value.id}
-								ref={virtualizer.measureElement}
-								data-index={item.index}
-								className="absolute w-full rounded-xl border bg-background p-3"
-								style={{ transform: `translateY(${item.start}px)` }}
-							>
+							<article key={value.id} className="rounded-lg border bg-background p-2">
 								<button
 									type="button"
 									className="flex w-full items-start justify-between gap-3 text-left"
@@ -579,21 +669,40 @@ function SignalLane({
 										} else onToggle(value)
 									}}
 								>
-									<div>
-										<p className="font-medium">{value.name}</p>
-										{isClient ? null : <p className="text-xs text-muted-foreground">{value.clientName}</p>}
-									</div>
-									<HealthLabel health={value.health} />
+									<span className="min-w-0">
+										<span className="block truncate text-sm font-medium">{value.name}</span>
+										{isClient ? null : (
+											<span className="block truncate text-xs text-muted-foreground">
+												{value.clientName}
+											</span>
+										)}
+									</span>
+									<HealthLabel
+										health={value.health}
+										// Where the reason merely restates the lane title it is de-emphasised,
+										// never removed: ADR 0018 keeps Color and Reason together.
+										muted={value.signalsLane === lane}
+									/>
 								</button>
-								<KpiStrip
-									kpis={value.kpis}
-									metrics={search.metrics}
-									currency={isClient ? value.currency : value.currency}
-								/>
+								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+									<span>
+										Заборгованість:{' '}
+										<strong className="font-medium text-foreground">
+											{formatMoney(value.amountOwed, value.currency)}
+										</strong>
+									</span>
+									{/* A failed or missing sync is Adomata's reach, not Meta's verdict on the
+									    account — it gets its own wording so it is not escalated as ill health. */}
+									{sync ? (
+										<span className="rounded-full bg-muted px-2 py-0.5 text-foreground">{sync}</span>
+									) : null}
+									{isClient ? null : <MetaAdsManagerLink accountId={value.id} />}
+								</div>
+								<KpiStrip kpis={value.kpis} metrics={search.metrics} currency={value.currency} />
 								{isOpen ? (
-									<div className="mt-3 border-t pt-2">
+									<div className="mt-2 border-t pt-1">
 										{childAccounts
-											.flatMap(account => flattenAccount(account, search.depth, loadedNodes, expanded))
+											.flatMap(account => flattenAccount(account, 0, search, loadedNodes, expanded))
 											.map(row => (
 												<NodeRow
 													key={`${row.node.type}:${row.node.id}`}
@@ -602,7 +711,6 @@ function SignalLane({
 													expanded={expanded}
 													creativeAdId={creativeAdId}
 													onToggle={onToggle}
-													compact
 												/>
 											))}
 									</div>
@@ -611,26 +719,29 @@ function SignalLane({
 						)
 					})}
 				</div>
-			</div>
+			)}
 		</section>
 	)
 }
 
-function ClientRow({ row, metrics }: { row: Client; metrics: FleetBoardMetricKey[] }) {
+function ClientRow({ client, metrics }: { client: Client; metrics: FleetBoardMetricKey[] }) {
 	return (
 		<div
-			className="grid min-h-12 items-center border-b bg-muted/35 px-3 text-sm font-semibold"
-			style={{ gridTemplateColumns: columns(metrics) }}
+			role="row"
+			className="grid min-h-9 items-center gap-2 border-b bg-muted/35 px-2 text-sm font-semibold"
+			style={{ gridTemplateColumns: gridTemplate(metrics) }}
 		>
-			<span>
-				{row.name}
-				{row.mixedTimezone ? (
+			<span className="truncate">
+				{client.name}
+				{client.mixedTimezone ? (
 					<small className="ml-2 font-normal text-muted-foreground">кілька часових поясів</small>
 				) : null}
 			</span>
-			<HealthLabel health={row.health} />
+			<HealthLabel health={client.health} />
+			<RunningCell running={client.kpis.running} />
+			<span className="text-right tabular-nums">{formatMoney(client.amountOwed, client.currency)}</span>
 			{metrics.map(metric => (
-				<KpiCell key={metric} metric={metric} kpis={row.kpis} currency={row.currency} />
+				<KpiCell key={metric} metric={metric} kpis={client.kpis} currency={client.currency} />
 			))}
 		</div>
 	)
@@ -642,130 +753,138 @@ function NodeRow({
 	expanded,
 	creativeAdId,
 	onToggle,
-	compact = false,
 }: {
 	row: TreeRow
 	metrics: FleetBoardMetricKey[]
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
-	compact?: boolean
 }) {
 	const { node } = row
+	const isAccount = node.type === 'account'
 	const isExpandable = node.type !== 'ad'
 	const isExpanded = node.type === 'ad' ? creativeAdId === node.id : expanded.has(parentKey(node.type, node.id))
 	return (
-		<div
-			className={`border-b px-3 py-2 ${compact ? 'text-sm' : ''}`}
-			role="row"
-			aria-level={row.level + 1}
-			aria-expanded={isExpandable ? isExpanded : undefined}
-		>
-			<div className="grid min-h-9 items-center gap-2" style={{ gridTemplateColumns: columns(metrics) }}>
-				<button
-					type="button"
-					onClick={() => onToggle(node)}
-					className="flex min-w-0 items-center gap-1 text-left"
-					style={{ paddingInlineStart: row.level * 18 }}
-					aria-label={
-						node.type === 'ad'
-							? `Відкрити креатив ${node.name}`
-							: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
-					}
-				>
-					{isExpandable ? (
-						<ChevronRight
-							size={16}
-							className={isExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
-						/>
-					) : (
-						<span className="w-4" />
-					)}
-					<span className="truncate">{node.name}</span>
-				</button>
-				<span className="text-xs text-muted-foreground">
-					{'connectionStatus' in node
-						? node.kpis.running
-							? 'Є активні'
-							: 'Неактивні'
-						: effectiveStatusText(node.effectiveStatus)}
+		<div className="border-b px-2" role="presentation">
+			<div
+				role="row"
+				aria-level={row.level + 1}
+				aria-expanded={isExpandable ? isExpanded : undefined}
+				className="grid min-h-9 items-center gap-2 text-sm"
+				style={{ gridTemplateColumns: gridTemplate(metrics) }}
+			>
+				<span className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: row.level * 14 }}>
+					<button
+						type="button"
+						onClick={() => onToggle(node)}
+						className="flex min-w-0 flex-1 items-center gap-1 text-left"
+						aria-label={
+							node.type === 'ad'
+								? `Відкрити креатив ${node.name}`
+								: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
+						}
+					>
+						{isExpandable ? (
+							<ChevronRight
+								size={14}
+								className={
+									isExpanded ? 'shrink-0 rotate-90 transition-transform' : 'shrink-0 transition-transform'
+								}
+							/>
+						) : (
+							// The affordance that says a Creative opens on click.
+							<ImageIcon size={14} className="shrink-0 text-muted-foreground" aria-hidden />
+						)}
+						{row.mergedClient ? (
+							// A Client with exactly one Ad Account is one row: its rollup is by definition
+							// equal to the Ad Account's own values, so restating them costs a row and says
+							// nothing. Rendering only — no rollup is recomputed.
+							<span className="min-w-0 truncate">
+								{row.mergedClient.name}
+								<small className="ml-2 font-normal text-muted-foreground">{node.name}</small>
+							</span>
+						) : (
+							<span className="truncate">{node.name}</span>
+						)}
+					</button>
+					{isAccount ? <MetaAdsManagerLink accountId={node.id} /> : null}
+				</span>
+				{'health' in node ? <HealthLabel health={node.health} /> : <span />}
+				{'connectionStatus' in node ? (
+					<RunningCell running={node.kpis.running} />
+				) : (
+					<span className="truncate text-xs text-muted-foreground">
+						{effectiveStatusText(node.effectiveStatus)}
+					</span>
+				)}
+				{/* Amount owed is an Ad Account property, not a rollup: interior rows leave it empty. */}
+				<span className="text-right tabular-nums">
+					{node.type === 'account' ? formatMoney(node.amountOwed, row.currency) : null}
 				</span>
 				{metrics.map(metric => (
-					<KpiCell
-						key={metric}
-						metric={metric}
-						kpis={node.kpis}
-						currency={'currency' in node ? node.currency : null}
-					/>
+					<KpiCell key={metric} metric={metric} kpis={node.kpis} currency={row.currency} />
 				))}
 			</div>
-			{'type' in node && node.type === 'account' ? (
-				<div className="mt-1" style={{ paddingInlineStart: row.level * 18 + 20 }}>
-					<HealthLabel health={node.health} />
-					<span className="ml-3 text-xs text-muted-foreground">
-						Заборгованість: {node.amountOwed === null ? '—' : formatKpi('spend', node.amountOwed, node.currency)}
-					</span>
-				</div>
+			{node.type === 'ad' && creativeAdId === node.id ? (
+				<CreativeDetail adId={node.id} onClose={() => onToggle(node)} />
 			) : null}
-			{node.type === 'ad' && creativeAdId === node.id ? <CreativeDetail adId={node.id} /> : null}
 		</div>
 	)
 }
 
-function CreativeDetail({ adId }: { adId: string }) {
+function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }) {
 	const creative = useQuery(fleetBoardQueries.creative(adId))
 	if (creative.isPending)
 		return (
-			<p className="mt-3 text-sm text-muted-foreground" aria-live="polite">
+			<p className="py-2 text-sm text-muted-foreground" aria-live="polite">
 				Завантажуємо креатив…
 			</p>
 		)
 	if (creative.isError || !creative.data)
 		return (
-			<p className="mt-3 text-sm text-muted-foreground">
+			<p className="py-2 text-sm text-muted-foreground">
 				Не вдалося завантажити креатив. Показники оголошення доступні.
 			</p>
 		)
+	const data = creative.data
 	return (
-		<div className="mt-3 rounded-lg border bg-muted/20 p-3">
+		<div className="my-2 rounded-lg border bg-muted/20 p-3">
 			<div className="flex flex-wrap items-start justify-between gap-2">
-				<div>
-					<p className="font-medium">{creative.data.name ?? 'Креатив'}</p>
-					<p className="text-sm text-muted-foreground">
-						{creative.data.headline ?? creative.data.body ?? 'Текст креативу недоступний'}
-					</p>
-					{creative.data.callToAction ? (
-						<p className="mt-1 text-xs text-muted-foreground">
-							Дія: {callToActionText(creative.data.callToAction)}
-						</p>
+				<div className="min-w-0">
+					<p className="line-clamp-1 font-medium">{creativeTitle(data)}</p>
+					{data.body ? <p className="line-clamp-3 text-sm text-muted-foreground">{data.body}</p> : null}
+					{data.description ? <p className="mt-1 text-xs text-muted-foreground">{data.description}</p> : null}
+					{data.callToAction ? (
+						<p className="mt-1 text-xs text-muted-foreground">Дія: {callToActionText(data.callToAction)}</p>
 					) : null}
-					{creative.data.description ? (
-						<p className="mt-1 text-xs text-muted-foreground">{creative.data.description}</p>
-					) : null}
-					{creative.data.destination ? (
+					{data.destination ? (
 						<a
 							className="mt-1 block text-xs text-primary underline"
-							href={creative.data.destination}
+							href={data.destination}
 							target="_blank"
-							rel="noreferrer"
+							rel="noreferrer noopener"
 						>
 							Перейти за посиланням
 						</a>
 					) : null}
-					{creative.data.existingPostId ? (
-						<p className="mt-1 text-xs text-muted-foreground">
-							Ідентифікатор допису: {creative.data.existingPostId}
-						</p>
-					) : null}
 				</div>
-				<span className="rounded-full bg-muted px-2 py-1 text-xs">Результати належать оголошенню цілком</span>
+				<div className="flex items-center gap-2">
+					{/* Only a Creative that really carries several assets needs the note, otherwise
+					    it stops meaning anything where it appears. */}
+					{data.assets.length > 1 ? (
+						<span className="rounded-full bg-muted px-2 py-1 text-xs">Результати належать оголошенню цілком</span>
+					) : null}
+					<Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label="Закрити креатив">
+						<X />
+					</Button>
+				</div>
 			</div>
 			<div className="mt-3 flex flex-wrap gap-2">
-				{creative.data.assets.map(asset => (
-					<div key={asset.key} className="w-32 overflow-hidden rounded-md border bg-background">
+				{data.assets.map(asset => (
+					<div key={asset.key} className="w-28 overflow-hidden rounded-md border bg-background">
 						{asset.mediaKey ? (
 							<img
-								src={mediaUrl(creative.data!.id, asset.mediaKey)}
+								src={mediaUrl(data.id, asset.mediaKey)}
 								alt={asset.label}
 								className="aspect-square w-full object-cover"
 							/>
@@ -780,27 +899,61 @@ function CreativeDetail({ adId }: { adId: string }) {
 						</p>
 					</div>
 				))}
-				{creative.data.mediaUnavailable ? (
+				{data.mediaUnavailable ? (
 					<div className="flex items-center gap-2 text-sm text-muted-foreground">
 						<ImageOff size={16} />
 						Медіа тимчасово недоступне
 					</div>
 				) : null}
 			</div>
+			{/* Plumbing, not the Creative: demoted out of the primary reading order. */}
+			{data.existingPostId ? (
+				<p className="mt-2 text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>
+			) : null}
 		</div>
 	)
 }
 
-function HealthLabel({ health }: { health: { color: string; reason: { code: string }; needsAttention: boolean } }) {
+function MetaAdsManagerLink({ accountId }: { accountId: string }) {
+	return (
+		<a
+			href={metaAdsManagerUrl(accountId)}
+			target="_blank"
+			rel="noreferrer noopener"
+			aria-label="Відкрити у Meta Ads Manager"
+			className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+			onClick={event => event.stopPropagation()}
+		>
+			<ExternalLink size={14} />
+		</a>
+	)
+}
+
+function HealthDot({ color }: { color: string }) {
+	return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${healthColorClass(color)}`} aria-hidden />
+}
+
+function HealthLabel({
+	health,
+	muted = false,
+}: {
+	health: { color: string; reason: { code: string }; needsAttention: boolean }
+	muted?: boolean
+}) {
 	return (
 		<span
-			className="inline-flex items-center gap-1.5 text-xs"
+			className={`inline-flex min-w-0 items-center gap-1.5 text-xs ${muted ? 'text-muted-foreground/70' : ''}`}
+			title={healthText(health.reason.code)}
 			aria-label={`${healthText(health.reason.code)}${health.needsAttention ? ', потрібна увага' : ''}`}
 		>
-			<span className={`h-2.5 w-2.5 rounded-full ${healthColorClass(health.color)}`} />
-			<span>{healthText(health.reason.code)}</span>
+			<HealthDot color={health.color} />
+			<span className="truncate">{healthText(health.reason.code)}</span>
 		</span>
 	)
+}
+
+function RunningCell({ running }: { running: boolean }) {
+	return <span className="truncate text-xs text-muted-foreground">{running ? 'Є активні' : 'Неактивні'}</span>
 }
 
 function KpiStrip({
@@ -813,7 +966,7 @@ function KpiStrip({
 	currency: string | null
 }) {
 	return (
-		<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+		<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
 			{metrics.map(metric => (
 				<span key={metric}>
 					{metricLabels[metric]}:{' '}
@@ -833,54 +986,60 @@ function KpiCell({
 	kpis: Node['kpis'] | Client['kpis']
 	currency: string | null
 }) {
-	return <span className="text-right text-sm tabular-nums">{formatKpi(metric, kpis[metric], currency)}</span>
+	return <span className="text-right tabular-nums">{formatKpi(metric, kpis[metric], currency)}</span>
 }
 
 function flattenRows(
 	accounts: Account[],
 	clients: Client[],
-	group: FleetBoardSearch['group'],
-	depth: FleetBoardSearch['depth'],
+	search: FleetBoardSearch,
 	children: Record<string, HierarchyNode[]>,
 	expanded: Set<string>,
-) {
-	const rows: Array<{ kind: 'client'; client: Client } | { kind: 'node'; node: Node; level: number }> = []
-	if (group === 'flat')
-		return accounts.flatMap(account =>
-			flattenAccount(account, depth, children, expanded).map(row => ({ kind: 'node' as const, ...row })),
-		)
-	for (const client of clients) {
-		rows.push({ kind: 'client', client })
-		for (const account of accounts.filter(account => account.clientId === client.id))
-			rows.push(
-				...flattenAccount(account, depth, children, expanded).map(row => ({ kind: 'node' as const, ...row })),
-			)
-	}
-	return rows
+): BoardRow[] {
+	const nodeRows = (rows: TreeRow[]) => rows.map(row => ({ kind: 'node' as const, ...row, key: rowKey(row) }))
+	if (search.group === 'flat')
+		return accounts.flatMap(account => nodeRows(flattenAccount(account, 0, search, children, expanded)))
+	return clients.flatMap(client => {
+		const clientAccounts = accounts.filter(account => account.clientId === client.id)
+		if (clientAccounts.length === 1) {
+			const rows = flattenAccount(clientAccounts[0]!, 0, search, children, expanded)
+			return nodeRows(rows.map((row, index) => (index === 0 ? { ...row, mergedClient: client } : row)))
+		}
+		return [
+			{ kind: 'client' as const, client, key: `client:${client.id}` },
+			...clientAccounts.flatMap(account => nodeRows(flattenAccount(account, 1, search, children, expanded))),
+		]
+	})
 }
 
 function flattenAccount(
 	account: Account,
-	depth: FleetBoardSearch['depth'],
+	baseLevel: number,
+	search: FleetBoardSearch,
 	children: Record<string, HierarchyNode[]>,
 	expanded: Set<string>,
 ) {
-	return flattenNode(account, 0, depth, children, expanded)
+	return flattenNode(account, baseLevel, account.currency, search, children, expanded)
 }
 
 function flattenNode(
 	node: Node,
 	level: number,
-	depth: FleetBoardSearch['depth'],
+	currency: string | null,
+	search: FleetBoardSearch,
 	children: Record<string, HierarchyNode[]>,
 	expanded: Set<string>,
 ): TreeRow[] {
-	const rows: TreeRow[] = [{ node, level }]
+	const rows: TreeRow[] = [{ node, level, currency }]
 	if (node.type === 'ad') return rows
 	const typeDepth = depthValues.indexOf(node.type)
-	if (depthValues.indexOf(depth) <= typeDepth && !expanded.has(parentKey(node.type, node.id))) return rows
-	for (const child of children[parentKey(node.type, node.id)] ?? [])
-		rows.push(...flattenNode(child, level + 1, depth, children, expanded))
+	if (depthValues.indexOf(search.depth) <= typeDepth && !expanded.has(parentKey(node.type, node.id))) return rows
+	for (const child of children[parentKey(node.type, node.id)] ?? []) {
+		// A rendering toggle, not a filter: hiding a non-Running interior row changes nothing
+		// about any parent's numbers, which are rollups computed server-side.
+		if (search.hidePaused && !child.kpis.running) continue
+		rows.push(...flattenNode(child, level + 1, currency, search, children, expanded))
+	}
 	return rows
 }
 
@@ -903,8 +1062,16 @@ function parentsNeededForDepth(
 	return []
 }
 
-function mergeChildren(current: Record<string, HierarchyNode[]>, nodes: HierarchyNode[]) {
+function mergeChildren(
+	current: Record<string, HierarchyNode[]>,
+	requested: FleetBoardParent[],
+	nodes: HierarchyNode[],
+) {
 	const next = { ...current }
+	// Record every requested parent, including the ones that turned out to have no children:
+	// leaving their key undefined reads as "not loaded yet" and makes the depth loader refetch
+	// them forever.
+	for (const parent of requested) next[parentKey(parent.type, parent.id)] ??= []
 	for (const node of nodes)
 		next[parentKey(parentTypeForChild(node.type), node.parentId)] = [
 			...(next[parentKey(parentTypeForChild(node.type), node.parentId)] ?? []),
@@ -922,20 +1089,33 @@ function parentTypeForChild(type: HierarchyNode['type']): FleetBoardParent['type
 function parentKey(type: FleetBoardParent['type'] | 'account', id: string) {
 	return `${type}:${id}`
 }
-function rowKey(row: ReturnType<typeof flattenRows>[number], index: number) {
-	return row.kind === 'client' ? `client:${row.client.id}` : `${row.node.type}:${row.node.id}:${index}`
+function rowKey(row: TreeRow) {
+	return `${row.node.type}:${row.node.id}:${row.level}`
 }
-function columns(metrics: FleetBoardMetricKey[]) {
-	return `minmax(260px, 1.8fr) minmax(130px, .8fr) repeat(${metrics.length}, minmax(96px, .55fr))`
+// One source of truth for the row grid: the template and the min width are derived from the
+// same floors, so widening a column cannot silently desync the width the table scrolls at.
+// The name column is capped so surplus width goes to the KPI columns rather than a dead gap.
+const columnWidths = { name: [180, 340], health: [132, 190], running: [84, 110], owed: [96, 130] } as const
+const metricColumnMin = 88
+const columnGap = 8
+const rowPaddingX = 8
+
+function gridTemplate(metrics: FleetBoardMetricKey[]) {
+	const fixed = Object.values(columnWidths)
+		.map(([min, max]) => `minmax(${min}px, ${max}px)`)
+		.join(' ')
+	return `${fixed} repeat(${metrics.length}, minmax(${metricColumnMin}px, 1fr))`
+}
+function gridMinWidth(metrics: FleetBoardMetricKey[]) {
+	const columns = Object.values(columnWidths).length + metrics.length
+	const floors = Object.values(columnWidths).reduce((total, [min]) => total + min, metrics.length * metricColumnMin)
+	return floors + (columns - 1) * columnGap + rowPaddingX * 2
 }
 function nextMetrics(search: FleetBoardSearch, metric: FleetBoardMetricKey) {
 	const metrics = search.metrics.includes(metric)
 		? search.metrics.filter(value => value !== metric)
 		: [...search.metrics, metric]
 	return metrics.length ? metrics : search.metrics
-}
-function choiceClass(active: boolean) {
-	return `rounded-md border px-3 py-1.5 text-sm font-medium ${active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-foreground hover:bg-muted'}`
 }
 function healthColorClass(color: string) {
 	return color === 'red'
@@ -950,27 +1130,44 @@ function healthText(code: string) {
 	return (
 		(
 			{
-				connection_pending: 'Очікується перша синхронізація',
-				connection_access_lost: 'Втрачено доступ до Meta',
+				// Kept short enough to survive the Health column without truncating: the Reason has
+				// to stay readable beside its Color, not be cut to an ellipsis (ADR 0018).
+				connection_pending: 'Очікує синхронізації',
+				connection_access_lost: 'Втрачено доступ',
 				meta_disabled: 'Meta вимкнула кабінет',
-				meta_inactive: 'Кабінет неактивний у Meta',
-				postpay: 'Післяплатний кабінет',
+				meta_inactive: 'Неактивний у Meta',
+				postpay: 'Післяплата',
 				active: 'Активний',
-				client_attention: 'Є кабінети, що потребують уваги',
-				client_postpay: 'Є післяплатні кабінети',
+				client_attention: 'Потребують уваги',
+				client_postpay: 'Є післяплатні',
 				client_active: 'Активні кабінети',
 				client_awaiting_data: 'Очікуються дані',
 			} as Record<string, string>
 		)[code] ?? 'Стан Meta невідомий'
 	)
 }
+/**
+ * Meta's documented `effective_status` vocabulary. The labels say *who* paused a row, so an Ad
+ * paused because its Campaign is paused does not send a buyer looking for a pause on the Ad.
+ * The generic fallback stays, but is now reserved for values Meta introduces later.
+ */
 function effectiveStatusText(status: string) {
 	return (
 		(
-			{ ACTIVE: 'Активне', PAUSED: 'Призупинене', ARCHIVED: 'Архівне', DELETED: 'Видалене' } as Record<
-				string,
-				string
-			>
+			{
+				ACTIVE: 'Активне',
+				PAUSED: 'Призупинене',
+				ARCHIVED: 'Архівне',
+				DELETED: 'Видалене',
+				CAMPAIGN_PAUSED: 'Призупинено кампанією',
+				ADSET_PAUSED: 'Призупинено групою оголошень',
+				PENDING_REVIEW: 'На перевірці Meta',
+				DISAPPROVED: 'Відхилено Meta',
+				PREAPPROVED: 'Попередньо погоджено',
+				PENDING_BILLING_INFO: 'Очікує платіжні дані',
+				IN_PROCESS: 'Обробляється Meta',
+				WITH_ISSUES: 'Є проблеми з показом',
+			} as Record<string, string>
 		)[status] ?? 'Статус Meta невідомий'
 	)
 }
@@ -991,22 +1188,52 @@ function callToActionText(callToAction: string) {
 	)
 }
 function formatKpi(metric: FleetBoardMetricKey, value: string | number | null, currency: string | null) {
-	if (value === null) return '—'
-	if (metric === 'spend' || metric === 'cpa')
-		return currency
-			? new Intl.NumberFormat('uk-UA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(
-					Number(value),
-				)
-			: '—'
+	if (value === null) return noData
+	if (metric === 'spend' || metric === 'cpa') return formatMoney(String(value), currency)
 	if (metric === 'impressions' || metric === 'clicks') return Number(value).toLocaleString('uk-UA')
 	if (metric === 'ctr') return `${(Number(value) * 100).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}%`
-	if (metric === 'roas') return `${Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}×`
+	// A ROAS of exactly zero means no purchase value was recorded at all, which is a missing
+	// signal rather than a measured return of nothing. Spend of 0,00 stays a real number.
+	if (metric === 'roas')
+		return Number(value) === 0 ? noData : `${Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}×`
 	return String(value)
 }
-function freshnessText(value: string | null | undefined, stale: boolean) {
-	if (!value) return 'ще не синхронізовано'
+function formatMoney(value: string | null, currency: string | null) {
+	if (value === null || !currency) return noData
+	return new Intl.NumberFormat('uk-UA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(
+		Number(value),
+	)
+}
+function creativeTitle(creative: { headline: string | null; body: string | null }) {
+	return (
+		creative.headline?.trim() ||
+		creative.body
+			?.split('\n')
+			.map(line => line.trim())
+			.find(line => line.length > 0) ||
+		'Креатив'
+	)
+}
+function metaAdsManagerUrl(accountId: string) {
+	const actId = accountId.replace(/^act_/, '')
+	return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actId)}`
+}
+function syncNote(accounts: Account[]) {
+	const tiers = accounts.flatMap(account => [account.freshness.accountTier, account.freshness.insightsTier])
+	const count = (matches: typeof tiers) => (accounts.length > 1 ? `: ${matches.length}` : '')
+	const failed = tiers.filter(tier => tier.failed)
+	if (failed.length > 0) return `Помилка синхронізації Meta${count(failed)}`
+	const neverSynced = tiers.filter(tier => tier.refreshedAt === null)
+	if (neverSynced.length > 0) return `Ще не синхронізовано${count(neverSynced)}`
+	const stale = tiers.filter(tier => tier.stale)
+	if (stale.length > 0) return `Дані застаріли${count(stale)}`
+	return null
+}
+function freshnessText(value: string | null | undefined, stale: boolean, neverSynced: number) {
+	const pending = neverSynced > 0 ? ` · без синхр.: ${neverSynced}` : ''
+	if (!value) return `ще не синхронізовано${neverSynced > 1 ? ` (${neverSynced})` : ''}`
 	const time = new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-	return stale ? `застаріло, ${time}` : time
+	return `${stale ? `застаріло, ${time}` : time}${pending}`
 }
 function mediaUrl(creativeId: string, key: string) {
 	const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
@@ -1014,30 +1241,26 @@ function mediaUrl(creativeId: string, key: string) {
 }
 function LoadingState() {
 	return (
-		<div className="rounded-2xl border bg-card p-8 text-center text-muted-foreground" aria-live="polite">
+		<div className="rounded-xl border bg-card p-8 text-center text-muted-foreground" aria-live="polite">
 			Завантажуємо Fleet Board…
 		</div>
 	)
 }
 function EmptyState() {
 	return (
-		<div className="rounded-2xl border bg-card p-8 text-center text-muted-foreground">
+		<div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
 			У цій Агенції ще немає підключених рекламних кабінетів.
 		</div>
 	)
 }
 function ErrorState({ retry }: { retry: () => void }) {
 	return (
-		<div className="rounded-2xl border bg-card p-8 text-center">
+		<div className="rounded-xl border bg-card p-8 text-center">
 			<p className="text-muted-foreground">Не вдалося завантажити дані Fleet Board.</p>
-			<button
-				type="button"
-				onClick={retry}
-				className="mt-3 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-			>
-				<RefreshCw size={16} />
+			<Button type="button" variant="outline" onClick={retry} className="mt-3">
+				<RefreshCw />
 				Спробувати ще раз
-			</button>
+			</Button>
 		</div>
 	)
 }

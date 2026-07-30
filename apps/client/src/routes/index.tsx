@@ -29,6 +29,7 @@ function Home() {
 							depth: next.depth,
 							search: next.search || undefined,
 							needsAttention: next.needsAttention ? 'true' : undefined,
+							hidePaused: next.hidePaused ? 'true' : undefined,
 							clientId: next.clientId,
 							sort: next.sort,
 							direction: next.direction,

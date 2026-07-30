@@ -14,6 +14,13 @@ if (!rootElement) {
 	throw new Error('Root element not found')
 }
 
+// The .dark token set already exists in styles.css; nothing reached it. No toggle and no
+// persistence in this scope — the OS preference is the only input.
+const darkPreference = window.matchMedia('(prefers-color-scheme: dark)')
+const applyColorScheme = () => document.documentElement.classList.toggle('dark', darkPreference.matches)
+applyColorScheme()
+darkPreference.addEventListener('change', applyColorScheme)
+
 ReactDOM.createRoot(rootElement).render(
 	<React.StrictMode>
 		<ErrorBoundary>

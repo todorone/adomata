@@ -163,7 +163,21 @@ Consequences:
 - Tree uses a Health dot beside the always-visible Health Reason. Signals uses operational lanes rather
   than raw color lanes so a lost connection belongs to Needs Attention and yellow stays neutral.
 - Sorting and filtering apply to Client or Ad Account roots, never interior Campaign / Ad Set / Ad rows.
-- The brief view is Ad Account depth: Account Health, amount owed, Running state, and selected KPIs.
+  Column headers are the sorting affordance: clicking one sorts by it, clicking it again reverses
+  direction, and the active column and direction are shown on the header.
+- The brief view is Ad Account depth: Account Health, amount owed, Running state, and selected KPIs. Each
+  is its own aligned cell in the table's single column definition — Health (Color dot plus always-visible
+  Reason) and Running are two columns, not one, and amount owed is right-aligned and sortable. Interior
+  rows leave Health and amount owed empty and carry Meta's `effective_status` in the Running column.
+- A Client with exactly **one** Ad Account renders as a single merged row in Client-grouped view, showing
+  the Client name with the Ad Account name as secondary text and taking Health, Running, amount owed and
+  KPIs from that Ad Account. Its rollup is by definition equal to the Ad Account's own values, so a
+  separate group row would restate them and cost a row. Purely a rendering decision — no rollup is
+  recomputed. A Client with two or more Ad Accounts keeps its group row.
+- Each Ad Account carries an **«Відкрити у Meta Ads Manager»** external link, built from the Meta
+  identifier already stored and opening in a new tab. The board diagnoses and stays read-only
+  ([ADR 0005](../adr/0005-fleet-board-is-read-only.md)); this is navigation, not a write action. Ad
+  Account level only — deep links to a selected Campaign / Ad Set / Ad are follow-up work (§11).
 
 All three views remain continuous rather than root-paginated. Virtualized rendering bounds mounted UI,
 and descendants are loaded from Adomata's database only when View Depth or local detail needs them. The
@@ -188,7 +202,9 @@ counter-example — Meta dedupes it at the queried level, so it cannot be summed
   no new schema. The motivating need — a director and a buyer wanting different columns on the same board
   — is satisfied by two people holding two different links, without Adomata remembering anything against
   an identity. It also makes any view shareable, which serves the project-manager persona.
-- **Default is Spend + ROAS** when no param is present. Landing on the default **never rewrites the URL**
+- **Default is Spend + Clicks + CPA** when no param is present. ROAS was the original default alongside
+  Spend, but a lead-generation fleet records no purchase value, so it rendered `0×` in every row — a
+  missing signal reading as a measured zero. Landing on the default **never rewrites the URL**
   to spell it out, so a bare bookmark keeps tracking "whatever today's default is" rather than freezing it.
 - **Column order and width are fixed** to the glossary's canonical KPI order. No drag-to-reorder, no
   resize.
@@ -206,7 +222,9 @@ contains is unspecified (§11).
 
 ### Time Range and shareable view state
 
-The single **Time Range** is Today, Last 7 days, or Month to date, defaulting to Today. V1 has no
+The single **Time Range** is Today, Last 7 days, or Month to date, defaulting to **Last 7 days**. Today
+was the original default, but a director opening the board in the morning saw a column of `0,00` for a
+fleet that was in fact spending. The set of ranges is unchanged. V1 has no
 period-over-period comparison. Each Ad Account evaluates the period in its own Meta-configured timezone;
 a Client rollup can therefore combine accounts whose local boundaries differ, which the UI flags
 ([ADR 0023](../adr/0023-fleet-board-time-ranges-are-account-local.md)).
@@ -298,7 +316,11 @@ CTR, CPA, and ROAS show a **blank (em dash), never `0` or `0%`**, whenever the d
 impressions, 0 attributed actions, 0 spend — **at every level**, not just Client. A zero-denominator
 ratio is undefined, not zero; `0%` would read as "this performed at zero," which isn't what happened.
 This also gives ROAS one uniform blank rule instead of two (its "no conversion tracking" nullability plus
-a separate zero-spend case).
+a separate zero-spend case). ROAS extends that blank to a computed **zero numerator**: a ROAS of exactly
+zero means no purchase value was recorded at all, which is an absent signal rather than a measured zero
+return, and on a lead-generation fleet it otherwise fills every row with `0×`. This is a presentation
+rule — the stored value stays the computed ratio. Spend of `0,00` is a real measurement and still renders
+as a number.
 
 CPA is also blank with a mixed-result-types explanation when a row's spend-contributing descendants use
 different or unresolved canonical Meta action types. Total spend divided by purchases plus leads is not
@@ -342,8 +364,11 @@ the tree — not a stricter all-children rule.
 
 ### Currency
 
-**Client rollups assume one currency per Client.** Spend and the values behind CPA/ROAS are summed across
-a Client's Ad Accounts with **no conversion**. A Client whose Ad Accounts actually use different
+**Client rollups assume one currency per Client.** Spend, amount owed, and the values behind CPA/ROAS are
+summed across a Client's Ad Accounts with **no conversion**. Amount owed is not a KPI and has no
+per-level rollup — interior Campaign / Ad Set / Ad rows carry none — but a Client total is required for
+the board to sort roots by debt in its default grouped mode, and it follows the same single-currency rule
+as Spend rather than inventing one. A Client whose Ad Accounts actually use different
 currencies is an **explicit unsupported state to detect and flag**, not a case to silently sum through
 ([ADR 0012](../adr/0012-client-rollup-assumes-single-currency.md)). Converting at rollup time was
 rejected for now — it opens a real design problem (which rate, as of when, whose source) that nothing has
@@ -352,8 +377,17 @@ asked for.
 ### Collapse vs. filter
 
 **Collapsing never changes a number** — expand state is purely a rendering toggle. **Filtering does**: a
-parent's rollup sums only its currently filtered-in children. What's on screen is what's summed; a Client
-total under a "spend > $0" filter reflects only the matching accounts, not the Client's true total.
+parent's rollup sums only its currently filtered-in children.
+
+Hiding non-Running interior rows belongs to the **collapse** family, not the filter family: it hides
+Campaign / Ad Set / Ad rows from display and never changes any parent's numbers. It exists because
+expanding View Depth otherwise floods the table with paused rows when the buyer asked to see what is
+running. It never hides Ad Account or Client roots, which stay governed by the root filters above, and it
+is URL-encoded like every other view control, defaulting to off. Framing it as a filter would contradict
+§4's rule that filtering applies to roots only.
+
+What's on screen is what's summed; a Client total under a "spend > $0" filter reflects only the matching
+accounts, not the Client's true total.
 
 ---
 
@@ -472,8 +506,13 @@ architecture (two loops, two schedules, per-tier timestamps) assumes it.
 ### Staleness is shown, not silent
 
 The board header displays the **oldest successful refresh among currently visible Ad Accounts** for each
-tier, so one failed account cannot hide behind a newer fleet timestamp. Each stale or failed account is
-also marked individually. Account Tier becomes Stale after 10 minutes and Insights Tier after 2 hours —
+tier, so one failed account cannot hide behind a newer fleet timestamp. An Ad Account that has **never**
+successfully synced a tier is **excluded** from that tier's oldest-refresh calculation rather than nulling
+it, and is instead reported as its own per-tier count — "nothing has synced" and "one new account has not
+synced yet" are different facts and must read differently. The tier timestamp is empty only when no
+visible Ad Account has ever synced it, which is the one case where «ще не синхронізовано» is the truth.
+The rule is a pure function in the Fleet Board domain module alongside the health and rollup rules; the
+read model calls it. Each stale or failed account is also marked individually. Account Tier becomes Stale after 10 minutes and Insights Tier after 2 hours —
 twice their target cadence. The UI shows a generic Ukrainian failure message; raw Meta errors stay in
 server logs.
 

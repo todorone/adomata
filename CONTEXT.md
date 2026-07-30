@@ -57,8 +57,16 @@ The Fleet Board's global dial over how deeply each complete view reveals the hie
 _Avoid_: Zoom, Level setting, Drill-down (the board never replaces itself with a detail view)
 
 **Client-grouped view / Flat view**:
-The Fleet Board's grouping toggle, defaulting to Client-grouped view in every complete view. Client-grouped view makes Client a KPI aggregate above its Ad Accounts: a collapsible row in Tree, a group in the Control Room rail, or a card placed into a Signals lane by its rolled-up operational state. Flat view removes that level and presents every Ad Account directly; Client becomes metadata and a filter, and no Client aggregate is shown. Both modes are presentation choices over the same underlying data — Client's rollup ([see Ad Account](#tenancy)) always exists regardless of which mode is active.
+The Fleet Board's grouping toggle, defaulting to Client-grouped view in every complete view. Client-grouped view makes Client a KPI aggregate above its Ad Accounts: a collapsible row in Tree, a group in the Control Room rail, or a card placed into a Signals lane by its rolled-up operational state. Flat view removes that level and presents every Ad Account directly; Client becomes metadata and a filter, and no Client aggregate is shown. Both modes are presentation choices over the same underlying data — Client's rollup ([see Ad Account](#tenancy)) always exists regardless of which mode is active. In Client-grouped view a Client with exactly **one** Ad Account is drawn as a single merged row rather than a group row above a near-identical child, since its rollup is by definition equal to that Ad Account's own values — a rendering choice that recomputes nothing.
 _Avoid_: —
+
+**Running-rows toggle**:
+The Fleet Board control that hides non-Running Campaign, Ad Set and Ad rows from display. It belongs to the **collapse** family, not the filter family: it changes which interior rows are drawn and never changes any parent's numbers, and it never hides Ad Account or Client roots, which stay governed by the root filters. Named and placed apart from Filters for exactly that reason — filtering applies to roots only and does change rollups. URL-encoded like every other view control, defaulting to off.
+_Avoid_: Paused filter, Hide paused filter (calling it a filter contradicts what it does)
+
+**Amount owed**:
+What an Ad Account owes Meta, mirrored from the account's balance and shown as its own right-aligned, sortable column at Ad Account depth. A Client carries the sum across its Ad Accounts under the same single-currency assumption as its Spend — blank when the Client mixes currencies ([ADR 0012](docs/adr/0012-client-rollup-assumes-single-currency.md)) — so a director can scan every Client's debt down one column and sort by it. Interior Campaign / Ad Set / Ad rows have none: it is an Ad Account property, not a per-level rollup.
+_Avoid_: Balance (that's Meta's raw field), Debt
 
 **Needs Attention**:
 The Fleet Board classification for an Ad Account with red Account Health or a lost Meta connection. Yellow postpay, green health, pending first sync, and a merely non-running campaign do not qualify. A Client Needs Attention when at least one child Ad Account does.
@@ -87,15 +95,15 @@ Spend divided by the number of results Meta attributes to one canonical action t
 _Avoid_: Cost per acquisition, CPL
 
 **ROAS** (Return on Ad Spend):
-Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API) and following the Ad Set's current attribution setting in Meta Ads Manager. Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error.
+Revenue attributed to an Ad Account divided by its Spend, sourced from Meta's conversion tracking (Pixel/Conversions API) and following the Ad Set's current attribution setting in Meta Ads Manager. Nullable — a Client without conversion tracking configured has no ROAS; that's an expected state, not an error. A ROAS of exactly zero means no purchase value was recorded at all, so it is **displayed as no data rather than `0×`**: on a lead-generation fleet every row would otherwise read as a measured zero return. Spend of `0,00` is a genuine measurement and keeps rendering as a number.
 _Avoid_: —
 
 **Metric Selection**:
-The subset of the fixed KPI list a Fleet Board view currently shows as columns, chosen from all six but never expanded beyond them. Held entirely in the URL as a search param — not stored against a User or Agency — so it's per view, not per person: two people can hold different links to the same board showing different columns. A view with no selection param shows the default (Spend, ROAS). Column order and width are fixed to the KPI list's order above, not part of the selection. See [ADR 0020](docs/adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md).
+The subset of the fixed KPI list a Fleet Board view currently shows as columns, chosen from all six but never expanded beyond them. Held entirely in the URL as a search param — not stored against a User or Agency — so it's per view, not per person: two people can hold different links to the same board showing different columns. A view with no selection param shows the default (Spend, Clicks, CPA). Column order and width are fixed to the KPI list's order above, not part of the selection. See [ADR 0020](docs/adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md).
 _Avoid_: Metric toggle, Column selection (implementation-level phrasing, not the concept)
 
 **Time Range**:
-The single period whose KPI values the Fleet Board currently shows: Today, Last 7 days, or Month to date. Today is the default, and each Ad Account's period follows its own Meta-configured timezone; a Client rollup may therefore combine accounts whose period boundaries differ. V1 does not compare the selected period with a previous period.
+The single period whose KPI values the Fleet Board currently shows: Today, Last 7 days, or Month to date. Last 7 days is the default, and each Ad Account's period follows its own Meta-configured timezone; a Client rollup may therefore combine accounts whose period boundaries differ. V1 does not compare the selected period with a previous period.
 _Avoid_: Date range (suggests arbitrary start/end dates), Comparison period
 
 ### Monitoring & Alerts
@@ -115,7 +123,7 @@ _Avoid_: Alert
 ### Freshness
 
 **Stale**:
-An Ad Account whose last successful Account Tier refresh is more than 10 minutes old or whose last successful Insights Tier refresh is more than 2 hours old — twice the target cadence of the respective tier. The Fleet Board summarizes each tier using the oldest successful refresh among currently visible Ad Accounts and marks stale or failed accounts individually.
+An Ad Account whose last successful Account Tier refresh is more than 10 minutes old or whose last successful Insights Tier refresh is more than 2 hours old — twice the target cadence of the respective tier. The Fleet Board summarizes each tier using the oldest successful refresh among currently visible Ad Accounts and marks stale or failed accounts individually. An Ad Account that has **never** successfully synced a tier is excluded from that summary and counted separately, because "nothing has synced" and "one new account has not synced yet" are different facts; the tier's timestamp is empty only when no visible Ad Account has ever synced it. Stale is also distinct from a **failed sync** — a sync failure is Adomata's inability to read Meta, never evidence that Meta considers the account unhealthy.
 _Avoid_: Provisional (a freshly synced current-day KPI can still be Provisional)
 
 **Account Tier**:

@@ -70,9 +70,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 				</SidebarHeader>
 			)}
 			<SidebarContent>
-				<NavMain items={navMain} />
-				{me?.activeOrgMember?.role === 'owner' && <NavMain items={ownerNav} />}
-				{isSuperadmin && <NavMain items={superadminNav} />}
+				<NavMain label="Платформа" items={navMain} />
+				{me?.activeOrgMember?.role === 'owner' && <NavMain label="Агенція" items={ownerNav} />}
+				{isSuperadmin && <NavMain label="Суперадмін" items={superadminNav} />}
 			</SidebarContent>
 			<SidebarFooter>
 				<NavUser user={user} />

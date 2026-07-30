@@ -148,6 +148,25 @@ export function isStale(refreshedAt: Date | null, thresholdMilliseconds: number,
 	return refreshedAt === null || now.getTime() - refreshedAt.getTime() > thresholdMilliseconds
 }
 
+export type TierFreshness = { refreshedAt: string | null; stale: boolean }
+export type FleetTierFreshness = TierFreshness & { neverSynced: number }
+
+/**
+ * The fleet-wide readout for one freshness tier: the oldest *successful* refresh among the
+ * visible Ad Accounts, so one failed account cannot hide behind a newer fleet timestamp.
+ * Accounts that have never synced the tier are counted as their own fact instead of nulling
+ * the timestamp — `refreshedAt` is null only when none of them has ever synced it.
+ * ISO-8601 UTC timestamps sort lexicographically, which is why no date parsing is needed.
+ */
+export function summarizeFleetTier(tiers: readonly TierFreshness[]): FleetTierFreshness {
+	const synced = tiers.flatMap(tier => (tier.refreshedAt === null ? [] : [tier]))
+	return {
+		refreshedAt: synced.map(tier => tier.refreshedAt).sort()[0] ?? null,
+		stale: synced.some(tier => tier.stale),
+		neverSynced: tiers.length - synced.length,
+	}
+}
+
 type Decimal = { coefficient: bigint; scale: number }
 
 function parseDecimal(value: string): Decimal {

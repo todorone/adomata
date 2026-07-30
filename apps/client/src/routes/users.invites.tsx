@@ -16,7 +16,7 @@ import { requireSession } from '@/data/session'
 import { Button } from '@/ui/button'
 import { Input } from '@/ui/input'
 import { Label } from '@/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/ui/table'
 
 export const Route = createFileRoute('/users/invites')({
@@ -44,6 +44,7 @@ function InviteDialog() {
 	const [email, setEmail] = useState('')
 	const [role, setRole] = useState<InviteRole>('member')
 	const invite = useInviteMember()
+	const { data: me } = useMe()
 
 	function handleSubmit(e: React.FormEvent) {
 		e.preventDefault()
@@ -64,10 +65,15 @@ function InviteDialog() {
 			<DialogTrigger asChild>
 				<Button>Запросити користувача</Button>
 			</DialogTrigger>
+
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Запросити користувача</DialogTitle>
+					{me?.activeOrganization && (
+						<DialogDescription>Запрошення в агенцію «{me.activeOrganization.name}».</DialogDescription>
+					)}
 				</DialogHeader>
+
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="email">Email</Label>
@@ -127,6 +133,7 @@ function AdminInvitesPage() {
 		<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
 				<h1 className="text-2xl font-semibold">Запрошення</h1>
+				<InviteDialog />
 			</div>
 
 			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}

@@ -46,7 +46,7 @@ export type { AdminInvitation }
 
 export function useAdminInvitations(enabled = true) {
 	return useQuery({
-		queryKey: ['admin-invitations'],
+		queryKey: ['invitations', 'admin'],
 		queryFn: async () => {
 			const res = await api.admin.invitations.$get()
 			const { invitations } = await parseResponse(res, adminInvitationsResponseSchema, 'GET /admin/invitations')

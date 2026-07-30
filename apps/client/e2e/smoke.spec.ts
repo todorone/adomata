@@ -23,6 +23,25 @@ test('a superadmin can authenticate against the API and list organizations', asy
 	expect(Array.isArray(body.organizations)).toBe(true)
 })
 
+test('a superadmin can send an invitation from the invitations page', async ({ page }) => {
+	await signInOrSignUp(SUPERADMIN)
+
+	await page.goto('/login')
+	await page.getByLabel('Email').fill(SUPERADMIN.email)
+	await page.getByLabel('Пароль').fill(SUPERADMIN.password)
+	await page.getByRole('button', { name: 'Увійти' }).click()
+	await expect(page).toHaveURL(url => url.pathname === '/')
+
+	await page.goto('/users/invites')
+	await page.getByRole('button', { name: 'Запросити користувача' }).click()
+
+	const invitee = `e2e-invite-${Date.now()}@example.com`
+	await page.getByLabel('Email').fill(invitee)
+	await page.getByRole('button', { name: 'Надіслати запрошення' }).click()
+
+	await expect(page.getByRole('cell', { name: invitee })).toBeVisible()
+})
+
 test('a user can log out from a Fleet Board URL', async ({ page }) => {
 	await signInOrSignUp(SUPERADMIN)
 

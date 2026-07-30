@@ -134,9 +134,7 @@ export function reconciliationWindow(timezoneName: string, now = new Date()): Ac
 }
 
 export function firstConnectStart(timezoneName: string, now = new Date()) {
-	const { start: reconciliationStart, end } = reconciliationWindow(timezoneName, now)
-	const monthStart = `${end.slice(0, 7)}-01`
-	return reconciliationStart < monthStart ? reconciliationStart : monthStart
+	return shiftDate(localDate(timezoneName, now), -90)
 }
 
 export function isProvisional(range: AccountDateRange, timezoneName: string, now = new Date()) {

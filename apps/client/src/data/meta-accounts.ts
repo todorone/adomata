@@ -1,6 +1,7 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
 	metaAccountsDiscoveryResponseSchema,
+	resyncMetaAccountsResponseSchema,
 	connectMetaAccountsResponseSchema,
 	type ConnectMetaAccountsBody,
 } from '@adomata/api/client'
@@ -36,5 +37,16 @@ export function useConnectMetaAccounts() {
 				'POST /meta-accounts/connect',
 			),
 		onSuccess: () => qc.invalidateQueries({ queryKey: metaAccountsKeys.discovery }),
+	})
+}
+
+export function useResyncMetaAccounts() {
+	return useMutation({
+		mutationFn: async () =>
+			parseResponse(
+				await api['meta-accounts']['resync-insights'].$post(),
+				resyncMetaAccountsResponseSchema,
+				'POST /meta-accounts/resync-insights',
+			),
 	})
 }

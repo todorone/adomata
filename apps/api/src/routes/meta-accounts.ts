@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 
 import {
 	connectMetaAccountsBodySchema,
 	connectMetaAccountsResponseSchema,
 	metaAccountsDiscoveryResponseSchema,
+	resyncMetaAccountsResponseSchema,
 } from '../client/meta-accounts'
 import { db } from '../db'
 import { adAccount, client, organizationSettings } from '../db/schema'
@@ -42,6 +43,18 @@ const connectRoute = createRoute({
 	},
 })
 
+const resyncInsightsRoute = createRoute({
+	method: 'post',
+	path: '/resync-insights',
+	responses: {
+		200: {
+			description: 'Existing Ad Accounts queued for Insights history resync',
+			content: { 'application/json': { schema: resyncMetaAccountsResponseSchema } },
+		},
+		403: { description: 'Only the Agency owner may resync Insights history' },
+	},
+})
+
 const metaAccountsBase = new OpenAPIHono()
 metaAccountsBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
@@ -55,6 +68,26 @@ async function loadToken(orgId: string) {
 }
 
 export const metaAccountsRoutes = metaAccountsBase
+	.openapi(resyncInsightsRoute, async c => {
+		if (!isOwner(c.get('orgMember'))) {
+			return apiError(c, 'FORBIDDEN', { message: 'Лише власник агенції може повторно синхронізувати історію' })
+		}
+
+		const now = new Date()
+		await db
+			.update(adAccount)
+			.set({ accountTierRefreshedAt: null, insightsTierRefreshedAt: null, updatedAt: now })
+			.from(client)
+			.where(
+				and(
+					eq(adAccount.clientId, client.id),
+					eq(client.agencyId, c.get('orgId')),
+					isNotNull(adAccount.insightsTierRefreshedAt),
+				),
+			)
+
+		return c.json(resyncMetaAccountsResponseSchema.parse({ acknowledged: true }), 200)
+	})
 	.openapi(getRoute, async c => {
 		if (!isOwner(c.get('orgMember'))) {
 			return apiError(c, 'FORBIDDEN', { message: 'Лише власник агенції може шукати рекламні кабінети' })

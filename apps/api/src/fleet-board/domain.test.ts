@@ -80,10 +80,10 @@ describe('Fleet Board domain rules', () => {
 		})
 	})
 
-	it('keeps the 28 prior complete days reconcilable and backfills first sync to the earlier boundary', () => {
+	it('keeps the 28 prior complete days reconcilable and backfills first sync by 90 local days', () => {
 		const now = new Date('2026-08-01T00:30:00.000Z')
 		expect(reconciliationWindow('Europe/Kyiv', now)).toEqual({ start: '2026-07-04', end: '2026-08-01' })
-		expect(firstConnectStart('Europe/Kyiv', now)).toBe('2026-07-04')
+		expect(firstConnectStart('Europe/Kyiv', now)).toBe('2026-05-03')
 		expect(isProvisional({ start: '2026-06-01', end: '2026-07-03' }, 'Europe/Kyiv', now)).toBe(false)
 		expect(isProvisional({ start: '2026-06-01', end: '2026-07-04' }, 'Europe/Kyiv', now)).toBe(true)
 		expect(isStale(new Date('2026-08-01T00:19:59.999Z'), 10 * 60 * 1000, now)).toBe(true)

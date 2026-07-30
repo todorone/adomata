@@ -1,0 +1,379 @@
+import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { FleetBoardHierarchyResponse, FleetBoardRootResponse } from '@adomata/api/client'
+
+import { fleetBoardSearchSchema, type FleetBoardSearch } from '@/data/fleet-board-search'
+
+type Account = FleetBoardRootResponse['accounts'][number]
+type Client = FleetBoardRootResponse['clients'][number]
+type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
+type Kpis = Account['kpis']
+
+function kpis(overrides: Partial<Kpis> = {}): Kpis {
+	return {
+		spend: '100',
+		impressions: 1000,
+		clicks: 40,
+		ctr: '0.04',
+		cpa: '25',
+		cpaReason: null,
+		roas: '2',
+		running: true,
+		unsupported: null,
+		...overrides,
+	}
+}
+
+const freshness = {
+	accountTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
+	insightsTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
+}
+
+const soloAccount: Account = {
+	id: 'act_100000000000001',
+	type: 'account',
+	clientId: 'client-solo',
+	clientName: 'DeviAcademy',
+	name: 'DeviAcademy Ad',
+	currency: 'UAH',
+	timezoneName: 'Europe/Kyiv',
+	amountOwed: '592284.00',
+	connectionStatus: 'connected',
+	health: { color: 'green', reason: { code: 'active' }, needsAttention: false },
+	signalsLane: 'active',
+	// No purchase value recorded anywhere on this lead-generation account.
+	kpis: kpis({ spend: '1234.50', roas: '0' }),
+	freshness,
+}
+
+const duoFirst: Account = {
+	...soloAccount,
+	id: 'act_200000000000001',
+	clientId: 'client-duo',
+	clientName: 'Northstar',
+	name: 'Northstar Prepay',
+	currency: 'USD',
+	amountOwed: '10.00',
+	health: { color: 'red', reason: { code: 'meta_disabled', disableReason: 3 }, needsAttention: true },
+	signalsLane: 'needs_attention',
+	kpis: kpis(),
+}
+
+const duoSecond: Account = {
+	...duoFirst,
+	id: 'act_200000000000002',
+	name: 'Northstar Postpay',
+	amountOwed: null,
+	health: { color: 'yellow', reason: { code: 'postpay' }, needsAttention: false },
+	signalsLane: 'postpay',
+	// A measured zero, which must still read as a number.
+	kpis: kpis({ spend: '0', roas: '0' }),
+}
+
+const soloClient: Client = {
+	id: 'client-solo',
+	name: 'DeviAcademy',
+	currency: 'UAH',
+	mixedCurrency: false,
+	mixedTimezone: false,
+	amountOwed: '592284.00',
+	health: { color: 'green', reason: { code: 'client_active', count: 1 }, needsAttention: false },
+	signalsLane: 'active',
+	kpis: kpis({ spend: '1234.50', roas: '0' }),
+	accountIds: [soloAccount.id],
+}
+
+const duoClient: Client = {
+	id: 'client-duo',
+	name: 'Northstar',
+	currency: 'USD',
+	mixedCurrency: false,
+	mixedTimezone: false,
+	amountOwed: '10.00',
+	health: { color: 'red', reason: { code: 'client_attention', count: 1, total: 2 }, needsAttention: true },
+	signalsLane: 'needs_attention',
+	kpis: kpis(),
+	accountIds: [duoFirst.id, duoSecond.id],
+}
+
+const hierarchyNodes: HierarchyNode[] = [
+	{
+		id: 'campaign-1',
+		type: 'campaign',
+		parentId: soloAccount.id,
+		name: 'Кампанія Ліди',
+		effectiveStatus: 'ACTIVE',
+		kpis: kpis({ spend: '300', cpa: '15' }),
+	},
+	{
+		id: 'adset-1',
+		type: 'adset',
+		parentId: 'campaign-1',
+		name: 'Група Київ',
+		effectiveStatus: 'ACTIVE',
+		kpis: kpis({ spend: '300', cpa: '15' }),
+	},
+	{
+		id: 'ad-running',
+		type: 'ad',
+		parentId: 'adset-1',
+		name: 'Оголошення що працює',
+		effectiveStatus: 'ACTIVE',
+		kpis: kpis({ spend: '200', cpa: '17.5', running: true }),
+	},
+	{
+		id: 'ad-disapproved',
+		type: 'ad',
+		parentId: 'adset-1',
+		name: 'Оголошення відхилене',
+		effectiveStatus: 'DISAPPROVED',
+		kpis: kpis({ spend: '100', cpa: '11.25', running: false }),
+	},
+	{
+		id: 'ad-future-status',
+		type: 'ad',
+		parentId: 'adset-1',
+		name: 'Оголошення новий статус',
+		effectiveStatus: 'SOME_STATUS_META_ADDED_LATER',
+		kpis: kpis({ spend: '0', running: false }),
+	},
+]
+
+const rootResponse: FleetBoardRootResponse = {
+	clients: [soloClient, duoClient],
+	accounts: [soloAccount, duoFirst, duoSecond],
+	header: {
+		accountTierRefreshedAt: '2026-07-30T08:00:00.000Z',
+		insightsTierRefreshedAt: '2026-07-30T08:00:00.000Z',
+		accountTierStale: false,
+		insightsTierStale: false,
+		accountTierNeverSynced: 0,
+		insightsTierNeverSynced: 0,
+		provisional: false,
+	},
+}
+
+// jsdom has no layout, so a real virtualizer measures a zero-height viewport and mounts no
+// rows at all. Windowing is replaced with "render everything" so these tests can assert what a
+// user sees; row heights and scrolling are verified by hand, not here.
+vi.mock('@tanstack/react-virtual', () => {
+	const stub = ({ count, estimateSize }: { count: number; estimateSize: (index: number) => number }) => ({
+		getTotalSize: () => count * estimateSize(0),
+		getVirtualItems: () =>
+			Array.from({ length: count }, (_, index) => ({
+				index,
+				key: index,
+				start: index * estimateSize(index),
+				size: estimateSize(index),
+			})),
+		measureElement: () => undefined,
+	})
+	return { useVirtualizer: stub, useWindowVirtualizer: stub }
+})
+
+const { childrenSpy } = vi.hoisted(() => ({ childrenSpy: vi.fn<(parents: Array<{ id: string }>) => void>() }))
+
+vi.mock('@/data/fleet-board', () => ({
+	useFleetBoardRoot: () => ({
+		data: rootResponse,
+		isPending: false,
+		isError: false,
+		refetch: () => Promise.resolve(),
+	}),
+	fleetBoardQueries: {
+		children: (range: string, parents: Array<{ type: string; id: string }>) =>
+			queryOptions({
+				queryKey: ['fleet-board', 'children', range, parents] as const,
+				queryFn: async () => {
+					childrenSpy(parents)
+					return { nodes: hierarchyNodes.filter(node => parents.some(parent => parent.id === node.parentId)) }
+				},
+			}),
+		creative: (adId: string) =>
+			queryOptions({
+				queryKey: ['fleet-board', 'creative', adId] as const,
+				queryFn: async () => ({
+					id: 'creative-1',
+					adId,
+					name: 'Довгий рекламний текст який Meta згенерувала — a1b2c3',
+					kind: 'image' as const,
+					body: 'Перший рядок тексту\nДругий рядок',
+					headline: null,
+					description: null,
+					callToAction: null,
+					destination: null,
+					existingPostId: 'page_1_2',
+					assets: [{ key: 'image-1', kind: 'image' as const, label: 'Зображення', value: null, mediaKey: null }],
+					mediaUnavailable: false,
+				}),
+			}),
+	},
+}))
+
+const { FleetBoard } = await import('@/components/fleet-board')
+
+function money(value: string, currency: string) {
+	return new Intl.NumberFormat('uk-UA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(
+		Number(value),
+	)
+}
+
+function renderBoard(overrides: Record<string, unknown> = {}) {
+	const search = fleetBoardSearchSchema.parse(overrides) as FleetBoardSearch
+	return render(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			<FleetBoard search={search} setSearch={() => undefined} />
+		</QueryClientProvider>,
+	)
+}
+
+/** The row whose text contains `name`, so assertions read as "this row shows that". */
+function row(name: string) {
+	const match = screen.getAllByRole('row').find(element => element.textContent?.includes(name))
+	if (!match) throw new Error(`No row containing ${name}. Rows: ${screen.getAllByRole('row').length}`)
+	return match
+}
+
+async function renderToAdDepth(overrides: Record<string, unknown> = {}) {
+	renderBoard({ depth: 'ad', metrics: 'spend,cpa,roas', ...overrides })
+	// The one Ad that survives every rendering toggle, so this waits on hierarchy loading only.
+	await waitFor(() => expect(screen.getByText('Оголошення що працює')).toBeTruthy())
+}
+
+describe('Fleet Board', () => {
+	afterEach(() => {
+		cleanup()
+		childrenSpy.mockReset()
+	})
+
+	it('renders Spend and CPA below Ad Account level in the ancestor Ad Account currency', async () => {
+		await renderToAdDepth()
+
+		// Hierarchy nodes carry no currency of their own; before this they rendered the no-data marker.
+		expect(row('Кампанія Ліди').textContent).toContain(money('300', 'UAH'))
+		expect(row('Група Київ').textContent).toContain(money('300', 'UAH'))
+		expect(row('Оголошення що працює').textContent).toContain(money('200', 'UAH'))
+		expect(row('Оголошення що працює').textContent).toContain(money('17.5', 'UAH'))
+	})
+
+	it('settles at Ad depth even when some Ad Accounts have no campaigns at all', async () => {
+		const childRequests: Array<Array<{ id: string }>> = []
+		childrenSpy.mockImplementation(parents => childRequests.push(parents))
+
+		await renderToAdDepth({ group: 'flat' })
+		await new Promise(resolve => setTimeout(resolve, 50))
+
+		// The two Northstar accounts have no children. Until their empty result was recorded they
+		// read as "not loaded yet" forever, so the depth loader re-requested them without end.
+		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
+		const emptyAccountRequests = childRequests.filter(parents => parents.some(parent => parent.id === duoFirst.id))
+		expect(emptyAccountRequests).toHaveLength(1)
+	})
+
+	it('renders a Client with exactly one Ad Account as a single row', () => {
+		renderBoard()
+
+		const merged = row('DeviAcademy Ad')
+		expect(merged.textContent).toContain('DeviAcademy')
+		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('DeviAcademy'))).toHaveLength(1)
+	})
+
+	it('keeps the group row and both children for a Client with two Ad Accounts', () => {
+		renderBoard()
+
+		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
+		expect(screen.getByText('Northstar Postpay')).toBeTruthy()
+		// The group row plus its two Ad Account rows.
+		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('Northstar'))).toHaveLength(3)
+	})
+
+	it('puts amount owed on the Ad Account row and leaves interior rows empty', async () => {
+		await renderToAdDepth()
+
+		const owed = money('592284.00', 'UAH')
+		expect(row('DeviAcademy Ad').textContent).toContain(owed)
+		expect(row('Кампанія Ліди').textContent).not.toContain(owed)
+		expect(row('Оголошення що працює').textContent).not.toContain(owed)
+	})
+
+	it.each(['tree', 'control', 'signals'])('shows Health Color paired with Health Reason in the %s view', view => {
+		renderBoard({ view, group: 'flat' })
+
+		// The Color dot and the Reason share one accessible label, so the pair is what is asserted.
+		expect(screen.getAllByLabelText('Активний').length).toBeGreaterThan(0)
+		expect(screen.getAllByLabelText('Meta вимкнула кабінет, потрібна увага').length).toBeGreaterThan(0)
+	})
+
+	it('labels a DISAPPROVED Ad specifically and keeps the fallback for statuses Meta adds later', async () => {
+		await renderToAdDepth()
+
+		expect(row('Оголошення відхилене').textContent).toContain('Відхилено Meta')
+		expect(row('Оголошення новий статус').textContent).toContain('Статус Meta невідомий')
+	})
+
+	it('renders ROAS as no data without purchase value while a zero Spend stays a number', () => {
+		renderBoard({ group: 'flat', metrics: 'spend,roas' })
+
+		const noPurchaseValue = row('DeviAcademy Ad')
+		expect(noPurchaseValue.textContent).toContain(money('1234.50', 'UAH'))
+		expect(noPurchaseValue.textContent).not.toContain('0×')
+		expect(noPurchaseValue.textContent).toContain('—')
+		expect(row('Northstar Postpay').textContent).toContain(money('0', 'USD'))
+	})
+
+	it('hides non-Running interior rows without changing any parent number', async () => {
+		await renderToAdDepth()
+		const before = {
+			campaign: row('Кампанія Ліди').textContent,
+			adSet: row('Група Київ').textContent,
+			account: row('DeviAcademy Ad').textContent,
+		}
+		cleanup()
+
+		await renderToAdDepth({ hidePaused: 'true' })
+
+		expect(screen.queryByText('Оголошення відхилене')).toBeNull()
+		expect(screen.queryByText('Оголошення новий статус')).toBeNull()
+		expect(screen.getByText('Оголошення що працює')).toBeTruthy()
+		expect(row('Кампанія Ліди').textContent).toBe(before.campaign)
+		expect(row('Група Київ').textContent).toBe(before.adSet)
+		expect(row('DeviAcademy Ad').textContent).toBe(before.account)
+	})
+
+	it('links each Ad Account to Meta Ads Manager in a new tab', () => {
+		renderBoard({ group: 'flat' })
+
+		const links = screen.getAllByRole('link', { name: 'Відкрити у Meta Ads Manager' })
+		expect(links).toHaveLength(3)
+		expect(links[0]!.getAttribute('href')).toContain('act=100000000000001')
+		expect(links[0]!.getAttribute('target')).toBe('_blank')
+	})
+
+	it('collapses an empty Signals lane to its header and count', () => {
+		renderBoard({ view: 'signals' })
+
+		// Both Clients land in other lanes, so Postpay holds nothing at all.
+		expect(screen.getByRole('region', { name: 'Післяплата' }).textContent).toBe('Післяплата0')
+		expect(screen.getByRole('region', { name: 'Потрібна увага' }).textContent).toContain('Northstar')
+	})
+
+	it('leads each Control Room rail row with the Ad Account name', () => {
+		renderBoard({ view: 'control', group: 'flat' })
+
+		const railRow = screen.getAllByRole('button').find(element => element.textContent?.includes('Northstar Prepay'))!
+		expect(railRow.textContent!.indexOf('Northstar Prepay')).toBeLessThan(
+			railRow.textContent!.indexOf('Meta вимкнула кабінет'),
+		)
+	})
+
+	it('titles the Creative from its copy rather than Metas generated name', async () => {
+		await renderToAdDepth({ ad: 'ad-running' })
+
+		expect(await screen.findByText('Перший рядок тексту')).toBeTruthy()
+		expect(screen.queryByText(/a1b2c3/)).toBeNull()
+		// One asset, so the whole-Ad attribution note would mean nothing here.
+		expect(screen.queryByText('Результати належать оголошенню цілком')).toBeNull()
+		expect(screen.getByRole('button', { name: 'Закрити креатив' })).toBeTruthy()
+	})
+})

@@ -19,6 +19,7 @@ import {
 	signalLaneFor,
 	sumDecimalStrings,
 	summarizeClientHealth,
+	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
 
@@ -332,12 +333,14 @@ function makeClientView(
 	const currencies = new Set(accounts.map(account => account.currency))
 	const timezones = new Set(accounts.map(account => account.timezoneName))
 	const kpis = rollupMetricsForClient(input)
+	const owed = accounts.flatMap(account => (account.amountOwed === null ? [] : [account.amountOwed]))
 	return {
 		id: clientRow.id,
 		name: clientRow.name,
 		currency: currencies.size === 1 ? [...currencies][0]! : null,
 		mixedCurrency: currencies.size > 1,
 		mixedTimezone: timezones.size > 1,
+		amountOwed: currencies.size > 1 || owed.length === 0 ? null : sumDecimalStrings(owed),
 		health,
 		signalsLane: signalLaneFor(health),
 		kpis: toApiKpis(kpis),
@@ -395,24 +398,19 @@ function freshness(refreshedAt: Date | null, failed: boolean, threshold: number,
 }
 
 function headerFreshness(accounts: AccountView[], range: FleetBoardRange, now: Date) {
-	const accountTierDates = accounts.map(account => account.freshness.accountTier.refreshedAt)
-	const insightsTierDates = accounts.map(account => account.freshness.insightsTier.refreshedAt)
-	const accountTierRefreshedAt = oldestDate(accountTierDates)
-	const insightsTierRefreshedAt = oldestDate(insightsTierDates)
+	const accountTier = summarizeFleetTier(accounts.map(account => account.freshness.accountTier))
+	const insightsTier = summarizeFleetTier(accounts.map(account => account.freshness.insightsTier))
 	return {
-		accountTierRefreshedAt,
-		insightsTierRefreshedAt,
-		accountTierStale: accounts.some(account => account.freshness.accountTier.stale),
-		insightsTierStale: accounts.some(account => account.freshness.insightsTier.stale),
+		accountTierRefreshedAt: accountTier.refreshedAt,
+		insightsTierRefreshedAt: insightsTier.refreshedAt,
+		accountTierStale: accountTier.stale,
+		insightsTierStale: insightsTier.stale,
+		accountTierNeverSynced: accountTier.neverSynced,
+		insightsTierNeverSynced: insightsTier.neverSynced,
 		provisional: accounts.some(account =>
 			isProvisional(dateRangeForAccount(range, account.timezoneName, now), account.timezoneName, now),
 		),
 	}
-}
-
-function oldestDate(dates: Array<string | null>) {
-	if (dates.length === 0 || dates.some(date => date === null)) return null
-	return [...dates].sort()[0] ?? null
 }
 
 function compareRootRows(
@@ -433,6 +431,7 @@ function compareRootRows(
 function rootSortValue(row: AccountView | ClientView, sort: FleetBoardRootQuery['sort']) {
 	if (sort === 'attention') return Number(row.health.needsAttention)
 	if (sort === 'name') return row.name
+	if (sort === 'owed') return row.amountOwed === null ? -Infinity : Number(row.amountOwed)
 	const value = row.kpis[sort]
 	return value === null ? -Infinity : Number(value)
 }

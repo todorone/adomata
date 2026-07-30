@@ -22,9 +22,11 @@ storage, and no new schema was added. This was a deliberate scope cut over the a
 preferences table (which doesn't exist today — `users` is pure Better Auth core with no JSON column): the
 motivating need, a director and a buyer wanting different columns on the same board, is already satisfied
 by two people holding two different links, without needing Adomata to remember anything against an
-identity. A view with no selection param falls back to a hardcoded default (Spend, ROAS, matching what
-prototype #13 defaulted to); landing on that default never rewrites the URL to spell it out explicitly, so
-a bare bookmark keeps tracking "whatever today's default is" rather than freezing it.
+identity. A view with no selection param falls back to a hardcoded default (Spend, Clicks, CPA — originally
+Spend, ROAS, matching what prototype #13 defaulted to, changed once a real lead-generation fleet showed ROAS
+as `0×` in every row); landing on that default never rewrites the URL to spell it out explicitly, so a bare
+bookmark keeps tracking "whatever today's default is" rather than freezing it. Which subset is the default
+is not part of this decision — the pool stays the fixed six and the selection stays URL-only either way.
 
 The trade-off: a selection does not follow a person across devices, a cleared URL, or a fresh browser.
 That's accepted for this scope — adding it later means adding a per-user preferences table and a sync

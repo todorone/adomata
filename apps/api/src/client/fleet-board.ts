@@ -6,6 +6,7 @@ export const fleetBoardRangeSchema = z.enum(['today', 'last7', 'month'])
 export const fleetBoardSortSchema = z.enum([
 	'attention',
 	'name',
+	'owed',
 	'spend',
 	'impressions',
 	'clicks',
@@ -85,6 +86,9 @@ export const fleetBoardClientSchema = z.object({
 	currency: z.string().nullable(),
 	mixedCurrency: z.boolean(),
 	mixedTimezone: z.boolean(),
+	// Summed across the Client's Ad Accounts under the single-currency assumption of
+	// ADR 0012 — null when the Client mixes currencies, exactly like its Spend.
+	amountOwed: z.string().nullable(),
 	health: z.object({
 		color: fleetBoardHealthColorSchema,
 		reason: fleetBoardHealthReasonSchema,
@@ -96,7 +100,9 @@ export const fleetBoardClientSchema = z.object({
 })
 
 export const fleetBoardRootQuerySchema = z.object({
-	range: fleetBoardRangeSchema.optional().default('today'),
+	// Mirrors the client's Time Range default (spec §5) so a caller that omits the parameter
+	// gets the same period the board shows.
+	range: fleetBoardRangeSchema.optional().default('last7'),
 	search: z.string().trim().max(200).optional().default(''),
 	needsAttention: z
 		.enum(['true', 'false'])
@@ -115,6 +121,10 @@ export const fleetBoardRootResponseSchema = z.object({
 		insightsTierRefreshedAt: nullableIsoDateTimeSchema,
 		accountTierStale: z.boolean(),
 		insightsTierStale: z.boolean(),
+		// Visible Ad Accounts with no successful refresh for the tier — reported as their own
+		// fact so «ще не синхронізовано» never stands in for the whole fleet.
+		accountTierNeverSynced: z.number().int(),
+		insightsTierNeverSynced: z.number().int(),
 		provisional: z.boolean(),
 	}),
 })

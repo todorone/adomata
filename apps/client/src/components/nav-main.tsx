@@ -14,8 +14,10 @@ import {
 } from '@/ui/sidebar'
 
 export function NavMain({
+	label,
 	items,
 }: {
+	label: string
 	items: {
 		title: string
 		url: string
@@ -29,7 +31,7 @@ export function NavMain({
 }) {
 	return (
 		<SidebarGroup>
-			<SidebarGroupLabel>Платформа</SidebarGroupLabel>
+			<SidebarGroupLabel>{label}</SidebarGroupLabel>
 			<SidebarMenu>
 				{items.map(item =>
 					item.items?.length ? (

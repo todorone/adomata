@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm'
 import { db } from '../db'
 import { member } from '../db/schema'
 import { ensureSuperadminHq } from './hq'
-import { acceptPendingInvitationForVerifiedSession } from './invitation'
 import { setActiveAgency } from './sessionAgency'
 import { isSuperadminRole } from './superadmin'
 
@@ -29,12 +28,9 @@ export async function restoreActiveAgency(
 	if (session.activeOrganizationId) return session.activeOrganizationId
 	if (!user.emailVerified) return null
 
-	let agencyId: string | null | undefined = isSuperadminRole(user.role)
+	const agencyId = isSuperadminRole(user.role)
 		? await ensureSuperadminHq(session.userId)
 		: (await firstMembershipForUser(session.userId))?.organizationId
-	if (!agencyId) {
-		agencyId = await acceptPendingInvitationForVerifiedSession({ email: user.email, sessionToken: session.token })
-	}
 	if (!agencyId) return null
 
 	await setActiveAgency(session.token, agencyId)

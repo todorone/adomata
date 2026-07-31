@@ -14,6 +14,8 @@ import { isAdomataEmail } from './adomataEmail'
 import { restoreActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
 import { sendInvitationEmail, sendVerificationEmail } from './email'
+import { acceptPendingInvitationForVerifiedSession } from './invitation'
+import { setActiveAgency } from './sessionAgency'
 import { isBootstrapSuperadminEmail } from './superadmin'
 
 export type AuthSession = {
@@ -47,6 +49,27 @@ export type OrgMember = {
 
 export function isOwner(member: OrgMember) {
 	return member.role === 'owner'
+}
+
+export async function restoreSessionAgency(
+	session: Pick<AuthSession['session'], 'token' | 'userId' | 'activeOrganizationId'>,
+	user: Pick<AuthSession['user'], 'email' | 'emailVerified' | 'role'>,
+) {
+	const activeAgencyId = await restoreActiveAgency(session, user)
+	if (activeAgencyId || !user.emailVerified) return activeAgencyId
+
+	const invitedAgencyId = await acceptPendingInvitationForVerifiedSession({
+		email: user.email,
+		acceptInvitation: invitationId =>
+			createAuth().api.acceptInvitation({
+				body: { invitationId },
+				headers: new Headers({ authorization: `Bearer ${session.token}` }),
+			}),
+	})
+	if (!invitedAgencyId) return null
+
+	await setActiveAgency(session.token, invitedAgencyId)
+	return invitedAgencyId
 }
 
 const ORGANIZATION_ROLES = ['owner', 'admin', 'member'] as const
@@ -136,7 +159,7 @@ export function createAuth() {
 							.from(schema.users)
 							.where(eq(schema.users.id, session.userId))
 							.limit(1)
-						if (user) await restoreActiveAgency(session, user)
+						if (user) await restoreSessionAgency(session, user)
 					},
 				},
 			},
@@ -212,7 +235,7 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
-	const activeAgencyId = await restoreActiveAgency(session.session, session.user)
+	const activeAgencyId = await restoreSessionAgency(session.session, session.user)
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)

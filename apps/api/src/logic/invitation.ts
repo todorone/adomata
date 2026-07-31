@@ -4,10 +4,11 @@ import { and, asc, eq, gt, ilike } from 'drizzle-orm'
 
 import { db } from '../db'
 import { invitation, member, users } from '../db/schema'
-import { createAuth } from './auth'
-import { setActiveAgency } from './sessionAgency'
 
-export async function acceptPendingInvitationForVerifiedSession(params: { email: string; sessionToken: string }) {
+export async function acceptPendingInvitationForVerifiedSession(params: {
+	email: string
+	acceptInvitation: (invitationId: string) => Promise<unknown>
+}) {
 	const normalizedEmail = params.email.toLowerCase()
 	const [pendingInvitation] = await db
 		.select({ id: invitation.id, organizationId: invitation.organizationId })
@@ -24,11 +25,7 @@ export async function acceptPendingInvitationForVerifiedSession(params: { email:
 
 	if (!pendingInvitation) return null
 
-	await createAuth().api.acceptInvitation({
-		body: { invitationId: pendingInvitation.id },
-		headers: new Headers({ authorization: `Bearer ${params.sessionToken}` }),
-	})
-	await setActiveAgency(params.sessionToken, pendingInvitation.organizationId)
+	await params.acceptInvitation(pendingInvitation.id)
 	return pendingInvitation.organizationId
 }
 

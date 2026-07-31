@@ -40,10 +40,6 @@ vi.mock('../db', () => ({
 	},
 }))
 
-vi.mock('./auth', () => ({
-	createAuth: vi.fn(() => ({ api: { acceptInvitation: calls.acceptInvitation } })),
-}))
-
 describe('invitation logic', () => {
 	beforeEach(() => {
 		calls.acceptInvitation.mockReset()
@@ -58,15 +54,13 @@ describe('invitation logic', () => {
 		const { acceptPendingInvitationForVerifiedSession } = await import('./invitation')
 
 		await expect(
-			acceptPendingInvitationForVerifiedSession({ email: 'OWNER@EXAMPLE.COM', sessionToken: 'session_token' }),
+			acceptPendingInvitationForVerifiedSession({
+				email: 'OWNER@EXAMPLE.COM',
+				acceptInvitation: calls.acceptInvitation,
+			}),
 		).resolves.toBe('org_1')
 
-		expect(calls.acceptInvitation).toHaveBeenCalledWith({
-			body: { invitationId: 'inv_1' },
-			headers: expect.any(Headers),
-		})
-		const [{ headers }] = calls.acceptInvitation.mock.calls[0]
-		expect(headers.get('authorization')).toBe('Bearer session_token')
+		expect(calls.acceptInvitation).toHaveBeenCalledWith('inv_1')
 	})
 
 	it('creates membership and accepts the invitation for an existing verified owner', async () => {

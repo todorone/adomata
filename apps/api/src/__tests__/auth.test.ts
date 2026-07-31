@@ -32,7 +32,7 @@ vi.mock('../logic/invitation', () => ({
 	acceptPendingInvitationForVerifiedSession: invitationCalls.acceptPendingInvitationForVerifiedSession,
 }))
 
-describe('restoreActiveAgency', () => {
+describe('restoreSessionAgency', () => {
 	beforeEach(() => {
 		dbCalls.selectResult = []
 		dbCalls.updateSet.mockReset()
@@ -40,9 +40,9 @@ describe('restoreActiveAgency', () => {
 	})
 
 	it('skips when session already has an active organization', async () => {
-		const { restoreActiveAgency } = await import('../logic/activeAgency')
+		const { restoreSessionAgency } = await import('../logic/auth')
 
-		await restoreActiveAgency(
+		await restoreSessionAgency(
 			{
 				token: 'tok_1',
 				userId: 'user_1',
@@ -56,9 +56,9 @@ describe('restoreActiveAgency', () => {
 
 	it('sets activeOrganizationId from the user membership on sign-in', async () => {
 		dbCalls.selectResult = [{ organizationId: 'org_1' }]
-		const { restoreActiveAgency } = await import('../logic/activeAgency')
+		const { restoreSessionAgency } = await import('../logic/auth')
 
-		await restoreActiveAgency(
+		await restoreSessionAgency(
 			{
 				token: 'tok_1',
 				userId: 'user_1',
@@ -71,9 +71,9 @@ describe('restoreActiveAgency', () => {
 
 	it('does nothing when the user has no memberships', async () => {
 		dbCalls.selectResult = []
-		const { restoreActiveAgency } = await import('../logic/activeAgency')
+		const { restoreSessionAgency } = await import('../logic/auth')
 
-		await restoreActiveAgency(
+		await restoreSessionAgency(
 			{
 				token: 'tok_1',
 				userId: 'user_1',
@@ -86,10 +86,10 @@ describe('restoreActiveAgency', () => {
 
 	it('accepts a pending invitation on the first verified sign-in', async () => {
 		invitationCalls.acceptPendingInvitationForVerifiedSession.mockResolvedValue('org_1')
-		const { restoreActiveAgency } = await import('../logic/activeAgency')
+		const { restoreSessionAgency } = await import('../logic/auth')
 
 		await expect(
-			restoreActiveAgency(
+			restoreSessionAgency(
 				{
 					token: 'tok_1',
 					userId: 'user_1',
@@ -100,7 +100,7 @@ describe('restoreActiveAgency', () => {
 
 		expect(invitationCalls.acceptPendingInvitationForVerifiedSession).toHaveBeenCalledWith({
 			email: 'invited@example.com',
-			sessionToken: 'tok_1',
+			acceptInvitation: expect.any(Function),
 		})
 		expect(dbCalls.updateSet).toHaveBeenCalledWith({ activeOrganizationId: 'org_1' })
 	})

@@ -20,6 +20,7 @@ import {
 	readFleetBoardRoot,
 	mediaUrlForKey,
 } from '../fleet-board/read-model'
+import { fetchCreativeMedia, mediaRange } from '../fleet-board/media'
 import { getHeartbeatDependencies } from '../sync/runtime'
 import { runHeartbeat } from '../sync/account-tier'
 
@@ -93,14 +94,22 @@ export const fleetBoardRoutes = fleetBoardBase
 		const agencyId = c.get('orgId')
 		let record = await readCreativeByCreativeId(agencyId, params.creativeId)
 		if (!record) return apiError(c, 'NOT_FOUND')
-		let media = await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key))
+		const range = mediaRange(c.req.header('range'))
+		let media = await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key), range)
 		if (!media) {
 			await refreshCreative(agencyId, record)
 			record = await readCreativeByCreativeId(agencyId, params.creativeId)
-			media = record ? await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key)) : null
+			media = record ? await fetchCreativeMedia(mediaUrlForKey(record.creative, params.key), range) : null
 		}
 		if (!media) return apiError(c, 'NOT_FOUND', { message: 'MEDIA_UNAVAILABLE' })
-		return c.body(media.body, 200, { 'Content-Type': media.contentType, 'Cache-Control': 'private, max-age=300' })
+		const headers = {
+			'Content-Type': media.contentType,
+			'Cache-Control': 'private, max-age=300',
+			...(media.contentLength ? { 'Content-Length': media.contentLength } : {}),
+			...(media.contentRange ? { 'Content-Range': media.contentRange } : {}),
+			...(media.acceptRanges ? { 'Accept-Ranges': media.acceptRanges } : {}),
+		}
+		return media.status === 206 ? c.body(media.body, 206, headers) : c.body(media.body, 200, headers)
 	})
 
 function startBackgroundSync() {
@@ -159,19 +168,6 @@ async function resolveMetaClient(agencyId: string) {
 		.limit(1)
 	if (!row?.metaAccessToken) return null
 	return buildMetaClient(row.metaAccessToken)
-}
-
-async function fetchCreativeMedia(url: string | null) {
-	if (!url) return null
-	try {
-		const response = await fetch(url)
-		const contentType = response.headers.get('content-type')?.split(';')[0] ?? ''
-		if (!response.ok || !response.body || (!contentType.startsWith('image/') && !contentType.startsWith('video/')))
-			return null
-		return { body: response.body, contentType }
-	} catch {
-		return null
-	}
 }
 
 function errorCategory(error: unknown) {

@@ -156,6 +156,12 @@ export const fakeMetaHandlers = [
 		const id = String(params.adId)
 		const url = new URL(request.url)
 		if (!requireToken(request)) return graphContractError('Missing access token')
+		if (url.searchParams.get('fields') === 'source') {
+			const creative = fakeMetaCreatives.find(candidate => candidate.payload.video_id === id)
+			return creative
+				? HttpResponse.json({ source: `https://media.example.test/${id}.mp4` })
+				: graphContractError(`Unknown fake Meta video: ${id}`)
+		}
 		const account = accountFor(id)
 		if (account) {
 			// A real ad account rejected at the account level (throttled, revoked) stays

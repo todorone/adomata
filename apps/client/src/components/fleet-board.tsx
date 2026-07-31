@@ -13,6 +13,7 @@ import {
 	RefreshCw,
 	Search,
 	SlidersHorizontal,
+	Video,
 	X,
 } from 'lucide-react'
 import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
@@ -833,6 +834,7 @@ function NodeRow({
 }
 
 function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }) {
+	const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null)
 	const creative = useQuery(fleetBoardQueries.creative(adId))
 	if (creative.isPending)
 		return (
@@ -847,6 +849,10 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 			</p>
 		)
 	const data = creative.data
+	const mediaAssets = data.assets.filter(
+		(asset): asset is typeof asset & { mediaKey: string } => asset.mediaKey !== null,
+	)
+	const selectedAsset = mediaAssets.find(asset => asset.key === selectedAssetKey) ?? mediaAssets[0]
 	return (
 		<div className="my-2 rounded-lg border bg-muted/20 p-3">
 			<div className="flex flex-wrap items-start justify-between gap-2">
@@ -879,33 +885,77 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 					</Button>
 				</div>
 			</div>
-			<div className="mt-3 flex flex-wrap gap-2">
-				{data.assets.map(asset => (
-					<div key={asset.key} className="w-28 overflow-hidden rounded-md border bg-background">
-						{asset.mediaKey ? (
-							<img
-								src={mediaUrl(data.id, asset.mediaKey)}
-								alt={asset.label}
-								className="aspect-square w-full object-cover"
-							/>
-						) : (
-							<div className="flex aspect-square items-center justify-center bg-muted p-2 text-center text-xs text-muted-foreground">
-								{asset.kind === 'image' || asset.kind === 'video' ? 'Медіафайл' : (asset.value ?? asset.label)}
+			{selectedAsset?.mediaKey ? (
+				<div className="mt-3 overflow-hidden rounded-md border bg-background">
+					{selectedAsset.kind === 'video' ? (
+						<video
+							key={selectedAsset.key}
+							aria-label={selectedAsset.label}
+							className="max-h-[36rem] w-full bg-black object-contain"
+							controls
+							preload="metadata"
+							src={mediaUrl(data.id, selectedAsset.mediaKey)}
+						/>
+					) : (
+						<img
+							src={mediaUrl(data.id, selectedAsset.mediaKey)}
+							alt={selectedAsset.label}
+							className="max-h-[36rem] w-full object-contain"
+						/>
+					)}
+				</div>
+			) : null}
+			{mediaAssets.length > 1 ? (
+				<div className="mt-3 flex flex-wrap gap-2">
+					{mediaAssets.map(asset => (
+						<button
+							key={asset.key}
+							type="button"
+							className="w-28 overflow-hidden rounded-md border bg-background text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+							onClick={() => setSelectedAssetKey(asset.key)}
+							aria-pressed={selectedAsset?.key === asset.key}
+						>
+							{asset.kind === 'video' ? (
+								<div className="flex aspect-square items-center justify-center bg-muted text-muted-foreground">
+									<Video size={24} aria-hidden="true" />
+								</div>
+							) : (
+								<img
+									src={mediaUrl(data.id, asset.mediaKey)}
+									alt=""
+									className="aspect-square w-full object-cover"
+								/>
+							)}
+							<p className="truncate px-2 py-1 text-xs">{asset.label}</p>
+						</button>
+					))}
+				</div>
+			) : null}
+			{data.assets.some(asset => !asset.mediaKey) || data.mediaUnavailable ? (
+				<div className="mt-3 flex flex-wrap gap-2">
+					{data.assets
+						.filter(asset => !asset.mediaKey)
+						.map(asset => (
+							<div key={asset.key} className="w-28 overflow-hidden rounded-md border bg-background">
+								<div className="flex aspect-square items-center justify-center bg-muted p-2 text-center text-xs text-muted-foreground">
+									{asset.kind === 'image' || asset.kind === 'video'
+										? 'Медіафайл'
+										: (asset.value ?? asset.label)}
+								</div>
+								<p className="truncate px-2 py-1 text-xs">
+									{asset.label}
+									{asset.value ? `: ${asset.value}` : ''}
+								</p>
 							</div>
-						)}
-						<p className="truncate px-2 py-1 text-xs">
-							{asset.label}
-							{asset.value ? `: ${asset.value}` : ''}
-						</p>
-					</div>
-				))}
-				{data.mediaUnavailable ? (
-					<div className="flex items-center gap-2 text-sm text-muted-foreground">
-						<ImageOff size={16} />
-						Медіа тимчасово недоступне
-					</div>
-				) : null}
-			</div>
+						))}
+					{data.mediaUnavailable ? (
+						<div className="flex items-center gap-2 text-sm text-muted-foreground">
+							<ImageOff size={16} />
+							Медіа тимчасово недоступне
+						</div>
+					) : null}
+				</div>
+			) : null}
 			{/* Plumbing, not the Creative: demoted out of the primary reading order. */}
 			{data.existingPostId ? (
 				<p className="mt-2 text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>

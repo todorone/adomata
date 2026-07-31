@@ -193,20 +193,38 @@ vi.mock('@/data/fleet-board', () => ({
 		creative: (adId: string) =>
 			queryOptions({
 				queryKey: ['fleet-board', 'creative', adId] as const,
-				queryFn: async () => ({
-					id: 'creative-1',
-					adId,
-					name: 'Довгий рекламний текст який Meta згенерувала — a1b2c3',
-					kind: 'image' as const,
-					body: 'Перший рядок тексту\nДругий рядок',
-					headline: null,
-					description: null,
-					callToAction: null,
-					destination: null,
-					existingPostId: 'page_1_2',
-					assets: [{ key: 'image-1', kind: 'image' as const, label: 'Зображення', value: null, mediaKey: null }],
-					mediaUnavailable: false,
-				}),
+				queryFn: async () =>
+					adId === 'ad-disapproved'
+						? {
+								id: 'creative-video',
+								adId,
+								name: null,
+								kind: 'video' as const,
+								body: null,
+								headline: 'Відеореклама',
+								description: null,
+								callToAction: null,
+								destination: null,
+								existingPostId: null,
+								assets: [{ key: 'm0', kind: 'video' as const, label: 'Відео', value: null, mediaKey: 'm0' }],
+								mediaUnavailable: false,
+							}
+						: {
+								id: 'creative-1',
+								adId,
+								name: 'Довгий рекламний текст який Meta згенерувала — a1b2c3',
+								kind: 'image' as const,
+								body: 'Перший рядок тексту\nДругий рядок',
+								headline: null,
+								description: null,
+								callToAction: null,
+								destination: null,
+								existingPostId: 'page_1_2',
+								assets: [
+									{ key: 'image-1', kind: 'image' as const, label: 'Зображення', value: null, mediaKey: null },
+								],
+								mediaUnavailable: false,
+							},
 			}),
 	},
 }))
@@ -375,5 +393,10 @@ describe('Fleet Board', () => {
 		// One asset, so the whole-Ad attribution note would mean nothing here.
 		expect(screen.queryByText('Результати належать оголошенню цілком')).toBeNull()
 		expect(screen.getByRole('button', { name: 'Закрити креатив' })).toBeTruthy()
+	})
+
+	it('shows a streamable video creative at full size', async () => {
+		await renderToAdDepth({ ad: 'ad-disapproved' })
+		expect(await screen.findByLabelText('Відео')).toBeInstanceOf(HTMLVideoElement)
 	})
 })

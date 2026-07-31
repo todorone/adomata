@@ -45,4 +45,35 @@ describe('Fleet Board creative normalization', () => {
 			mediaUnavailable: true,
 		})
 	})
+
+	it('uses a streamable video in preference to its thumbnail', () => {
+		const creative = normalizeCreative({
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Video creative',
+			payload: {
+				video_id: 'video-1',
+				video_url: 'https://media.example.test/video-1.mp4',
+				thumbnail_url: 'https://media.example.test/video-1.jpg',
+			},
+		})
+
+		expect(creative.assets).toEqual([{ key: 'm0', kind: 'video', label: 'Відео', value: null, mediaKey: 'm0' }])
+		expect(creative.mediaUnavailable).toBe(false)
+	})
+
+	it('keeps streamable asset-feed videos playable', () => {
+		const creative = normalizeCreative({
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Dynamic video creative',
+			payload: {
+				asset_feed_spec: {
+					videos: [{ video_id: 'video-1', video_url: 'https://media.example.test/video-1.mp4' }],
+				},
+			},
+		})
+
+		expect(creative.assets[0]).toMatchObject({ kind: 'video', label: 'Відео 1', mediaKey: 'm0' })
+	})
 })

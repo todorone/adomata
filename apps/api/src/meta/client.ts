@@ -17,6 +17,7 @@ export const accountTierFields = [...accountTierPrepayFields, 'funding_source_de
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
 const hierarchyEffectiveStatuses = ['ACTIVE', 'PAUSED', 'ARCHIVED', 'DELETED']
+const maxCreativeVideoSources = 25
 
 const meSchema = z.object({ id: z.string(), name: z.string() })
 const actionItemSchema = z.object({ action_type: z.string().min(1), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) })
@@ -70,6 +71,7 @@ const creativeResponseSchema = z.object({
 	video_id: z.string().optional(),
 	object_url: z.string().url().optional(),
 })
+const videoResponseSchema = z.object({ source: z.string().url().optional() })
 const adResponseSchema = z.object({ id: z.string(), creative: creativeResponseSchema.nullable().optional() })
 const insightSchema = z.object({
 	ad_id: z.string(),
@@ -284,7 +286,27 @@ export class MetaClient {
 		const ad = adResponseSchema.parse(payload)
 		if (!ad.creative) return null
 		const { id, name, ...payloadFields } = ad.creative
-		return { id, adId: ad.id, name: name ?? null, payload: payloadFields }
+		const primaryVideoId = metaVideoId(ad.creative.video_id)
+		const videoIds = [...(primaryVideoId ? [primaryVideoId] : []), ...assetFeedVideoIds(ad.creative.asset_feed_spec)]
+		const videoSources = new Map(
+			await Promise.all(
+				[...new Set(videoIds)]
+					.slice(0, maxCreativeVideoSources)
+					.map(async videoId => [videoId, await this.getVideoSource(videoId)] as const),
+			),
+		)
+		const assetFeed = addAssetFeedVideoSources(ad.creative.asset_feed_spec, videoSources)
+		const videoUrl = primaryVideoId ? videoSources.get(primaryVideoId) : null
+		return {
+			id,
+			adId: ad.id,
+			name: name ?? null,
+			payload: {
+				...payloadFields,
+				...(videoUrl ? { video_url: videoUrl } : {}),
+				...(assetFeed ? { asset_feed_spec: assetFeed } : {}),
+			},
+		}
 	}
 
 	async listDailyInsights(
@@ -344,6 +366,18 @@ export class MetaClient {
 		return url
 	}
 
+	private async getVideoSource(videoId: string) {
+		try {
+			const url = this.graphUrl(`/${encodeURIComponent(videoId)}`)
+			url.searchParams.set('fields', 'source')
+			const { payload } = await this.request(url)
+			return videoResponseSchema.parse(payload).source ?? null
+		} catch {
+			// The thumbnail remains useful when the token cannot read the video source.
+			return null
+		}
+	}
+
 	private safeCursor(cursor: string) {
 		const url = new URL(cursor)
 		if (
@@ -389,6 +423,36 @@ function normalizeAccount(payload: unknown, throttle: MetaThrottleObservation): 
 		fundingSourceType: account.funding_source_details?.type ?? null,
 		throttle,
 	}
+}
+
+function assetFeedVideoIds(assetFeed: unknown) {
+	if (!assetFeed || typeof assetFeed !== 'object' || Array.isArray(assetFeed)) return []
+	const videos = (assetFeed as Record<string, unknown>).videos
+	if (!Array.isArray(videos)) return []
+	return videos.flatMap(video => {
+		if (!video || typeof video !== 'object' || Array.isArray(video)) return []
+		const videoId = metaVideoId((video as Record<string, unknown>).video_id)
+		return videoId ? [videoId] : []
+	})
+}
+
+function addAssetFeedVideoSources(assetFeed: unknown, videoSources: Map<string, string | null>) {
+	if (!assetFeed || typeof assetFeed !== 'object' || Array.isArray(assetFeed)) return null
+	const record = assetFeed as Record<string, unknown>
+	if (!Array.isArray(record.videos)) return null
+	return {
+		...record,
+		videos: record.videos.map(video => {
+			if (!video || typeof video !== 'object' || Array.isArray(video)) return video
+			const videoId = metaVideoId((video as Record<string, unknown>).video_id)
+			const source = videoId ? videoSources.get(videoId) : null
+			return source ? { ...video, video_url: source } : video
+		}),
+	}
+}
+
+function metaVideoId(value: unknown) {
+	return typeof value === 'string' && /^\d{1,30}$/.test(value) ? value : null
 }
 
 function resolveResultActionType(optimizationGoal: string | null, promotedObject: Record<string, unknown> | null) {

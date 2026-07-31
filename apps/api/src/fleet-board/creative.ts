@@ -81,7 +81,12 @@ function mediaEntries(payload: Record<string, unknown>) {
 		if (typeof value === 'string' && /^https:\/\//.test(value)) entries.push({ url: value, kind, label })
 	}
 	add(payload.image_url, 'image', 'Зображення')
-	add(payload.thumbnail_url, 'image', 'Ескіз відео')
+	add(payload.video_url, 'video', 'Відео')
+	if (!stringValue(payload.video_url)) add(payload.thumbnail_url, 'image', 'Ескіз відео')
+	const assetFeed = objectPayload(payload.asset_feed_spec)
+	for (const [index, video] of arrayPayload(assetFeed.videos).entries()) {
+		add(objectPayload(video).video_url, 'video', `Відео ${index + 1}`)
+	}
 	const story = objectPayload(payload.object_story_spec)
 	const linkData = objectPayload(story.link_data)
 	for (const [index, attachment] of arrayPayload(linkData.child_attachments).entries()) {

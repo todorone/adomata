@@ -283,6 +283,66 @@ describe('MetaClient', () => {
 		)
 	})
 
+	it('stores a streamable source for video creatives', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: 'ad-1', creative: { id: 'creative-1', video_id: '1001' } }), {
+					status: 200,
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ source: 'https://media.example.test/1001.mp4' }), { status: 200 }),
+			)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getCreative('ad-1')).resolves.toMatchObject({
+			payload: { video_id: '1001', video_url: 'https://media.example.test/1001.mp4' },
+		})
+		expect(new URL(fetch.mock.calls[1]![0]).searchParams.get('fields')).toBe('source')
+	})
+
+	it('stores streamable sources for asset-feed videos', async () => {
+		const fetch = vi.fn(async (input: string) => {
+			const id = new URL(input).pathname.split('/').at(-1)
+			if (id === 'ad-1') {
+				return new Response(
+					JSON.stringify({
+						id: 'ad-1',
+						creative: { id: 'creative-1', asset_feed_spec: { videos: [{ video_id: '1001' }] } },
+					}),
+					{ status: 200 },
+				)
+			}
+			return new Response(JSON.stringify({ source: 'https://media.example.test/1001.mp4' }), { status: 200 })
+		})
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getCreative('ad-1')).resolves.toMatchObject({
+			payload: {
+				asset_feed_spec: { videos: [{ video_id: '1001', video_url: 'https://media.example.test/1001.mp4' }] },
+			},
+		})
+	})
+
+	it('does not request a video source for malformed asset-feed IDs', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: 'ad-1',
+					creative: { id: 'creative-1', asset_feed_spec: { videos: [{ video_id: '1001?fields=id' }] } },
+				}),
+				{ status: 200 },
+			),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getCreative('ad-1')).resolves.toMatchObject({
+			payload: { asset_feed_spec: { videos: [{ video_id: '1001?fields=id' }] } },
+		})
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
 	it('retries a Meta rate limit exactly twice with exponential delays and retains usage headers', async () => {
 		const fetch = vi.fn().mockImplementation(() =>
 			Promise.resolve(

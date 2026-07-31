@@ -279,14 +279,14 @@ export const fakeMetaCreatives: readonly FakeCreative[] = [
 		id: 'creative-003',
 		adId: 'ad-003',
 		name: 'Video creative',
-		payload: { video_id: 'video-003', thumbnail_url: 'https://media.example.test/video-003.jpg' },
+		payload: { video_id: '3003', thumbnail_url: 'https://media.example.test/video-003.jpg' },
 	},
 	{
 		id: 'creative-004',
 		adId: 'ad-004',
 		name: 'Asset feed creative',
 		payload: {
-			asset_feed_spec: { images: [{ hash: 'asset-1' }, { hash: 'asset-2' }], videos: [{ video_id: 'video-004' }] },
+			asset_feed_spec: { images: [{ hash: 'asset-1' }, { hash: 'asset-2' }], videos: [{ video_id: '3004' }] },
 		},
 	},
 	{

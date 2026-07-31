@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 import { db } from '../db'
 import { member, organization } from '../db/schema'
-import { setActiveAgency } from '../logic/activeAgency'
+import { setActiveAgency } from '../logic/sessionAgency'
 import { requireAuth, requireVerifiedAuth } from '../logic/auth'
 import { apiError } from '../logic/apiError'
 import { isSuperadminRole } from '../logic/superadmin'

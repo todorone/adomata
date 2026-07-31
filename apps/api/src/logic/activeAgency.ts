@@ -1,8 +1,10 @@
 import { eq } from 'drizzle-orm'
 
 import { db } from '../db'
-import { member, sessions } from '../db/schema'
+import { member } from '../db/schema'
 import { ensureSuperadminHq } from './hq'
+import { acceptPendingInvitationForVerifiedSession } from './invitation'
+import { setActiveAgency } from './sessionAgency'
 import { isSuperadminRole } from './superadmin'
 
 async function firstMembershipForUser(userId: string) {
@@ -12,10 +14,6 @@ async function firstMembershipForUser(userId: string) {
 		.where(eq(member.userId, userId))
 		.limit(1)
 	return membership
-}
-
-export async function setActiveAgency(token: string, agencyId: string) {
-	await db.update(sessions).set({ activeOrganizationId: agencyId }).where(eq(sessions.token, token))
 }
 
 // Every signed-in user with a membership needs a selected Agency. The configured
@@ -35,7 +33,6 @@ export async function restoreActiveAgency(
 		? await ensureSuperadminHq(session.userId)
 		: (await firstMembershipForUser(session.userId))?.organizationId
 	if (!agencyId) {
-		const { acceptPendingInvitationForVerifiedSession } = await import('./invitation')
 		agencyId = await acceptPendingInvitationForVerifiedSession({ email: user.email, sessionToken: session.token })
 	}
 	if (!agencyId) return null

@@ -4,8 +4,8 @@ import { and, asc, eq, gt, ilike } from 'drizzle-orm'
 
 import { db } from '../db'
 import { invitation, member, users } from '../db/schema'
-import { setActiveAgency } from './activeAgency'
 import { createAuth } from './auth'
+import { setActiveAgency } from './sessionAgency'
 
 export async function acceptPendingInvitationForVerifiedSession(params: { email: string; sessionToken: string }) {
 	const normalizedEmail = params.email.toLowerCase()

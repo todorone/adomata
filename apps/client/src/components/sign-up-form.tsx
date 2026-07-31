@@ -9,9 +9,11 @@ import { Label } from '@/ui/label'
 
 type SignUpFormProps = {
 	initialEmail?: string
+	verified?: boolean
+	verificationError?: string
 }
 
-export function SignUpForm({ initialEmail = '' }: SignUpFormProps) {
+export function SignUpForm({ initialEmail = '', verified = false, verificationError }: SignUpFormProps) {
 	const router = useRouter()
 	const [name, setName] = useState('')
 	const [email, setEmail] = useState(initialEmail)
@@ -41,6 +43,32 @@ export function SignUpForm({ initialEmail = '' }: SignUpFormProps) {
 
 		await refreshCachedSession()
 		await router.navigate({ to: '/' })
+	}
+
+	if (verificationError) {
+		return (
+			<div className="flex flex-col gap-4 text-center">
+				<h1 className="text-2xl font-bold tracking-tight">Не вдалося підтвердити електронну пошту</h1>
+				<p className="text-muted-foreground text-sm">
+					Посилання недійсне або прострочене. Увійдіть, щоб отримати нове посилання.
+				</p>
+				<Button className="w-full" onClick={() => router.navigate({ to: '/login' })}>
+					Перейти до входу
+				</Button>
+			</div>
+		)
+	}
+
+	if (verified) {
+		return (
+			<div className="flex flex-col gap-4 text-center">
+				<h1 className="text-2xl font-bold tracking-tight">Електронну пошту підтверджено</h1>
+				<p className="text-muted-foreground text-sm">Тепер увійдіть, щоб завершити приєднання до агенції.</p>
+				<Button className="w-full" onClick={() => router.navigate({ to: '/login' })}>
+					Перейти до входу
+				</Button>
+			</div>
+		)
 	}
 
 	if (checkEmail) {

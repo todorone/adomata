@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import { canSignUpWithEmail, createAuth } from '../logic/auth'
 import { apiError } from '../logic/apiError'
-import { acceptPendingInvitation } from '../logic/invitation'
 
 const signUpEmailSchema = z.object({
 	email: z.email(),
@@ -27,14 +26,6 @@ authRoutes.post('/sign-up/email', async c => {
 			body: JSON.stringify(body),
 		}),
 	)
-
-	if (response.ok) {
-		const clone = response.clone()
-		const payload = (await clone.json().catch(() => null)) as { token?: string } | null
-		if (payload?.token) {
-			await acceptPendingInvitation(parsed.data.email, payload.token)
-		}
-	}
 
 	return response
 })

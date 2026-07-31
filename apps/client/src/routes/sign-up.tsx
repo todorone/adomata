@@ -7,6 +7,8 @@ import { redirectAuthenticatedUser } from '@/data/session'
 
 const searchSchema = z.object({
 	email: z.string().optional(),
+	verified: z.boolean().optional(),
+	error: z.string().optional(),
 })
 
 export const Route = createFileRoute('/sign-up')({
@@ -16,7 +18,7 @@ export const Route = createFileRoute('/sign-up')({
 })
 
 function SignUpPage() {
-	const { email } = Route.useSearch()
+	const { email, verified, error } = Route.useSearch()
 
 	return (
 		<div className="flex min-h-svh items-center justify-center">
@@ -31,7 +33,7 @@ function SignUpPage() {
 				</div>
 				<div className="flex flex-1 items-center justify-center">
 					<div className="w-full max-w-xs">
-						<SignUpForm initialEmail={email} />
+						<SignUpForm initialEmail={email} verified={verified} verificationError={error} />
 					</div>
 				</div>
 			</div>

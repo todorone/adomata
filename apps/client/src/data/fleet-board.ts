@@ -27,6 +27,12 @@ export const fleetBoardKeys = {
 	creative: (adId: string) => ['fleet-board', 'creative', adId] as const,
 }
 
+// A custom range has no preset name to send: it goes over the wire as range=custom plus its
+// own from/to, mirroring the API's fleetBoardRangePresetSchema + from/to query shape.
+function rangeQuery(range: FleetBoardRange) {
+	return typeof range === 'string' ? { range } : { range: 'custom' as const, from: range.start, to: range.end }
+}
+
 export const fleetBoardQueries = {
 	root: (input: RootInput) =>
 		queryOptions({
@@ -35,7 +41,7 @@ export const fleetBoardQueries = {
 				parseResponse(
 					await api['fleet-board'].$get({
 						query: {
-							range: input.range,
+							...rangeQuery(input.range),
 							search: input.search || undefined,
 							needsAttention: input.needsAttention ? 'true' : undefined,
 							clientId: input.clientId,
@@ -53,7 +59,9 @@ export const fleetBoardQueries = {
 			queryKey: fleetBoardKeys.children(range, parents),
 			queryFn: async () =>
 				parseResponse(
-					await api['fleet-board'].hierarchy.$get({ query: { range, parents: JSON.stringify(parents) } }),
+					await api['fleet-board'].hierarchy.$get({
+						query: { ...rangeQuery(range), parents: JSON.stringify(parents) },
+					}),
 					fleetBoardHierarchyResponseSchema,
 					'GET /fleet-board/hierarchy',
 				),

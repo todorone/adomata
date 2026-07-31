@@ -103,8 +103,8 @@ The subset of the fixed KPI list a Fleet Board view currently shows as columns, 
 _Avoid_: Metric toggle, Column selection (implementation-level phrasing, not the concept)
 
 **Time Range**:
-The single period whose KPI values the Fleet Board currently shows: Today, Last 7 days, or Month to date. Last 7 days is the default, and each Ad Account's period follows its own Meta-configured timezone; a Client rollup may therefore combine accounts whose period boundaries differ. V1 does not compare the selected period with a previous period.
-_Avoid_: Date range (suggests arbitrary start/end dates), Comparison period
+The single period whose KPI values the Fleet Board currently shows: a named preset (Today, Last 7 days, Last 14 days, Last 30 days, This Week, Last Week, This Month, Last Month) or a Custom Range picked from a calendar. Last 7 days is the default. A named preset's period follows each Ad Account's own Meta-configured timezone, so a Client rollup may combine accounts whose period boundaries differ ([ADR 0023](docs/adr/0023-fleet-board-time-ranges-are-account-local.md)); a Custom Range is picked as absolute calendar days and applied identically to every Ad Account regardless of timezone ([ADR 0030](docs/adr/0030-fleet-board-custom-time-ranges-are-absolute-calendar-days.md)). V1 does not compare the selected period with a previous period.
+_Avoid_: Comparison period
 
 ### Monitoring & Alerts
 

@@ -9,10 +9,25 @@ const defaultMetrics: FleetBoardMetricKey[] = ['spend', 'clicks', 'cpa']
 const metricSet = new Set<string>(fleetBoardMetricKeys)
 const nonMetricSorts = new Set(['attention', 'name', 'owed'])
 
+const rangePresetSchema = z.enum([
+	'today',
+	'last7',
+	'last14',
+	'last30',
+	'thisWeek',
+	'lastWeek',
+	'thisMonth',
+	'lastMonth',
+])
+const customRangeSchema = z.object({
+	start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+	end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+})
+
 export const fleetBoardSearchSchema = z
 	.object({
 		view: z.enum(['tree', 'control', 'signals']).optional(),
-		range: z.enum(['today', 'last7', 'month']).optional(),
+		range: z.union([rangePresetSchema, customRangeSchema]).optional(),
 		metrics: z.union([z.string(), z.array(z.string())]).optional(),
 		group: z.enum(['client', 'flat']).optional(),
 		depth: z.enum(['account', 'campaign', 'adset', 'ad']).optional(),

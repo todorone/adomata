@@ -1,0 +1,3 @@
+# Fleet Board custom Time Ranges are absolute calendar days
+
+Named presets (Today, Last 7 days, …) are relative and therefore evaluated per Ad Account in that account's own Meta-configured timezone ([ADR 0023](0023-fleet-board-time-ranges-are-account-local.md)). A Custom Range has no "relative to now" ambiguity to resolve: the buyer picks two calendar days directly, and Meta's daily Insights are already stored at that same day grain per account. Adomata therefore applies a Custom Range's start and end identically to every Ad Account rather than reinterpreting it per timezone — the one case where Fleet Board intentionally does not localize a Time Range.

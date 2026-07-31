@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
 
+import { DateRangePicker } from '@/components/date-range-picker'
 import { fleetBoardQueries, type FleetBoardParent, type FleetBoardRoot, useFleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
 import { Button } from '@/ui/button'
@@ -54,7 +55,6 @@ const metricLabels: Record<FleetBoardMetricKey, string> = {
 }
 const depthValues = ['account', 'campaign', 'adset', 'ad'] as const
 const depthLabels = { account: 'Кабінети', campaign: 'Кампанії', adset: 'Групи оголошень', ad: 'Оголошення' } as const
-const rangeLabels = { today: 'Сьогодні', last7: 'Останні 7 днів', month: 'З початку місяця' } as const
 const groupLabels = { client: 'За клієнтом', flat: 'Без групування' } as const
 const viewLabels = { tree: 'Дерево', control: 'Пульт', signals: 'Сигнали' } as const
 const laneLabels = {
@@ -207,12 +207,7 @@ function FleetToolbar({
 				</p>
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
-				<CompactSelect
-					label="Період"
-					value={search.range}
-					labels={rangeLabels}
-					onChange={range => setSearch({ range })}
-				/>
+				<DateRangePicker value={search.range} onChange={range => setSearch({ range })} />
 				<CompactSelect
 					label="Групування"
 					value={search.group}

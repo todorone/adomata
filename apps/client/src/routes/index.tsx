@@ -1,7 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { requireSession } from '@/data/session'
 import { FleetBoard } from '@/components/fleet-board'
-import { fleetBoardSearchSchema, metricsSearchValue } from '@/data/fleet-board-search'
+import { fleetBoardSearchSchema, metricsSearchValue, type FleetBoardSearch } from '@/data/fleet-board-search'
+
+function rangeKey(range: FleetBoardSearch['range']) {
+	return typeof range === 'string' ? range : `${range.start}:${range.end}`
+}
 
 export const Route = createFileRoute('/')({
 	beforeLoad: () => requireSession(),
@@ -14,7 +18,7 @@ function Home() {
 	const navigate = useNavigate({ from: Route.fullPath })
 	return (
 		<FleetBoard
-			key={`${search.range}:${search.search}:${search.needsAttention}:${search.clientId ?? ''}`}
+			key={`${rangeKey(search.range)}:${search.search}:${search.needsAttention}:${search.clientId ?? ''}`}
 			search={search}
 			setSearch={changes =>
 				navigate({

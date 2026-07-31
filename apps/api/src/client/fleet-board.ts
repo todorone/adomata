@@ -1,8 +1,38 @@
 import { z } from 'zod'
 
 const nullableIsoDateTimeSchema = z.string().datetime({ offset: true }).nullable()
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
-export const fleetBoardRangeSchema = z.enum(['today', 'last7', 'month'])
+export const fleetBoardRangePresetSchema = z.enum([
+	'today',
+	'last7',
+	'last14',
+	'last30',
+	'thisWeek',
+	'lastWeek',
+	'thisMonth',
+	'lastMonth',
+	'custom',
+])
+
+// Shared by the root and hierarchy query schemas: a 'custom' preset carries its own from/to
+// instead of resolving relative to `now`, so it needs the same validation in both places.
+function resolveRange(
+	input: { range: z.infer<typeof fleetBoardRangePresetSchema>; from?: string; to?: string },
+	context: z.RefinementCtx,
+) {
+	if (input.range !== 'custom') return input.range
+	if (!input.from || !input.to) {
+		context.addIssue({ code: 'custom', message: 'from and to are required when range is custom', path: ['from'] })
+		return z.NEVER
+	}
+	if (input.from > input.to) {
+		context.addIssue({ code: 'custom', message: 'from must not be after to', path: ['to'] })
+		return z.NEVER
+	}
+	return { start: input.from, end: input.to }
+}
+
 export const fleetBoardSortSchema = z.enum([
 	'attention',
 	'name',
@@ -99,19 +129,26 @@ export const fleetBoardClientSchema = z.object({
 	accountIds: z.array(z.string()),
 })
 
-export const fleetBoardRootQuerySchema = z.object({
-	// Mirrors the client's Time Range default (spec §5) so a caller that omits the parameter
-	// gets the same period the board shows.
-	range: fleetBoardRangeSchema.optional().default('last7'),
-	search: z.string().trim().max(200).optional().default(''),
-	needsAttention: z
-		.enum(['true', 'false'])
-		.optional()
-		.transform(value => value === 'true'),
-	clientId: z.string().min(1).max(200).optional(),
-	sort: fleetBoardSortSchema.optional().default('attention'),
-	direction: fleetBoardDirectionSchema.optional().default('desc'),
-})
+export const fleetBoardRootQuerySchema = z
+	.object({
+		// Mirrors the client's Time Range default (spec §5) so a caller that omits the parameter
+		// gets the same period the board shows.
+		range: fleetBoardRangePresetSchema.optional().default('last7'),
+		from: isoDateSchema.optional(),
+		to: isoDateSchema.optional(),
+		search: z.string().trim().max(200).optional().default(''),
+		needsAttention: z
+			.enum(['true', 'false'])
+			.optional()
+			.transform(value => value === 'true'),
+		clientId: z.string().min(1).max(200).optional(),
+		sort: fleetBoardSortSchema.optional().default('attention'),
+		direction: fleetBoardDirectionSchema.optional().default('desc'),
+	})
+	.transform(({ from, to, ...rest }, context) => ({
+		...rest,
+		range: resolveRange({ range: rest.range, from, to }, context),
+	}))
 
 export const fleetBoardRootResponseSchema = z.object({
 	clients: z.array(fleetBoardClientSchema),
@@ -129,35 +166,45 @@ export const fleetBoardRootResponseSchema = z.object({
 	}),
 })
 
-export const fleetBoardHierarchyQuerySchema = z.object({
-	range: fleetBoardRangeSchema.optional().default('today'),
-	parents: z
-		.string()
-		.max(10_000)
-		.transform((value, context) => {
-			try {
-				return JSON.parse(value) as unknown
-			} catch {
-				context.addIssue({ code: 'custom', message: 'parents must be JSON' })
-				return z.NEVER
-			}
-		})
-		.pipe(
-			z
-				.array(z.object({ type: z.enum(['account', 'campaign', 'adset']), id: z.string().min(1).max(200) }))
-				.min(1)
-				.max(50)
-				.superRefine((parents, context) => {
-					const duplicate = parents.find(
-						(parent, index) =>
-							parents.findIndex(candidate => candidate.type === parent.type && candidate.id === parent.id) !==
-							index,
-					)
-					if (duplicate)
-						context.addIssue({ code: 'custom', message: `Duplicate parent: ${duplicate.type}/${duplicate.id}` })
-				}),
-		),
-})
+export const fleetBoardHierarchyQuerySchema = z
+	.object({
+		range: fleetBoardRangePresetSchema.optional().default('today'),
+		from: isoDateSchema.optional(),
+		to: isoDateSchema.optional(),
+		parents: z
+			.string()
+			.max(10_000)
+			.transform((value, context) => {
+				try {
+					return JSON.parse(value) as unknown
+				} catch {
+					context.addIssue({ code: 'custom', message: 'parents must be JSON' })
+					return z.NEVER
+				}
+			})
+			.pipe(
+				z
+					.array(z.object({ type: z.enum(['account', 'campaign', 'adset']), id: z.string().min(1).max(200) }))
+					.min(1)
+					.max(50)
+					.superRefine((parents, context) => {
+						const duplicate = parents.find(
+							(parent, index) =>
+								parents.findIndex(candidate => candidate.type === parent.type && candidate.id === parent.id) !==
+								index,
+						)
+						if (duplicate)
+							context.addIssue({
+								code: 'custom',
+								message: `Duplicate parent: ${duplicate.type}/${duplicate.id}`,
+							})
+					}),
+			),
+	})
+	.transform(({ from, to, ...rest }, context) => ({
+		...rest,
+		range: resolveRange({ range: rest.range, from, to }, context),
+	}))
 
 export const fleetBoardHierarchyResponseSchema = z.object({ nodes: z.array(fleetBoardHierarchyNodeSchema) })
 
@@ -183,7 +230,9 @@ export const fleetBoardCreativeResponseSchema = z.object({
 	mediaUnavailable: z.boolean(),
 })
 
-export type FleetBoardRange = z.infer<typeof fleetBoardRangeSchema>
+export type FleetBoardRangePreset = z.infer<typeof fleetBoardRangePresetSchema>
+export type FleetBoardCustomRange = { start: string; end: string }
+export type FleetBoardRange = Exclude<FleetBoardRangePreset, 'custom'> | FleetBoardCustomRange
 export type FleetBoardRootQuery = z.infer<typeof fleetBoardRootQuerySchema>
 export type FleetBoardRootResponse = z.infer<typeof fleetBoardRootResponseSchema>
 export type FleetBoardHierarchyResponse = z.infer<typeof fleetBoardHierarchyResponseSchema>

@@ -1,7 +1,8 @@
 export type ConnectionStatus = 'pending' | 'connected' | 'access_lost'
 export type HealthColor = 'green' | 'yellow' | 'red' | 'grey'
 export type SignalsLane = 'needs_attention' | 'postpay' | 'active' | 'awaiting_data'
-export type TimeRange = 'today' | 'last7' | 'month'
+export type TimeRangePreset =
+	'today' | 'last7' | 'last14' | 'last30' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth'
 export type CpaReason = 'mixed_result_types' | 'unresolved_result_type'
 
 export type HealthReason =
@@ -121,11 +122,54 @@ function shiftDate(date: string, days: number) {
 	return shifted.toISOString().slice(0, 10)
 }
 
-export function dateRangeForAccount(range: TimeRange, timezoneName: string, now = new Date()): AccountDateRange {
+function shiftMonth(date: string, months: number) {
+	const shifted = new Date(`${date.slice(0, 7)}-01T00:00:00.000Z`)
+	shifted.setUTCMonth(shifted.getUTCMonth() + months)
+	return shifted.toISOString().slice(0, 10)
+}
+
+function startOfMonth(date: string) {
+	return `${date.slice(0, 7)}-01`
+}
+
+function endOfMonth(date: string) {
+	return shiftDate(shiftMonth(startOfMonth(date), 1), -1)
+}
+
+// Sunday-anchored week, matching the picker's own week start.
+function startOfWeek(date: string) {
+	return shiftDate(date, -new Date(`${date}T00:00:00.000Z`).getUTCDay())
+}
+
+export function dateRangeForAccount(
+	range: TimeRangePreset | AccountDateRange,
+	timezoneName: string,
+	now = new Date(),
+): AccountDateRange {
+	if (typeof range === 'object') return range
 	const end = localDate(timezoneName, now)
-	if (range === 'today') return { start: end, end }
-	if (range === 'last7') return { start: shiftDate(end, -6), end }
-	return { start: `${end.slice(0, 7)}-01`, end }
+	switch (range) {
+		case 'today':
+			return { start: end, end }
+		case 'last7':
+			return { start: shiftDate(end, -6), end }
+		case 'last14':
+			return { start: shiftDate(end, -13), end }
+		case 'last30':
+			return { start: shiftDate(end, -29), end }
+		case 'thisWeek':
+			return { start: startOfWeek(end), end }
+		case 'lastWeek': {
+			const start = startOfWeek(shiftDate(end, -7))
+			return { start, end: shiftDate(start, 6) }
+		}
+		case 'thisMonth':
+			return { start: startOfMonth(end), end }
+		case 'lastMonth': {
+			const start = startOfMonth(shiftMonth(end, -1))
+			return { start, end: endOfMonth(start) }
+		}
+	}
 }
 
 export function reconciliationWindow(timezoneName: string, now = new Date()): AccountDateRange {

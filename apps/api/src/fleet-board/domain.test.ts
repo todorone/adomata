@@ -68,6 +68,7 @@ describe('Fleet Board domain rules', () => {
 	})
 
 	it('uses every account local timezone for ranges across opposite sides of midnight and DST', () => {
+		// 2026-03-29 is a Sunday.
 		const now = new Date('2026-03-29T00:30:00.000Z')
 		expect(dateRangeForAccount('today', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-29', end: '2026-03-29' })
 		expect(dateRangeForAccount('today', 'America/Los_Angeles', now)).toEqual({
@@ -75,9 +76,18 @@ describe('Fleet Board domain rules', () => {
 			end: '2026-03-28',
 		})
 		expect(dateRangeForAccount('last7', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-23', end: '2026-03-29' })
-		expect(dateRangeForAccount('month', 'America/Los_Angeles', now)).toEqual({
+		expect(dateRangeForAccount('last14', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-16', end: '2026-03-29' })
+		expect(dateRangeForAccount('last30', 'Europe/Kyiv', now)).toEqual({ start: '2026-02-28', end: '2026-03-29' })
+		expect(dateRangeForAccount('thisWeek', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-29', end: '2026-03-29' })
+		expect(dateRangeForAccount('lastWeek', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-22', end: '2026-03-28' })
+		expect(dateRangeForAccount('thisMonth', 'America/Los_Angeles', now)).toEqual({
 			start: '2026-03-01',
 			end: '2026-03-28',
+		})
+		expect(dateRangeForAccount('lastMonth', 'Europe/Kyiv', now)).toEqual({ start: '2026-02-01', end: '2026-02-28' })
+		expect(dateRangeForAccount({ start: '2026-01-05', end: '2026-01-11' }, 'Europe/Kyiv', now)).toEqual({
+			start: '2026-01-05',
+			end: '2026-01-11',
 		})
 	})
 

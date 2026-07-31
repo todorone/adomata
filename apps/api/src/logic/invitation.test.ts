@@ -40,10 +40,6 @@ vi.mock('../db', () => ({
 	},
 }))
 
-vi.mock('./auth', () => ({
-	createAuth: vi.fn(() => ({ api: { acceptInvitation: calls.acceptInvitation } })),
-}))
-
 describe('invitation logic', () => {
 	beforeEach(() => {
 		calls.acceptInvitation.mockReset()
@@ -53,18 +49,18 @@ describe('invitation logic', () => {
 		calls.updateSet.mockReset()
 	})
 
-	it('accepts the oldest pending invitation after signup', async () => {
-		calls.selectResults = [[{ id: 'inv_1' }]]
-		const { acceptPendingInvitation } = await import('./invitation')
+	it('accepts the oldest pending invitation for a verified session', async () => {
+		calls.selectResults = [[{ id: 'inv_1', organizationId: 'org_1' }]]
+		const { acceptPendingInvitationForVerifiedSession } = await import('./invitation')
 
-		await expect(acceptPendingInvitation('OWNER@EXAMPLE.COM', 'session_token')).resolves.toBe(true)
+		await expect(
+			acceptPendingInvitationForVerifiedSession({
+				email: 'OWNER@EXAMPLE.COM',
+				acceptInvitation: calls.acceptInvitation,
+			}),
+		).resolves.toBe('org_1')
 
-		expect(calls.acceptInvitation).toHaveBeenCalledWith({
-			body: { invitationId: 'inv_1' },
-			headers: expect.any(Headers),
-		})
-		const [{ headers }] = calls.acceptInvitation.mock.calls[0]
-		expect(headers.get('authorization')).toBe('Bearer session_token')
+		expect(calls.acceptInvitation).toHaveBeenCalledWith('inv_1')
 	})
 
 	it('creates membership and accepts the invitation for an existing verified owner', async () => {

@@ -11,9 +11,10 @@ import { db } from '../db'
 import * as schema from '../db/schema'
 import { invitation } from '../db/schema'
 import { isAdomataEmail } from './adomataEmail'
-import { restoreActiveAgency } from './activeAgency'
+import { restoreActiveAgency, setActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
 import { sendInvitationEmail, sendVerificationEmail } from './email'
+import { acceptPendingInvitationForVerifiedSession } from './invitation'
 import { isBootstrapSuperadminEmail } from './superadmin'
 
 export type AuthSession = {
@@ -47,6 +48,29 @@ export type OrgMember = {
 
 export function isOwner(member: OrgMember) {
 	return member.role === 'owner'
+}
+
+export async function restoreSessionAgency(
+	session: Pick<AuthSession['session'], 'token' | 'userId' | 'activeOrganizationId'>,
+	user: Pick<AuthSession['user'], 'email' | 'emailVerified' | 'role'>,
+) {
+	if (!user.emailVerified) return null
+
+	const activeAgencyId = await restoreActiveAgency(session, user.role)
+	if (activeAgencyId) return activeAgencyId
+
+	const invitedAgencyId = await acceptPendingInvitationForVerifiedSession({
+		email: user.email,
+		acceptInvitation: invitationId =>
+			createAuth().api.acceptInvitation({
+				body: { invitationId },
+				headers: new Headers({ authorization: `Bearer ${session.token}` }),
+			}),
+	})
+	if (!invitedAgencyId) return null
+
+	await setActiveAgency(session.token, invitedAgencyId)
+	return invitedAgencyId
 }
 
 const ORGANIZATION_ROLES = ['owner', 'admin', 'member'] as const
@@ -128,11 +152,15 @@ export function createAuth() {
 				create: {
 					after: async session => {
 						const [user] = await db
-							.select({ role: schema.users.role })
+							.select({
+								email: schema.users.email,
+								emailVerified: schema.users.emailVerified,
+								role: schema.users.role,
+							})
 							.from(schema.users)
 							.where(eq(schema.users.id, session.userId))
 							.limit(1)
-						if (user) await restoreActiveAgency(session, user.role)
+						if (user) await restoreSessionAgency(session, user)
 					},
 				},
 			},
@@ -208,7 +236,7 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
-	const activeAgencyId = await restoreActiveAgency(session.session, session.user.role)
+	const activeAgencyId = await restoreSessionAgency(session.session, session.user)
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)

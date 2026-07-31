@@ -83,3 +83,23 @@ describe('sendInvitationEmail', () => {
 		expect(fetchMock).not.toHaveBeenCalled()
 	})
 })
+
+describe('sendVerificationEmail', () => {
+	it('points verification links at the client signup completion page', async () => {
+		const { sendVerificationEmail } = await import('./email')
+
+		await sendVerificationEmail({
+			email: 'owner@example.com',
+			name: 'Owner',
+			url: 'https://api.adomata.com/auth/verify-email?token=token_1&callbackURL=%2F',
+		})
+
+		const verificationLink = firstRequestBody()
+			.text.split('\n')
+			.find(line => line.startsWith('https://api.adomata.com/auth/verify-email'))
+		expect(verificationLink).toBeDefined()
+		expect(new URL(verificationLink!).searchParams.get('callbackURL')).toBe(
+			'https://app.adomata.com/sign-up?verified=true',
+		)
+	})
+})

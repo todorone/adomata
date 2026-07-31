@@ -97,6 +97,12 @@ export async function sendInvitationEmail(params: {
 }
 
 export async function sendVerificationEmail(params: { email: string; name?: string | null; url: string }) {
+	const clientUrl = process.env.CLIENT_URL
+	if (!clientUrl) throw new Error('[email] CLIENT_URL must be configured to send verification emails')
+
+	const verificationUrl = new URL(params.url)
+	verificationUrl.searchParams.set('callbackURL', `${clientUrl.replace(/\/+$/, '')}/sign-up?verified=true`)
+	const url = verificationUrl.toString()
 	const subject = 'Підтвердіть електронну пошту Adomata'
 	const greeting = params.name ? `Вітаємо, ${params.name}!` : 'Вітаємо!'
 	const text = [
@@ -104,14 +110,14 @@ export async function sendVerificationEmail(params: { email: string; name?: stri
 		'',
 		'Підтвердіть електронну адресу, щоб завершити налаштування облікового запису Adomata.',
 		'',
-		params.url,
+		url,
 		'',
 		'Якщо ви не робили цей запит, просто проігноруйте лист.',
 	].join('\n')
 	const html = [
 		`<p>${escapeHtml(greeting)}</p>`,
 		'<p>Підтвердіть електронну адресу, щоб завершити налаштування облікового запису Adomata.</p>',
-		`<p><a href="${escapeHtml(params.url)}">Підтвердити пошту</a></p>`,
+		`<p><a href="${escapeHtml(url)}">Підтвердити пошту</a></p>`,
 		'<p>Якщо ви не робили цей запит, просто проігноруйте лист.</p>',
 	].join('')
 

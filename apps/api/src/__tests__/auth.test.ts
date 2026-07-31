@@ -5,6 +5,10 @@ const dbCalls = vi.hoisted(() => ({
 	updateSet: vi.fn(),
 }))
 
+const invitationCalls = vi.hoisted(() => ({
+	acceptPendingInvitationForVerifiedSession: vi.fn(),
+}))
+
 vi.mock('../db', () => ({
 	db: {
 		select: vi.fn(() => ({
@@ -24,10 +28,15 @@ vi.mock('../db', () => ({
 	},
 }))
 
+vi.mock('../logic/invitation', () => ({
+	acceptPendingInvitationForVerifiedSession: invitationCalls.acceptPendingInvitationForVerifiedSession,
+}))
+
 describe('restoreActiveAgency', () => {
 	beforeEach(() => {
 		dbCalls.selectResult = []
 		dbCalls.updateSet.mockReset()
+		invitationCalls.acceptPendingInvitationForVerifiedSession.mockReset()
 	})
 
 	it('skips when session already has an active organization', async () => {
@@ -39,7 +48,7 @@ describe('restoreActiveAgency', () => {
 				userId: 'user_1',
 				activeOrganizationId: 'org_1',
 			},
-			'user@example.com',
+			{ email: 'user@example.com', emailVerified: true, role: 'user' },
 		)
 
 		expect(dbCalls.updateSet).not.toHaveBeenCalled()
@@ -54,7 +63,7 @@ describe('restoreActiveAgency', () => {
 				token: 'tok_1',
 				userId: 'user_1',
 			},
-			'user@example.com',
+			{ email: 'user@example.com', emailVerified: true, role: 'user' },
 		)
 
 		expect(dbCalls.updateSet).toHaveBeenCalledWith({ activeOrganizationId: 'org_1' })
@@ -69,9 +78,30 @@ describe('restoreActiveAgency', () => {
 				token: 'tok_1',
 				userId: 'user_1',
 			},
-			'user@example.com',
+			{ email: 'user@example.com', emailVerified: true, role: 'user' },
 		)
 
 		expect(dbCalls.updateSet).not.toHaveBeenCalled()
+	})
+
+	it('accepts a pending invitation on the first verified sign-in', async () => {
+		invitationCalls.acceptPendingInvitationForVerifiedSession.mockResolvedValue('org_1')
+		const { restoreActiveAgency } = await import('../logic/activeAgency')
+
+		await expect(
+			restoreActiveAgency(
+				{
+					token: 'tok_1',
+					userId: 'user_1',
+				},
+				{ email: 'invited@example.com', emailVerified: true, role: 'user' },
+			),
+		).resolves.toBe('org_1')
+
+		expect(invitationCalls.acceptPendingInvitationForVerifiedSession).toHaveBeenCalledWith({
+			email: 'invited@example.com',
+			sessionToken: 'tok_1',
+		})
+		expect(dbCalls.updateSet).toHaveBeenCalledWith({ activeOrganizationId: 'org_1' })
 	})
 })

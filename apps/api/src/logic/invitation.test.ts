@@ -53,11 +53,13 @@ describe('invitation logic', () => {
 		calls.updateSet.mockReset()
 	})
 
-	it('accepts the oldest pending invitation after signup', async () => {
-		calls.selectResults = [[{ id: 'inv_1' }]]
-		const { acceptPendingInvitation } = await import('./invitation')
+	it('accepts the oldest pending invitation for a verified session', async () => {
+		calls.selectResults = [[{ id: 'inv_1', organizationId: 'org_1' }]]
+		const { acceptPendingInvitationForVerifiedSession } = await import('./invitation')
 
-		await expect(acceptPendingInvitation('OWNER@EXAMPLE.COM', 'session_token')).resolves.toBe(true)
+		await expect(
+			acceptPendingInvitationForVerifiedSession({ email: 'OWNER@EXAMPLE.COM', sessionToken: 'session_token' }),
+		).resolves.toBe('org_1')
 
 		expect(calls.acceptInvitation).toHaveBeenCalledWith({
 			body: { invitationId: 'inv_1' },

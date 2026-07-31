@@ -7,8 +7,8 @@ import { invitation, member, users } from '../db/schema'
 import { setActiveAgency } from './activeAgency'
 import { createAuth } from './auth'
 
-export async function acceptPendingInvitation(email: string, sessionToken: string) {
-	const normalizedEmail = email.toLowerCase()
+export async function acceptPendingInvitationForVerifiedSession(params: { email: string; sessionToken: string }) {
+	const normalizedEmail = params.email.toLowerCase()
 	const [pendingInvitation] = await db
 		.select({ id: invitation.id, organizationId: invitation.organizationId })
 		.from(invitation)
@@ -22,14 +22,14 @@ export async function acceptPendingInvitation(email: string, sessionToken: strin
 		.orderBy(asc(invitation.createdAt))
 		.limit(1)
 
-	if (!pendingInvitation) return false
+	if (!pendingInvitation) return null
 
 	await createAuth().api.acceptInvitation({
 		body: { invitationId: pendingInvitation.id },
-		headers: new Headers({ authorization: `Bearer ${sessionToken}` }),
+		headers: new Headers({ authorization: `Bearer ${params.sessionToken}` }),
 	})
-	await setActiveAgency(sessionToken, pendingInvitation.organizationId)
-	return true
+	await setActiveAgency(params.sessionToken, pendingInvitation.organizationId)
+	return pendingInvitation.organizationId
 }
 
 export async function acceptInvitationForExistingVerifiedUser(

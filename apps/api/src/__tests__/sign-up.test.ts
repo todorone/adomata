@@ -6,18 +6,10 @@ const authCalls = vi.hoisted(() => ({
 	handler: vi.fn(),
 }))
 
-const invitationCalls = vi.hoisted(() => ({
-	acceptPendingInvitation: vi.fn(),
-}))
-
 // Not used directly by this route, but ../app transitively imports every route
 // module (including routes/admin.ts, which imports ../db) to register them —
 // mock it so the real Bun-only db/index.ts is never evaluated under Node.
 vi.mock('../db', () => ({ db: {} }))
-
-vi.mock('../logic/invitation', () => ({
-	acceptPendingInvitation: invitationCalls.acceptPendingInvitation,
-}))
 
 vi.mock('../logic/auth', () => ({
 	canSignUpWithEmail: authCalls.canSignUpWithEmail,
@@ -58,7 +50,6 @@ describe('POST /auth/sign-up/email', () => {
 	beforeEach(() => {
 		authCalls.canSignUpWithEmail.mockReset()
 		authCalls.handler.mockReset()
-		invitationCalls.acceptPendingInvitation.mockReset()
 		authCalls.handler.mockResolvedValue(
 			Response.json({
 				token: 'token_1',
@@ -111,7 +102,7 @@ describe('POST /auth/sign-up/email', () => {
 		expect(authCalls.handler).toHaveBeenCalledOnce()
 	})
 
-	it('accepts the pending invitation after sign-up', async () => {
+	it('leaves the invitation pending until email verification', async () => {
 		authCalls.canSignUpWithEmail.mockResolvedValue(true)
 		const { app } = await import('../app')
 
@@ -126,6 +117,5 @@ describe('POST /auth/sign-up/email', () => {
 		})
 
 		expect(res.status).toBe(200)
-		expect(invitationCalls.acceptPendingInvitation).toHaveBeenCalledWith('invited@example.com', 'token_1')
 	})
 })

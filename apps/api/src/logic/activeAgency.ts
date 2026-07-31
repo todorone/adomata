@@ -26,13 +26,18 @@ export async function restoreActiveAgency(
 		userId: string
 		activeOrganizationId?: string | null
 	},
-	role: string,
+	user: { email: string; emailVerified: boolean; role: string },
 ) {
 	if (session.activeOrganizationId) return session.activeOrganizationId
+	if (!user.emailVerified) return null
 
-	const agencyId = isSuperadminRole(role)
+	let agencyId: string | null | undefined = isSuperadminRole(user.role)
 		? await ensureSuperadminHq(session.userId)
 		: (await firstMembershipForUser(session.userId))?.organizationId
+	if (!agencyId) {
+		const { acceptPendingInvitationForVerifiedSession } = await import('./invitation')
+		agencyId = await acceptPendingInvitationForVerifiedSession({ email: user.email, sessionToken: session.token })
+	}
 	if (!agencyId) return null
 
 	await setActiveAgency(session.token, agencyId)

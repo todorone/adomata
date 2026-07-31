@@ -128,11 +128,15 @@ export function createAuth() {
 				create: {
 					after: async session => {
 						const [user] = await db
-							.select({ role: schema.users.role })
+							.select({
+								email: schema.users.email,
+								emailVerified: schema.users.emailVerified,
+								role: schema.users.role,
+							})
 							.from(schema.users)
 							.where(eq(schema.users.id, session.userId))
 							.limit(1)
-						if (user) await restoreActiveAgency(session, user.role)
+						if (user) await restoreActiveAgency(session, user)
 					},
 				},
 			},
@@ -208,7 +212,7 @@ export const requireAuth = createMiddleware(async (c, next) => {
 	})) as AuthSession | null
 
 	if (!session) return apiError(c, 'UNAUTHORIZED')
-	const activeAgencyId = await restoreActiveAgency(session.session, session.user.role)
+	const activeAgencyId = await restoreActiveAgency(session.session, session.user)
 	if (activeAgencyId) session.session.activeOrganizationId = activeAgencyId
 
 	c.set('authSession', session)

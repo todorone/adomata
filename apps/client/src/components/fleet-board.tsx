@@ -18,11 +18,18 @@ import {
 import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
 
 import { DateRangePicker } from '@/components/date-range-picker'
-import { fleetBoardQueries, type FleetBoardParent, type FleetBoardRoot, useFleetBoardRoot } from '@/data/fleet-board'
+import {
+	fleetBoardKeys,
+	fleetBoardQueries,
+	type FleetBoardParent,
+	type FleetBoardRoot,
+	useFleetBoardRoot,
+} from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
 import { Button } from '@/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/ui/tooltip'
 
 type Account = FleetBoardRoot['accounts'][number]
 type Client = FleetBoardRoot['clients'][number]
@@ -77,6 +84,35 @@ export function FleetBoard({
 	const [loadedNodes, setLoadedNodes] = useState<Record<string, HierarchyNode[]>>({})
 	const [expanded, setExpanded] = useState<Set<string>>(new Set())
 	const [creativeAdId, setCreativeAdId] = useState<string | null>(search.ad ?? null)
+	const [isRefreshing, setIsRefreshing] = useState(false)
+
+	// Refetches everything currently on screen (root, every already-loaded hierarchy parent, and
+	// an open creative panel) rather than just the root query, so the board never shows a mix of
+	// freshly refetched Ad Account rows sitting above stale expanded children.
+	async function refresh() {
+		setIsRefreshing(true)
+		const parents = Object.keys(loadedNodes).map(key => {
+			const [type, id] = key.split(':') as [FleetBoardParent['type'], string]
+			return { type, id }
+		})
+		const tasks: Promise<unknown>[] = [root.refetch()]
+		if (parents.length > 0) {
+			tasks.push(
+				queryClient.fetchQuery(fleetBoardQueries.children(search.range, parents)).then(response => {
+					setLoadedNodes(current => mergeChildren(current, parents, response.nodes))
+				}),
+			)
+		}
+		if (creativeAdId) tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
+		try {
+			await Promise.all(tasks)
+		} catch {
+			// Root failures already surface via root.isError → ErrorState; a failed child/creative
+			// refetch stays silent, matching loadChildren's existing (uncaught) behavior below.
+		} finally {
+			setIsRefreshing(false)
+		}
+	}
 
 	useEffect(() => {
 		if (!root.data || search.depth === 'account') return
@@ -131,6 +167,8 @@ export function FleetBoard({
 				setSearch={setSearch}
 				header={root.data?.header}
 				clients={root.data?.clients ?? []}
+				onRefresh={refresh}
+				isRefreshing={isRefreshing}
 			/>
 			{root.isPending && !root.data ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}
@@ -147,11 +185,15 @@ function FleetToolbar({
 	setSearch,
 	header,
 	clients,
+	onRefresh,
+	isRefreshing,
 }: {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	header?: FleetBoardRoot['header']
 	clients: Client[]
+	onRefresh: () => void
+	isRefreshing: boolean
 }) {
 	const activeFilters =
 		Number(search.search.length > 0) + Number(search.needsAttention) + Number(Boolean(search.clientId))
@@ -198,6 +240,23 @@ function FleetToolbar({
 						<span className="ml-3 font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
 					) : null}
 				</p>
+				<TooltipProvider delayDuration={0}>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label="Оновити дані"
+								disabled={isRefreshing}
+								onClick={onRefresh}
+							>
+								<RefreshCw className={isRefreshing ? 'animate-spin' : undefined} />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>Оновити дані</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<DateRangePicker value={search.range} onChange={range => setSearch({ range })} />

@@ -145,6 +145,9 @@ export const invitation = pgTable(
 		inviterId: text()
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
+		// Manual resends triggered from the superadmin invitations table; capped at
+		// MAX_INVITATION_RESENDS (see client/admin/invitations.ts).
+		resendCount: integer().notNull().default(0),
 	},
 	table => [
 		index('invitation_organization_id_idx').on(table.organizationId),

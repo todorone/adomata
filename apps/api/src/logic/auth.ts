@@ -14,7 +14,7 @@ import { isAdomataEmail } from './adomataEmail'
 import { restoreActiveAgency, setActiveAgency } from './activeAgency'
 import { apiError } from './apiError'
 import { sendInvitationEmail, sendVerificationEmail } from './email'
-import { acceptPendingInvitationForVerifiedSession } from './invitation'
+import { acceptPendingInvitationForVerifiedSession, INVITATION_EXPIRES_IN_SECONDS } from './invitation'
 import { isBootstrapSuperadminEmail } from './superadmin'
 
 export type AuthSession = {
@@ -187,7 +187,7 @@ export function createAuth() {
 				roles: { user: userAc, super: adminAc },
 			}),
 			organization({
-				invitationExpiresIn: 60 * 60 * 24 * 7,
+				invitationExpiresIn: INVITATION_EXPIRES_IN_SECONDS,
 				allowUserToCreateOrganization: false,
 				organizationHooks: {
 					beforeAddMember: async ({ member }) => assertOrganizationRole(member.role),

@@ -5,6 +5,8 @@ import { and, asc, eq, gt, ilike } from 'drizzle-orm'
 import { db } from '../db'
 import { invitation, member, users } from '../db/schema'
 
+export const INVITATION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7
+
 export async function acceptPendingInvitationForVerifiedSession(params: {
 	email: string
 	acceptInvitation: (invitationId: string) => Promise<unknown>

@@ -11,6 +11,7 @@ type RangePreset = Exclude<FleetBoardRangePreset, 'custom'>
 
 const presets: Array<{ key: RangePreset; label: string }> = [
 	{ key: 'today', label: 'Сьогодні' },
+	{ key: 'yesterday', label: 'Вчора' },
 	{ key: 'last7', label: 'Останні 7 днів' },
 	{ key: 'last14', label: 'Останні 14 днів' },
 	{ key: 'last30', label: 'Останні 30 днів' },

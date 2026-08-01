@@ -2,7 +2,7 @@ export type ConnectionStatus = 'pending' | 'connected' | 'access_lost'
 export type HealthColor = 'green' | 'yellow' | 'red' | 'grey'
 export type SignalsLane = 'needs_attention' | 'postpay' | 'active' | 'awaiting_data'
 export type TimeRangePreset =
-	'today' | 'last7' | 'last14' | 'last30' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth'
+	'today' | 'yesterday' | 'last7' | 'last14' | 'last30' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth'
 export type CpaReason = 'mixed_result_types' | 'unresolved_result_type'
 
 export type HealthReason =
@@ -151,6 +151,10 @@ export function dateRangeForAccount(
 	switch (range) {
 		case 'today':
 			return { start: end, end }
+		case 'yesterday': {
+			const yesterday = shiftDate(end, -1)
+			return { start: yesterday, end: yesterday }
+		}
 		case 'last7':
 			return { start: shiftDate(end, -6), end }
 		case 'last14':

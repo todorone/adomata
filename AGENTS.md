@@ -20,6 +20,8 @@ After completing any task, run `pnpm checks` (type-check, lint, format-check, te
 
 Kill any local dev servers you launched during the session before finishing.
 
+Never launch a Docker instance/container to run or test the app. Run the dev server directly on the host, or reuse one that's already running.
+
 ## Apps
 
 - `apps/api`

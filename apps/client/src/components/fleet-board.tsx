@@ -4,7 +4,6 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import {
 	ArrowDown,
 	ArrowUp,
-	ChevronDown,
 	ChevronRight,
 	Columns3,
 	ExternalLink,
@@ -22,14 +21,8 @@ import { DateRangePicker } from '@/components/date-range-picker'
 import { fleetBoardQueries, type FleetBoardParent, type FleetBoardRoot, useFleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
 import { Button } from '@/ui/button'
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
-	DropdownMenuTrigger,
-} from '@/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select'
 
 type Account = FleetBoardRoot['accounts'][number]
 type Client = FleetBoardRoot['clients'][number]
@@ -328,24 +321,19 @@ function CompactSelect<Value extends string>({
 	onChange: (value: Value) => void
 }) {
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button type="button" size="sm" variant="outline" aria-label={label}>
-					<span className="text-muted-foreground">{label}:</span>
-					{labels[value]}
-					<ChevronDown />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent>
-				<DropdownMenuRadioGroup value={value} onValueChange={next => onChange(next as Value)}>
-					{(Object.keys(labels) as Value[]).map(option => (
-						<DropdownMenuRadioItem key={option} value={option}>
-							{labels[option]}
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<Select value={value} onValueChange={next => onChange(next as Value)} items={labels}>
+			<SelectTrigger size="sm" aria-label={label}>
+				<span className="text-muted-foreground">{label}:</span>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{(Object.keys(labels) as Value[]).map(option => (
+					<SelectItem key={option} value={option}>
+						{labels[option]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	)
 }
 

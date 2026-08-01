@@ -66,7 +66,6 @@ const sampleRow = {
 	expiresAt: expires,
 	createdAt: now,
 	inviterId: 'user_1',
-	resendCount: 0,
 }
 
 describe('GET /admin/invitations', () => {

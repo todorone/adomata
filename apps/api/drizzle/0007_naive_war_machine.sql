@@ -1,1 +1,0 @@
-ALTER TABLE "invitation" ADD COLUMN "resend_count" integer DEFAULT 0 NOT NULL;

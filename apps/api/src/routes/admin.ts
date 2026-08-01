@@ -123,7 +123,6 @@ const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', 
 			expiresAt: invitation.expiresAt,
 			createdAt: invitation.createdAt,
 			inviterId: invitation.inviterId,
-			resendCount: invitation.resendCount,
 		})
 		.from(invitation)
 		.innerJoin(organization, eq(invitation.organizationId, organization.id))
@@ -160,7 +159,6 @@ const withResendInvitationRoutes = withListInvitationRoutes.post('/invitations/:
 			inviterId: invitation.inviterId,
 			inviterName: users.name,
 			inviterEmail: users.email,
-			resendCount: invitation.resendCount,
 		})
 		.from(invitation)
 		.innerJoin(organization, eq(invitation.organizationId, organization.id))
@@ -182,10 +180,7 @@ const withResendInvitationRoutes = withListInvitationRoutes.post('/invitations/:
 
 	const [updated] = await db
 		.update(invitation)
-		.set({
-			resendCount: inv.resendCount + 1,
-			expiresAt: new Date(Date.now() + INVITATION_EXPIRES_IN_SECONDS * 1000),
-		})
+		.set({ expiresAt: new Date(Date.now() + INVITATION_EXPIRES_IN_SECONDS * 1000) })
 		.where(eq(invitation.id, inv.id))
 		.returning()
 

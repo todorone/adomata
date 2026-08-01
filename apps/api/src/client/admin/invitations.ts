@@ -19,7 +19,6 @@ export const adminInvitationSchema = invitationRow
 		expiresAt: true,
 		createdAt: true,
 		inviterId: true,
-		resendCount: true,
 	})
 	.extend({
 		organizationName: z.string(),

@@ -112,7 +112,6 @@ describe('POST /admin/invitations/:id/resend', () => {
 					inviterId: 'user_2',
 					inviterName: 'Inviter',
 					inviterEmail: 'inviter@example.com',
-					resendCount: 0,
 				},
 			],
 		]
@@ -124,25 +123,21 @@ describe('POST /admin/invitations/:id/resend', () => {
 		expect(emailCalls.sendInvitationEmail).not.toHaveBeenCalled()
 	})
 
-	it('allows resending even after many prior resends (no cap)', async () => {
-		dbCalls.selectResults = [
-			[
-				{
-					id: 'inv_1',
-					organizationId: 'org_1',
-					organizationName: 'Acme',
-					email: 'invitee@example.com',
-					role: 'member',
-					status: 'pending',
-					expiresAt: new Date(),
-					createdAt: new Date(),
-					inviterId: 'user_2',
-					inviterName: 'Inviter',
-					inviterEmail: 'inviter@example.com',
-					resendCount: 25,
-				},
-			],
-		]
+	it('allows resending the same invitation repeatedly (no cap)', async () => {
+		const row = {
+			id: 'inv_1',
+			organizationId: 'org_1',
+			organizationName: 'Acme',
+			email: 'invitee@example.com',
+			role: 'member',
+			status: 'pending',
+			expiresAt: new Date(),
+			createdAt: new Date(),
+			inviterId: 'user_2',
+			inviterName: 'Inviter',
+			inviterEmail: 'inviter@example.com',
+		}
+		dbCalls.selectResults = [[row], [row]]
 		dbCalls.updateReturning = [
 			{
 				id: 'inv_1',
@@ -153,18 +148,19 @@ describe('POST /admin/invitations/:id/resend', () => {
 				expiresAt: new Date(),
 				createdAt: new Date(),
 				inviterId: 'user_2',
-				resendCount: 26,
 			},
 		]
 		const { app } = await import('../app')
 
-		const res = await app.request('/admin/invitations/inv_1/resend', { method: 'POST' })
+		const first = await app.request('/admin/invitations/inv_1/resend', { method: 'POST' })
+		const second = await app.request('/admin/invitations/inv_1/resend', { method: 'POST' })
 
-		expect(res.status).toBe(200)
-		expect(emailCalls.sendInvitationEmail).toHaveBeenCalledTimes(1)
+		expect(first.status).toBe(200)
+		expect(second.status).toBe(200)
+		expect(emailCalls.sendInvitationEmail).toHaveBeenCalledTimes(2)
 	})
 
-	it('resends the email, increments resendCount, and extends expiresAt', async () => {
+	it('resends the email and extends expiresAt', async () => {
 		dbCalls.selectResults = [
 			[
 				{
@@ -179,7 +175,6 @@ describe('POST /admin/invitations/:id/resend', () => {
 					inviterId: 'user_2',
 					inviterName: 'Inviter',
 					inviterEmail: 'inviter@example.com',
-					resendCount: 3,
 				},
 			],
 		]
@@ -194,7 +189,6 @@ describe('POST /admin/invitations/:id/resend', () => {
 				expiresAt: newExpiresAt,
 				createdAt: new Date('2026-01-01T00:00:00.000Z'),
 				inviterId: 'user_2',
-				resendCount: 4,
 			},
 		]
 		const { app } = await import('../app')
@@ -203,15 +197,13 @@ describe('POST /admin/invitations/:id/resend', () => {
 
 		expect(res.status).toBe(200)
 		const body = resendInvitationResponseSchema.parse(await res.json())
-		expect(body.invitation.resendCount).toBe(4)
+		expect(body.invitation.expiresAt).toEqual(newExpiresAt)
 		expect(emailCalls.sendInvitationEmail).toHaveBeenCalledWith({
 			email: 'invitee@example.com',
 			organizationName: 'Acme',
 			inviterName: 'Inviter',
 			role: 'member',
 		})
-		expect(dbCalls.updateSet).toHaveBeenCalledWith(
-			expect.objectContaining({ resendCount: 4, expiresAt: expect.any(Date) }),
-		)
+		expect(dbCalls.updateSet).toHaveBeenCalledWith(expect.objectContaining({ expiresAt: expect.any(Date) }))
 	})
 })

@@ -151,14 +151,13 @@ function AdminInvitesPage() {
 							<TableHead>Роль</TableHead>
 							<TableHead>Статус</TableHead>
 							<TableHead>Закінчується</TableHead>
-							<TableHead>Повторні надсилання</TableHead>
 							<TableHead className="w-16" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{invitations.length === 0 && (
 							<TableRow>
-								<TableCell colSpan={7} className="text-muted-foreground text-center">
+								<TableCell colSpan={6} className="text-muted-foreground text-center">
 									Поки що немає запрошень.
 								</TableCell>
 							</TableRow>
@@ -180,7 +179,6 @@ function AdminInvitesPage() {
 								<TableCell className="text-muted-foreground">
 									{new Date(inv.expiresAt).toLocaleDateString()}
 								</TableCell>
-								<TableCell className="text-muted-foreground">{inv.resendCount}</TableCell>
 								<TableCell>
 									{inv.status === 'pending' && (
 										<Button

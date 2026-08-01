@@ -28,3 +28,7 @@ export type AdminInvitation = z.infer<typeof adminInvitationSchema>
 export const adminInvitationsResponseSchema = z.object({
 	invitations: z.array(adminInvitationSchema),
 })
+
+export const resendInvitationResponseSchema = z.object({
+	invitation: adminInvitationSchema,
+})

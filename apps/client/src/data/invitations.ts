@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { adminInvitationsResponseSchema, type AdminInvitation } from '@adomata/api/client'
+import {
+	adminInvitationsResponseSchema,
+	resendInvitationResponseSchema,
+	type AdminInvitation,
+} from '@adomata/api/client'
 
 import { authClient } from '@/lib/auth-client'
 import { api } from './core/apiClient'
@@ -53,6 +57,22 @@ export function useAdminInvitations(enabled = true) {
 			return invitations
 		},
 		enabled,
+	})
+}
+
+export function useResendInvitation() {
+	const qc = useQueryClient()
+	return useMutation({
+		mutationFn: async (invitationId: string) => {
+			const res = await api.admin.invitations[':id'].resend.$post({ param: { id: invitationId } })
+			const { invitation } = await parseResponse(
+				res,
+				resendInvitationResponseSchema,
+				'POST /admin/invitations/:id/resend',
+			)
+			return invitation
+		},
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['invitations', 'admin'] }),
 	})
 }
 

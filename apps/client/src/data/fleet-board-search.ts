@@ -11,6 +11,7 @@ const nonMetricSorts = new Set(['attention', 'name', 'owed'])
 
 const rangePresetSchema = z.enum([
 	'today',
+	'yesterday',
 	'last7',
 	'last14',
 	'last30',

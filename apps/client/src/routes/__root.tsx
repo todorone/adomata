@@ -6,6 +6,7 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/ui/breadcrumb'
 import { Separator } from '@/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/ui/sidebar'
+import { Toaster } from '@/ui/toast'
 
 export const Route = createRootRoute({
 	head: () => ({
@@ -33,6 +34,7 @@ function RootComponent() {
 		return (
 			<>
 				<Outlet />
+				<Toaster />
 				<TanStackDevtools
 					config={{ position: 'bottom-right' }}
 					plugins={[{ name: 'Tanstack Router', render: <TanStackRouterDevtoolsPanel /> }]}
@@ -66,6 +68,7 @@ function RootComponent() {
 					</div>
 				</SidebarInset>
 			</SidebarProvider>
+			<Toaster />
 			<TanStackDevtools
 				config={{ position: 'bottom-right' }}
 				plugins={[{ name: 'Tanstack Router', render: <TanStackRouterDevtoolsPanel /> }]}

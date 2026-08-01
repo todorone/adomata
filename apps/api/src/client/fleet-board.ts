@@ -5,6 +5,7 @@ const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-
 
 export const fleetBoardRangePresetSchema = z.enum([
 	'today',
+	'yesterday',
 	'last7',
 	'last14',
 	'last30',

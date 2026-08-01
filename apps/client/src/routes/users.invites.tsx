@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { X } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 
 import { useConfirm } from '@/components/modal-provider'
 import {
@@ -8,6 +8,7 @@ import {
 	useAdminInvitations,
 	useInviteMember,
 	useCancelInvitation,
+	useResendInvitation,
 	type InviteRole,
 	type AdminInvitation,
 } from '@/data/invitations'
@@ -128,6 +129,7 @@ function statusBadgeClass(status: string) {
 
 function AdminInvitesPage() {
 	const { data: invitations, isLoading, isError } = useAdminInvitations()
+	const resend = useResendInvitation()
 
 	return (
 		<div className="flex flex-col gap-6">
@@ -138,6 +140,7 @@ function AdminInvitesPage() {
 
 			{isLoading && <p className="text-muted-foreground text-sm">Завантаження…</p>}
 			{isError && <p className="text-destructive text-sm">Не вдалося завантажити запрошення.</p>}
+			{resend.isError && <p className="text-destructive text-sm">{resend.error.message}</p>}
 
 			{invitations && (
 				<Table>
@@ -148,12 +151,13 @@ function AdminInvitesPage() {
 							<TableHead>Роль</TableHead>
 							<TableHead>Статус</TableHead>
 							<TableHead>Закінчується</TableHead>
+							<TableHead className="w-16" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{invitations.length === 0 && (
 							<TableRow>
-								<TableCell colSpan={5} className="text-muted-foreground text-center">
+								<TableCell colSpan={6} className="text-muted-foreground text-center">
 									Поки що немає запрошень.
 								</TableCell>
 							</TableRow>
@@ -174,6 +178,22 @@ function AdminInvitesPage() {
 								</TableCell>
 								<TableCell className="text-muted-foreground">
 									{new Date(inv.expiresAt).toLocaleDateString()}
+								</TableCell>
+								<TableCell>
+									{inv.status === 'pending' && (
+										<Button
+											variant="ghost"
+											size="icon"
+											aria-label="Надіслати запрошення повторно"
+											title="Надіслати запрошення повторно"
+											disabled={resend.isPending}
+											onClick={() => {
+												resend.mutate(inv.id)
+											}}
+										>
+											<RefreshCw className="size-4" />
+										</Button>
+									)}
 								</TableCell>
 							</TableRow>
 						))}

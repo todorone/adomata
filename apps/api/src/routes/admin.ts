@@ -6,15 +6,16 @@ import { db } from '../db'
 import { invitation, member, organization, users } from '../db/schema'
 import { wipeDatabase } from '../db/wipe'
 import { createAuth, requireAuth, requireVerifiedAuth } from '../logic/auth'
+import { sendInvitationEmail } from '../logic/email'
 import { HQ_SLUG } from '../logic/hq'
-import { acceptInvitationForExistingVerifiedUser } from '../logic/invitation'
+import { acceptInvitationForExistingVerifiedUser, INVITATION_EXPIRES_IN_SECONDS } from '../logic/invitation'
 import { isSuperadminRole } from '../logic/superadmin'
 import {
 	adminOrganizationsResponseSchema,
 	createAdminOrganizationBodySchema,
 	createAdminOrganizationResponseSchema,
 } from '../client/admin/organizations'
-import { adminInvitationsResponseSchema } from '../client/admin/invitations'
+import { adminInvitationsResponseSchema, resendInvitationResponseSchema } from '../client/admin/invitations'
 import {
 	adminUsersResponseSchema,
 	updateAdminUserBodySchema,
@@ -138,7 +139,64 @@ const withListInvitationRoutes = withListOrganizationRoutes.get('/invitations', 
 	)
 })
 
-const withDeleteOrganizationRoutes = withListInvitationRoutes.delete('/organizations/:id', async c => {
+const withResendInvitationRoutes = withListInvitationRoutes.post('/invitations/:id/resend', async c => {
+	const { role: callerRole } = c.get('authSession').user
+
+	if (!isSuperadminRole(callerRole)) {
+		return apiError(c, 'FORBIDDEN', { message: 'Forbidden' })
+	}
+
+	const [inv] = await db
+		.select({
+			id: invitation.id,
+			organizationId: invitation.organizationId,
+			organizationName: organization.name,
+			email: invitation.email,
+			role: invitation.role,
+			status: invitation.status,
+			expiresAt: invitation.expiresAt,
+			createdAt: invitation.createdAt,
+			inviterId: invitation.inviterId,
+			inviterName: users.name,
+			inviterEmail: users.email,
+		})
+		.from(invitation)
+		.innerJoin(organization, eq(invitation.organizationId, organization.id))
+		.innerJoin(users, eq(invitation.inviterId, users.id))
+		.where(eq(invitation.id, c.req.param('id')))
+		.limit(1)
+
+	if (!inv) return apiError(c, 'NOT_FOUND', { message: 'Запрошення не знайдено' })
+	if (inv.status !== 'pending') {
+		return apiError(c, 'BAD_REQUEST', { message: 'Можна повторно надіслати лише активне запрошення' })
+	}
+
+	await sendInvitationEmail({
+		email: inv.email,
+		organizationName: inv.organizationName,
+		inviterName: inv.inviterName || inv.inviterEmail,
+		role: inv.role,
+	})
+
+	const [updated] = await db
+		.update(invitation)
+		.set({ expiresAt: new Date(Date.now() + INVITATION_EXPIRES_IN_SECONDS * 1000) })
+		.where(eq(invitation.id, inv.id))
+		.returning()
+
+	return c.json(
+		resendInvitationResponseSchema.parse({
+			invitation: {
+				...updated,
+				organizationName: inv.organizationName,
+				expiresAt: updated.expiresAt.toISOString(),
+				createdAt: updated.createdAt.toISOString(),
+			},
+		}),
+	)
+})
+
+const withDeleteOrganizationRoutes = withResendInvitationRoutes.delete('/organizations/:id', async c => {
 	const { role: callerRole } = c.get('authSession').user
 
 	if (!isSuperadminRole(callerRole)) {

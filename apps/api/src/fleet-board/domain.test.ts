@@ -75,6 +75,7 @@ describe('Fleet Board domain rules', () => {
 			start: '2026-03-28',
 			end: '2026-03-28',
 		})
+		expect(dateRangeForAccount('yesterday', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-28', end: '2026-03-28' })
 		expect(dateRangeForAccount('last7', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-23', end: '2026-03-29' })
 		expect(dateRangeForAccount('last14', 'Europe/Kyiv', now)).toEqual({ start: '2026-03-16', end: '2026-03-29' })
 		expect(dateRangeForAccount('last30', 'Europe/Kyiv', now)).toEqual({ start: '2026-02-28', end: '2026-03-29' })

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type SessionCreateHookOptions = {
 	databaseHooks: {
@@ -8,6 +8,11 @@ type SessionCreateHookOptions = {
 			}
 		}
 	}
+	emailVerification: {
+		autoSignInAfterVerification?: boolean
+		expiresIn?: number
+	}
+	trustedOrigins: (request?: Request) => string[]
 }
 
 const dbCalls = vi.hoisted(() => ({
@@ -129,5 +134,36 @@ describe('restoreActiveAgency', () => {
 		const [{ headers }] = authCalls.acceptInvitation.mock.calls[0]
 		expect(headers.get('authorization')).toBe('Bearer tok_1')
 		expect(dbCalls.updateSet).toHaveBeenCalledWith({ activeOrganizationId: 'org_1' })
+	})
+})
+
+describe('createAuth email verification config', () => {
+	const originalClientUrl = process.env.CLIENT_URL
+
+	beforeEach(() => {
+		authCalls.options = undefined
+		process.env.CLIENT_URL = 'http://localhost:5173'
+	})
+
+	afterEach(() => {
+		if (originalClientUrl === undefined) delete process.env.CLIENT_URL
+		else process.env.CLIENT_URL = originalClientUrl
+	})
+
+	it('signs the user in on verification, with a short-lived token', async () => {
+		const { createAuth } = await import('../logic/auth')
+
+		createAuth()
+
+		expect(authCalls.options?.emailVerification.autoSignInAfterVerification).toBe(true)
+		expect(authCalls.options?.emailVerification.expiresIn).toBe(60 * 30)
+	})
+
+	it('trusts CLIENT_URL as a verify-email callback target even without a request Origin header', async () => {
+		const { createAuth } = await import('../logic/auth')
+
+		createAuth()
+
+		expect(authCalls.options?.trustedOrigins(undefined)).toContain('http://localhost:5173')
 	})
 })

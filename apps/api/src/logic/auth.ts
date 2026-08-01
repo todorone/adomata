@@ -98,6 +98,14 @@ export function createAuth() {
 		emailVerification: {
 			sendOnSignUp: true,
 			sendOnSignIn: true,
+			// The link is only ever used seconds after signup, so a short window limits how long
+			// a leaked/forwarded copy of the email stays exploitable.
+			expiresIn: 60 * 30,
+			// Clicking the link is the same proof-of-ownership check a manual login would require;
+			// signing the user in directly skips a redundant password re-entry. This is safe because
+			// better-auth flips emailVerified before creating the session and short-circuits any
+			// replay of the same link once emailVerified is already true (no repeat sign-in).
+			autoSignInAfterVerification: true,
 			sendVerificationEmail: async ({ user, url }) => {
 				if (skipsEmailVerification(user.email)) return
 				await sendVerificationEmail({ email: user.email, name: user.name, url })
@@ -105,6 +113,10 @@ export function createAuth() {
 		},
 		trustedOrigins: request => {
 			const base = ['https://appleid.apple.com', 'https://*.adomata.com']
+			// Verification-link clicks are top-level GET navigations, which browsers often send
+			// without an Origin header, so CLIENT_URL must be trusted unconditionally here — it
+			// can't rely on the request-origin sniffing below like fetch-based calls can.
+			if (process.env.CLIENT_URL) base.push(process.env.CLIENT_URL)
 			const origin = request?.headers.get('origin') ?? ''
 			try {
 				const { hostname } = new URL(origin)

@@ -43,6 +43,7 @@ export const fleetBoardSortSchema = z.enum([
 	'clicks',
 	'ctr',
 	'cpa',
+	'results',
 	'roas',
 ])
 export const fleetBoardDirectionSchema = z.enum(['asc', 'desc'])
@@ -71,6 +72,7 @@ export const fleetBoardKpisSchema = z.object({
 	ctr: z.string().nullable(),
 	cpa: z.string().nullable(),
 	cpaReason: fleetBoardCpaReasonSchema.nullable(),
+	results: z.string().nullable(),
 	roas: z.string().nullable(),
 	running: z.boolean(),
 	unsupported: z.literal('mixed_currency').nullable(),

@@ -7,7 +7,7 @@ describe('Fleet Board URL state', () => {
 		expect(fleetBoardSearchSchema.parse({})).toEqual({
 			view: 'tree',
 			range: 'last7',
-			metrics: ['spend', 'clicks', 'cpa'],
+			metrics: ['spend', 'clicks', 'cpa', 'results'],
 			group: 'client',
 			depth: 'account',
 			search: '',
@@ -30,7 +30,7 @@ describe('Fleet Board URL state', () => {
 
 	it('falls back to the default selection when every metric is unknown', () => {
 		expect(fleetBoardSearchSchema.parse({ metrics: 'unknown' })).toMatchObject({
-			metrics: ['spend', 'clicks', 'cpa'],
+			metrics: ['spend', 'clicks', 'cpa', 'results'],
 		})
 	})
 

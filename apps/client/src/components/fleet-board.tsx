@@ -51,6 +51,7 @@ const metricLabels: Record<FleetBoardMetricKey, string> = {
 	clicks: 'Кліки',
 	ctr: 'CTR',
 	cpa: 'CPA',
+	results: 'Результати',
 	roas: 'ROAS',
 }
 const depthValues = ['account', 'campaign', 'adset', 'ad'] as const
@@ -1306,6 +1307,7 @@ function formatKpi(metric: FleetBoardMetricKey, value: string | number | null, c
 	if (value === null) return noData
 	if (metric === 'spend' || metric === 'cpa') return formatMoney(String(value), currency)
 	if (metric === 'impressions' || metric === 'clicks') return Number(value).toLocaleString('uk-UA')
+	if (metric === 'results') return Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })
 	if (metric === 'ctr') return `${(Number(value) * 100).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}%`
 	// A ROAS of exactly zero means no purchase value was recorded at all, which is a missing
 	// signal rather than a measured return of nothing. Spend of 0,00 stays a real number.

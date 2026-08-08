@@ -18,6 +18,7 @@ function kpis(overrides: Partial<Kpis> = {}): Kpis {
 		ctr: '0.04',
 		cpa: '25',
 		cpaReason: null,
+		results: '4',
 		roas: '2',
 		running: true,
 		unsupported: null,

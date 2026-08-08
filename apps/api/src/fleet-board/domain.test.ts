@@ -157,6 +157,7 @@ describe('Fleet Board domain rules', () => {
 			ctr: '0.05',
 			cpa: '3.433333',
 			cpaReason: null,
+			results: '3',
 			roas: '2',
 			running: true,
 		})
@@ -184,7 +185,7 @@ describe('Fleet Board domain rules', () => {
 					running: false,
 				},
 			]),
-		).toMatchObject({ ctr: null, cpa: null, cpaReason: 'mixed_result_types', roas: '0' })
+		).toMatchObject({ ctr: null, cpa: null, cpaReason: 'mixed_result_types', results: null, roas: '0' })
 		expect(
 			rollupKpis([
 				{
@@ -197,7 +198,7 @@ describe('Fleet Board domain rules', () => {
 					running: false,
 				},
 			]),
-		).toMatchObject({ cpa: null, cpaReason: 'unresolved_result_type' })
+		).toMatchObject({ cpa: null, cpaReason: 'unresolved_result_type', results: null })
 	})
 
 	it('does not aggregate monetary client KPIs across currencies but preserves safe CTR', () => {
@@ -231,6 +232,7 @@ describe('Fleet Board domain rules', () => {
 			ctr: '0.1',
 			cpa: null,
 			cpaReason: null,
+			results: '2',
 			roas: null,
 			running: true,
 		})

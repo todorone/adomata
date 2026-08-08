@@ -279,6 +279,7 @@ export type KpiValues = {
 	ctr: string | null
 	cpa: string | null
 	cpaReason: CpaReason | null
+	results: string | null
 	roas: string | null
 	running: boolean
 }
@@ -315,6 +316,9 @@ export function rollupKpis(contributions: readonly KpiContribution[]): KpiValues
 				: divideDecimals(parseDecimal(String(totals.clicks)), parseDecimal(String(totals.impressions))),
 		cpa: cpaReason ? null : divideDecimals(totals.spend, actionTotal),
 		cpaReason,
+		// Gated by the same reason as CPA: a mixed or unresolved result type makes the raw count
+		// either an apples-to-oranges sum or a silent undercount, so hide it rather than mislead.
+		results: cpaReason ? null : formatDecimal(actionTotal),
 		roas: divideDecimals(totals.purchaseValue, totals.spend),
 		running: totals.running,
 	}

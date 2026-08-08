@@ -16,7 +16,7 @@ type RootInput = {
 	search: string
 	needsAttention: boolean
 	clientId?: string
-	sort: 'attention' | 'name' | 'owed' | 'spend' | 'impressions' | 'clicks' | 'ctr' | 'cpa' | 'roas'
+	sort: 'attention' | 'name' | 'owed' | 'spend' | 'impressions' | 'clicks' | 'ctr' | 'cpa' | 'results' | 'roas'
 	direction: 'asc' | 'desc'
 }
 

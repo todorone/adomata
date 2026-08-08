@@ -35,9 +35,6 @@ export function FleetBoard({
 	const [creativeAdId, setCreativeAdId] = useState<string | null>(search.ad ?? null)
 	const [isRefreshing, setIsRefreshing] = useState(false)
 
-	// Refetches everything currently on screen (root, every already-loaded hierarchy parent, and
-	// an open creative panel) rather than just the root query, so the board never shows a mix of
-	// freshly refetched Ad Account rows sitting above stale expanded children.
 	async function refresh() {
 		setIsRefreshing(true)
 		const parents = Object.keys(loadedNodes).map(key => {
@@ -55,9 +52,6 @@ export function FleetBoard({
 		if (creativeAdId) tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
 		try {
 			await Promise.all(tasks)
-		} catch {
-			// Root failures already surface via root.isError → ErrorState; a failed child/creative
-			// refetch stays silent, matching loadChildren's existing (uncaught) behavior below.
 		} finally {
 			setIsRefreshing(false)
 		}

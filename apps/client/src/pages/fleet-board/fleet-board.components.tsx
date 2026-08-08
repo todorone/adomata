@@ -96,8 +96,7 @@ export function FleetToolbar({
 }) {
 	const activeFilters =
 		Number(search.search.length > 0) + Number(search.needsAttention) + Number(Boolean(search.clientId))
-	// Sits outside the table's scroller rather than scrolling with the rows, so Time Range stays
-	// reachable without scrolling back to the top.
+
 	return (
 		<section className="flex shrink-0 flex-col gap-2 border-b border-border pb-2">
 			<div className="flex items-center gap-x-3 overflow-hidden">
@@ -117,7 +116,7 @@ export function FleetToolbar({
 						</Button>
 					))}
 				</div>
-				{/* One line, never two: a wrapping freshness readout costs the board a row of fleet. */}
+
 				<p className="ml-auto truncate text-xs text-muted-foreground" aria-live="polite">
 					<span>
 						Операційні:{' '}
@@ -171,8 +170,6 @@ export function FleetToolbar({
 					labels={depthLabels}
 					onChange={depth => setSearch({ depth })}
 				/>
-				{/* A rendering toggle in the same family as collapse, not a filter: it hides rows
-				    and never changes a parent's numbers, so it stays outside the Filters popover. */}
 				<Button
 					type="button"
 					size="sm"
@@ -187,8 +184,6 @@ export function FleetToolbar({
 						<Button type="button" size="sm" variant="outline">
 							<SlidersHorizontal />
 							Фільтри
-							{/* The badge always occupies its slot: appearing from nothing would widen the
-							    trigger and shove the controls beside it sideways. */}
 							<span
 								className={`w-4 rounded-full text-xs ${activeFilters > 0 ? 'bg-primary text-primary-foreground' : 'invisible'}`}
 								aria-label={activeFilters > 0 ? `активних фільтрів: ${activeFilters}` : undefined}
@@ -314,12 +309,8 @@ export function TreeView({
 		overscan: 12,
 	})
 	return (
-		// No fixed height: the table fills whatever the viewport leaves after the toolbar, so it
-		// is the page's only vertical scroller rather than one nested inside a scrolling page.
 		<section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
 			<div className="flex min-h-0 flex-1 flex-col overflow-x-auto">
-				{/* treegrid wraps the header row and the row group directly, so the grid relationship
-				    survives the wrappers the horizontal scroller and the virtualizer need. */}
 				<div
 					className="flex min-h-0 flex-1 flex-col"
 					role="treegrid"
@@ -446,8 +437,6 @@ export function ControlRoom({
 	const rail = useVirtualizer({
 		count: railItems.length,
 		getScrollElement: () => railRef.current,
-		// Rail rows now carry name, Health and the selected KPIs, so their height varies with the
-		// metric selection and is measured rather than assumed.
 		estimateSize: () => 72,
 		overscan: 8,
 	})
@@ -511,8 +500,6 @@ export function ControlRoom({
 				</div>
 			</aside>
 			<div className="flex min-h-0 min-w-0 flex-col p-3">
-				{/* The Ad Account name and its Meta link belong to the row below, which carries them
-				    in aligned cells; repeating them here is what made the pane say the name thrice. */}
 				<p className="mb-2 shrink-0 text-xs text-muted-foreground">{selected.clientName}</p>
 				<TreeView
 					accounts={[selected]}
@@ -533,8 +520,6 @@ export function SignalsView({ accounts, clients, search, loadedNodes, expanded, 
 	const [openedClients, setOpenedClients] = useState<Set<string>>(new Set())
 	const items = search.group === 'client' ? clients : accounts
 	return (
-		// content-start so the lanes pack against the top: a stretched grid row would give an
-		// empty lane the height the spec just took away from it.
 		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
 				<SignalLane
@@ -578,8 +563,6 @@ function SignalLane({
 	openedClients: Set<string>
 	setOpenedClients: (next: Set<string>) => void
 }) {
-	// Lanes size to their contents: an empty lane is a thin labelled header with its count,
-	// never a fixed-height empty box holding a quarter of the screen.
 	return (
 		<section className="rounded-xl border border-border bg-card p-2 shadow-sm" aria-labelledby={`lane-${lane}`}>
 			<header className="flex items-center justify-between px-1">
@@ -617,12 +600,7 @@ function SignalLane({
 											</span>
 										)}
 									</span>
-									<HealthLabel
-										health={value.health}
-										// Where the reason merely restates the lane title it is de-emphasised,
-										// never removed: ADR 0018 keeps Color and Reason together.
-										muted={value.signalsLane === lane}
-									/>
+									<HealthLabel health={value.health} muted={value.signalsLane === lane} />
 								</button>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 									<span>
@@ -787,8 +765,6 @@ function AdThumbnail({ creativeId }: { creativeId: string | null }) {
 		<img
 			src={mediaUrl(creativeId, 'thumb')}
 			alt=""
-			// Sized to the row's own min-h-9 (36px) minus 2px top/bottom, so it reads as "fills the
-			// row" without depending on the row's actual height at render time.
 			className="my-0.5 mr-2 h-8 w-8 shrink-0 rounded object-cover"
 			onError={() => setFailed(true)}
 		/>
@@ -838,8 +814,6 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 					) : null}
 				</div>
 				<div className="flex items-center gap-2">
-					{/* Only a Creative that really carries several assets needs the note, otherwise
-					    it stops meaning anything where it appears. */}
 					{data.assets.length > 1 ? (
 						<span className="rounded-full bg-muted px-2 py-1 text-xs">Результати належать оголошенню цілком</span>
 					) : null}
@@ -890,7 +864,6 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 					) : null}
 				</div>
 			) : null}
-			{/* Plumbing, not the Creative: demoted out of the primary reading order. */}
 			{data.existingPostId ? (
 				<p className="mt-2 text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>
 			) : null}

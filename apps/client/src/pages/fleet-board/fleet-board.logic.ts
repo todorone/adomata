@@ -7,12 +7,6 @@ export type Account = FleetBoardRoot['accounts'][number]
 export type Client = FleetBoardRoot['clients'][number]
 export type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
 export type Node = Account | HierarchyNode
-/**
- * A flattened board row. `currency` is inherited from the ancestor Ad Account: hierarchy nodes
- * carry no currency of their own, and every one of them descends from exactly one Ad Account
- * that has exactly one currency. `mergedClient` is set on the single row that stands in for a
- * Client with exactly one Ad Account.
- */
 export type TreeRow = { node: Node; level: number; currency: string | null; mergedClient?: Client }
 export type BoardRow = ({ kind: 'client'; client: Client } | ({ kind: 'node' } & TreeRow)) & { key: string }
 export type SortKey = FleetBoardSearch['sort']
@@ -112,18 +106,19 @@ export function mergeChildren(
 function uniqueNodes(nodes: HierarchyNode[]) {
 	return [...new Map(nodes.map(node => [node.id, node])).values()]
 }
+
 function parentTypeForChild(type: HierarchyNode['type']): FleetBoardParent['type'] {
 	return type === 'campaign' ? 'account' : type === 'adset' ? 'campaign' : 'adset'
 }
+
 export function parentKey(type: FleetBoardParent['type'] | 'account', id: string) {
 	return `${type}:${id}`
 }
+
 function rowKey(row: TreeRow) {
 	return `${row.node.type}:${row.node.id}:${row.level}`
 }
-// One source of truth for the row grid: the template and the min width are derived from the
-// same floors, so widening a column cannot silently desync the width the table scrolls at.
-// The name column is capped so surplus width goes to the KPI columns rather than a dead gap.
+
 const columnWidths = { name: [180, 340], health: [132, 190], running: [84, 110], owed: [96, 130] } as const
 const metricColumnMin = 88
 const columnGap = 8
@@ -135,17 +130,20 @@ export function gridTemplate(metrics: FleetBoardMetricKey[]) {
 		.join(' ')
 	return `${fixed} repeat(${metrics.length}, minmax(${metricColumnMin}px, 1fr))`
 }
+
 export function gridMinWidth(metrics: FleetBoardMetricKey[]) {
 	const columns = Object.values(columnWidths).length + metrics.length
 	const floors = Object.values(columnWidths).reduce((total, [min]) => total + min, metrics.length * metricColumnMin)
 	return floors + (columns - 1) * columnGap + rowPaddingX * 2
 }
+
 export function nextMetrics(search: FleetBoardSearch, metric: FleetBoardMetricKey) {
 	const metrics = search.metrics.includes(metric)
 		? search.metrics.filter(value => value !== metric)
 		: [...search.metrics, metric]
 	return metrics.length ? metrics : search.metrics
 }
+
 export function healthColorClass(color: string) {
 	return color === 'red'
 		? 'bg-red-500'
@@ -155,6 +153,7 @@ export function healthColorClass(color: string) {
 				? 'bg-emerald-500'
 				: 'bg-slate-400'
 }
+
 export function healthText(code: string) {
 	return (
 		(
@@ -175,11 +174,7 @@ export function healthText(code: string) {
 		)[code] ?? 'Стан Meta невідомий'
 	)
 }
-/**
- * Meta's documented `effective_status` vocabulary. The labels say *who* paused a row, so an Ad
- * paused because its Campaign is paused does not send a buyer looking for a pause on the Ad.
- * The generic fallback stays, but is now reserved for values Meta introduces later.
- */
+
 export function effectiveStatusText(status: string) {
 	return (
 		(
@@ -200,6 +195,7 @@ export function effectiveStatusText(status: string) {
 		)[status] ?? 'Статус Meta невідомий'
 	)
 }
+
 export function callToActionText(callToAction: string) {
 	return (
 		(
@@ -216,24 +212,25 @@ export function callToActionText(callToAction: string) {
 		)[callToAction] ?? 'Дія доступна у Meta'
 	)
 }
+
 export function formatKpi(metric: FleetBoardMetricKey, value: string | number | null, currency: string | null) {
 	if (value === null) return noData
 	if (metric === 'spend' || metric === 'cpa') return formatMoney(String(value), currency)
 	if (metric === 'impressions' || metric === 'clicks') return Number(value).toLocaleString('uk-UA')
 	if (metric === 'results') return Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })
 	if (metric === 'ctr') return `${(Number(value) * 100).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}%`
-	// A ROAS of exactly zero means no purchase value was recorded at all, which is a missing
-	// signal rather than a measured return of nothing. Spend of 0,00 stays a real number.
 	if (metric === 'roas')
 		return Number(value) === 0 ? noData : `${Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}×`
 	return String(value)
 }
+
 export function formatMoney(value: string | null, currency: string | null) {
 	if (value === null || !currency) return noData
 	return new Intl.NumberFormat('uk-UA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(
 		Number(value),
 	)
 }
+
 export function creativeTitle(creative: { headline: string | null; body: string | null }) {
 	return (
 		creative.headline?.trim() ||
@@ -244,10 +241,12 @@ export function creativeTitle(creative: { headline: string | null; body: string 
 		'Креатив'
 	)
 }
+
 export function metaAdsManagerUrl(accountId: string) {
 	const actId = accountId.replace(/^act_/, '')
 	return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actId)}`
 }
+
 export function syncNote(accounts: Account[]) {
 	const tiers = accounts.flatMap(account => [account.freshness.accountTier, account.freshness.insightsTier])
 	const count = (matches: typeof tiers) => (accounts.length > 1 ? `: ${matches.length}` : '')
@@ -259,12 +258,14 @@ export function syncNote(accounts: Account[]) {
 	if (stale.length > 0) return `Дані застаріли${count(stale)}`
 	return null
 }
+
 export function freshnessText(value: string | null | undefined, stale: boolean, neverSynced: number) {
 	const pending = neverSynced > 0 ? ` · без синхр.: ${neverSynced}` : ''
 	if (!value) return `ще не синхронізовано${neverSynced > 1 ? ` (${neverSynced})` : ''}`
 	const time = new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 	return `${stale ? `застаріло, ${time}` : time}${pending}`
 }
+
 export function mediaUrl(creativeId: string, key: string) {
 	const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
 	return `${base}/fleet-board/creatives/${encodeURIComponent(creativeId)}/media/${encodeURIComponent(key)}`

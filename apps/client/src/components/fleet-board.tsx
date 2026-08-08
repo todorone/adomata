@@ -813,14 +813,24 @@ function NodeRow({
 				role="row"
 				aria-level={row.level + 1}
 				aria-expanded={isExpandable ? isExpanded : undefined}
-				className="grid min-h-9 items-center gap-2 text-sm"
+				tabIndex={0}
+				className="grid min-h-9 cursor-pointer items-center gap-2 text-sm"
+				onClick={() => onToggle(node)}
+				onKeyDown={event => {
+					if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+					event.preventDefault()
+					onToggle(node)
+				}}
 				style={{ gridTemplateColumns: gridTemplate(metrics) }}
 			>
 				<span className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: row.level * 14 }}>
 					<button
 						type="button"
-						onClick={() => onToggle(node)}
-						className="flex min-w-0 flex-1 items-center gap-1 text-left"
+						onClick={event => {
+							event.stopPropagation()
+							onToggle(node)
+						}}
+						className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
 						aria-label={
 							node.type === 'ad'
 								? `Відкрити креатив ${node.name}`

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FleetBoardHierarchyResponse, FleetBoardRootResponse } from '@adomata/api/client'
 
@@ -313,6 +313,23 @@ describe('Fleet Board', () => {
 		expect(row('DeviAcademy Ad').textContent).toContain(owed)
 		expect(row('Кампанія Ліди').textContent).not.toContain(owed)
 		expect(row('Оголошення що працює').textContent).not.toContain(owed)
+	})
+
+	it('expands and collapses when clicking anywhere on a row', async () => {
+		renderBoard({ group: 'flat' })
+
+		const accountRow = row('DeviAcademy Ad')
+		expect(accountRow.className).toContain('cursor-pointer')
+		fireEvent.click(accountRow)
+		await waitFor(() => expect(screen.getByText('Кампанія Ліди')).toBeTruthy())
+
+		fireEvent.click(accountRow)
+		await waitFor(() => expect(screen.queryByText('Кампанія Ліди')).toBeNull())
+
+		fireEvent.keyDown(accountRow, { key: 'Enter' })
+		await waitFor(() => expect(screen.getByText('Кампанія Ліди')).toBeTruthy())
+		fireEvent.keyDown(accountRow, { key: ' ' })
+		await waitFor(() => expect(screen.queryByText('Кампанія Ліди')).toBeNull())
 	})
 
 	it.each(['tree', 'control', 'signals'])('shows Health Color paired with Health Reason in the %s view', view => {

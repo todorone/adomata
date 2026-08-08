@@ -8,11 +8,9 @@ import {
 	Columns3,
 	ExternalLink,
 	Image as ImageIcon,
-	ImageOff,
 	RefreshCw,
 	Search,
 	SlidersHorizontal,
-	X,
 } from 'lucide-react'
 
 import { DateRangePicker } from '@/components/date-range-picker'
@@ -791,83 +789,47 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 		(asset): asset is typeof asset & { kind: 'image' | 'video'; mediaKey: string } =>
 			asset.mediaKey !== null && (asset.kind === 'image' || asset.kind === 'video'),
 	)
+	const nonMediaAssets = data.assets.filter(asset => !asset.mediaKey)
 	const selectedAsset = mediaAssets.find(asset => asset.key === selectedAssetKey) ?? mediaAssets[0]
 	return (
-		<div className="my-2 rounded-lg border bg-muted/20 p-3">
-			<div className="flex flex-wrap items-start justify-between gap-2">
-				<div className="min-w-0">
-					<p className="line-clamp-1 font-medium">{creativeTitle(data)}</p>
-					{data.body ? <p className="line-clamp-3 text-sm text-muted-foreground">{data.body}</p> : null}
-					{data.description ? <p className="mt-1 text-xs text-muted-foreground">{data.description}</p> : null}
-					{data.callToAction ? (
-						<p className="mt-1 text-xs text-muted-foreground">Дія: {callToActionText(data.callToAction)}</p>
-					) : null}
-					{data.destination ? (
-						<a
-							className="mt-1 block text-xs text-primary underline"
-							href={data.destination}
-							target="_blank"
-							rel="noreferrer noopener"
-						>
-							Перейти за посиланням
-						</a>
-					) : null}
-				</div>
-				<div className="flex items-center gap-2">
-					{data.assets.length > 1 ? (
-						<span className="rounded-full bg-muted px-2 py-1 text-xs">Результати належать оголошенню цілком</span>
-					) : null}
-					<Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label="Закрити креатив">
-						<X />
-					</Button>
-				</div>
-			</div>
-			{mediaAssets.length > 0 ? (
-				<Lightbox
-					assets={mediaAssets}
-					selectedAssetKey={selectedAsset?.key ?? null}
-					onSelectedAssetChange={setSelectedAssetKey}
-					mediaUnavailable={data.mediaUnavailable}
-					mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
-					metadata={{
-						title: creativeTitle(data),
-						body: data.body,
-						description: data.description,
-						callToAction: data.callToAction ? callToActionText(data.callToAction) : null,
-						destination: data.destination,
-					}}
-					hasMultipleAssets={data.assets.length > 1}
-				/>
-			) : null}
-			{data.assets.some(asset => !asset.mediaKey) || data.mediaUnavailable ? (
-				<div className="mt-3 flex flex-wrap gap-2">
-					{data.assets
-						.filter(asset => !asset.mediaKey)
-						.map(asset => (
-							<div key={asset.key} className="w-28 overflow-hidden rounded-md border bg-background">
-								<div className="flex aspect-square items-center justify-center bg-muted p-2 text-center text-xs text-muted-foreground">
-									{asset.kind === 'image' || asset.kind === 'video'
-										? 'Медіафайл'
-										: (asset.value ?? asset.label)}
-								</div>
-								<p className="truncate px-2 py-1 text-xs">
-									{asset.label}
-									{asset.value ? `: ${asset.value}` : ''}
-								</p>
+		<Lightbox
+			open
+			onOpenChange={nextOpen => {
+				if (!nextOpen) onClose()
+			}}
+			assets={mediaAssets}
+			selectedAssetKey={selectedAsset?.key ?? null}
+			onSelectedAssetChange={setSelectedAssetKey}
+			mediaUnavailable={data.mediaUnavailable}
+			mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
+			metadata={{
+				title: creativeTitle(data),
+				body: data.body,
+				description: data.description,
+				callToAction: data.callToAction ? callToActionText(data.callToAction) : null,
+				destination: data.destination,
+			}}
+			hasMultipleAssets={data.assets.length > 1}
+		>
+			{nonMediaAssets.length > 0 ? (
+				<div className="flex flex-wrap gap-2">
+					{nonMediaAssets.map(asset => (
+						<div key={asset.key} className="w-28 overflow-hidden rounded-md border bg-background">
+							<div className="flex aspect-square items-center justify-center bg-muted p-2 text-center text-xs text-muted-foreground">
+								{asset.kind === 'image' || asset.kind === 'video' ? 'Медіафайл' : (asset.value ?? asset.label)}
 							</div>
-						))}
-					{data.mediaUnavailable ? (
-						<div className="flex items-center gap-2 text-sm text-muted-foreground">
-							<ImageOff size={16} />
-							Медіа тимчасово недоступне
+							<p className="truncate px-2 py-1 text-xs">
+								{asset.label}
+								{asset.value ? `: ${asset.value}` : ''}
+							</p>
 						</div>
-					) : null}
+					))}
 				</div>
 			) : null}
 			{data.existingPostId ? (
-				<p className="mt-2 text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>
+				<p className="text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>
 			) : null}
-		</div>
+		</Lightbox>
 	)
 }
 

@@ -11,9 +11,12 @@ const assets: LightboxAsset[] = [
 ]
 
 function TestLightbox() {
-	const [selectedAssetKey, setSelectedAssetKey] = useState('image-1')
+	const [open, setOpen] = useState(true)
+	const [selectedAssetKey, setSelectedAssetKey] = useState('video-1')
 	return (
 		<Lightbox
+			open={open}
+			onOpenChange={setOpen}
 			assets={assets}
 			selectedAssetKey={selectedAssetKey}
 			onSelectedAssetChange={setSelectedAssetKey}
@@ -27,23 +30,27 @@ function TestLightbox() {
 				destination: 'https://example.com',
 			}}
 			hasMultipleAssets
-		/>
+		>
+			<p>Додаткові дані</p>
+		</Lightbox>
 	)
 }
 
 describe('Lightbox', () => {
 	afterEach(cleanup)
 
-	it('opens at a selected variant, navigates, closes, and shows an unavailable-media fallback', async () => {
+	it('opens directly at the selected variant with all data, navigates, closes, and shows an unavailable-media fallback', async () => {
 		render(<TestLightbox />)
 
-		fireEvent.click(screen.getByRole('button', { name: 'Відкрити варіант «Відеоверсія» у повноекранному перегляді' }))
-
-		await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
 		const dialog = screen.getByRole('dialog')
 		expect(within(dialog).getByRole('heading', { name: 'Тестовий креатив' })).toBeTruthy()
 		expect(within(dialog).getByLabelText('Відеоверсія')).toBeInstanceOf(HTMLVideoElement)
 		expect(within(dialog).getByText('Варіант 2 з 3: Відеоверсія')).toBeTruthy()
+		expect(within(dialog).getByText('Основний текст')).toBeTruthy()
+		expect(within(dialog).getByText('Опис')).toBeTruthy()
+		expect(within(dialog).getByText('Дія: Дізнатися більше')).toBeTruthy()
+		expect(within(dialog).getByText('Результати належать оголошенню цілком')).toBeTruthy()
+		expect(within(dialog).getByText('Додаткові дані')).toBeTruthy()
 
 		fireEvent.click(within(dialog).getByRole('button', { name: 'Попередній варіант креативу' }))
 		expect(within(dialog).getByRole('img', { name: 'Перший варіант' })).toBeTruthy()
@@ -61,5 +68,34 @@ describe('Lightbox', () => {
 
 		fireEvent.click(within(dialog).getByRole('button', { name: 'Закрити' }))
 		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+	})
+
+	it('shows only the aside when there is no media', () => {
+		function NoMediaLightbox() {
+			return (
+				<Lightbox
+					open
+					onOpenChange={() => undefined}
+					assets={[]}
+					selectedAssetKey={null}
+					onSelectedAssetChange={() => undefined}
+					mediaUnavailable={false}
+					mediaUrl={key => `/media/${key}`}
+					metadata={{
+						title: 'Текстовий креатив',
+						body: null,
+						description: null,
+						callToAction: null,
+						destination: null,
+					}}
+					hasMultipleAssets={false}
+				/>
+			)
+		}
+		render(<NoMediaLightbox />)
+
+		const dialog = screen.getByRole('dialog')
+		expect(within(dialog).getByRole('heading', { name: 'Текстовий креатив' })).toBeTruthy()
+		expect(within(dialog).queryByRole('region', { name: 'Перегляд медіафайлу' })).toBeNull()
 	})
 })

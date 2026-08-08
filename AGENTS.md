@@ -16,11 +16,11 @@ Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/ag
 
 After completing any task, run `pnpm checks` (type-check, lint, format-check, test) and fix any issues it reports before finishing.
 
-### Dev servers
+### Development rules
 
-Kill any local dev servers you launched during the session before finishing.
-
-Never launch a Docker instance/container to run or test the app. Run the dev server directly on the host, or reuse one that's already running.
+- Do not touch any uncommitted git changes you did not make yourself — another agent may be working in parallel on the same working tree.
+- Kill any local dev servers you launched during the session before finishing.
+- Never launch a Docker instance/container to run or test the app. Run the dev server directly on the host, or reuse one that's already running.
 
 ## Apps
 
@@ -43,7 +43,7 @@ All user-facing application text (UI copy, labels, placeholders, button text, er
 - In React code, do not use optimization-only memoization APIs: no `useMemo`, `useCallback`, `React.memo`, `memo`, `"use memo"`, or `"use no memo"`. React Compiler handles render memoization for the client; write plain values, functions, and components instead.
   You are a lazy senior developer. Lazy means efficient, not careless. The best code is the code never written.
 
-Before writing any code, stop at the first rung that holds:
+### Before writing any code, stop at the first rung that holds:
 
 1. Does this need to be built at all? (YAGNI)
 2. Does the standard library already do this? Use it.
@@ -52,7 +52,7 @@ Before writing any code, stop at the first rung that holds:
 5. Can this be one line? Make it one line.
 6. Only then: write the minimum code that works.
 
-Rules:
+### Rules:
 
 - No abstractions that weren't explicitly requested.
 - No new dependency if it can be avoided.

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FleetBoardHierarchyResponse, FleetBoardRootResponse } from '@adomata/api/client'
 
@@ -421,15 +421,17 @@ describe('Fleet Board', () => {
 	it('titles the Creative from its copy rather than Metas generated name', async () => {
 		await renderToAdDepth({ ad: 'ad-running' })
 
-		expect(await screen.findByText('Перший рядок тексту')).toBeTruthy()
-		expect(screen.queryByText(/a1b2c3/)).toBeNull()
+		const dialog = await screen.findByRole('dialog')
+		expect(within(dialog).getByText('Перший рядок тексту')).toBeTruthy()
+		expect(within(dialog).queryByText(/a1b2c3/)).toBeNull()
 		// One asset, so the whole-Ad attribution note would mean nothing here.
-		expect(screen.queryByText('Результати належать оголошенню цілком')).toBeNull()
-		expect(screen.getByRole('button', { name: 'Закрити креатив' })).toBeTruthy()
+		expect(within(dialog).queryByText('Результати належать оголошенню цілком')).toBeNull()
+		expect(within(dialog).getByRole('button', { name: 'Закрити' })).toBeTruthy()
 	})
 
-	it('shows a streamable video creative at full size', async () => {
+	it('opens the creative directly in the Lightbox, showing a streamable video at full size', async () => {
 		await renderToAdDepth({ ad: 'ad-disapproved' })
-		expect(await screen.findByLabelText('Відео')).toBeInstanceOf(HTMLVideoElement)
+		const dialog = await screen.findByRole('dialog')
+		expect(within(dialog).getByLabelText('Відео')).toBeInstanceOf(HTMLVideoElement)
 	})
 })

@@ -350,7 +350,7 @@ async function syncInsightsTierAccount(metaClient: MetaClient, account: typeof a
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(and(eq(campaign.adAccountId, account.id), eq(ad.effectiveStatus, 'ACTIVE'), isNull(ad.deletedAt)))
-	const creatives = await Promise.all(liveAds.map(async row => metaClient.getCreative(row.id)))
+	const creatives = await Promise.all(liveAds.map(async row => metaClient.getCreative(row.id, account.id)))
 	await db.transaction(async transaction => {
 		for (const insight of insights.items) await upsertInsight(transaction, insight, now)
 		const stored = await transaction

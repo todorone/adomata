@@ -47,12 +47,25 @@ export function normalizeCreative(creative: CreativeRecord) {
 	}
 }
 
+export function needsCreativeMediaRefresh(creative: Pick<CreativeRecord, 'payload'>) {
+	const payload = objectPayload(creative.payload)
+	const images = arrayPayload(objectPayload(payload.asset_feed_spec).images)
+	return images.some(image => {
+		const record = objectPayload(image)
+		return Boolean(stringValue(record.hash) && !urlValue(record.url))
+	})
+}
+
 export function mediaUrlForKey(creative: Pick<CreativeRecord, 'payload'>, key: string) {
 	const payload = objectPayload(creative.payload)
 	if (key === 'thumb') return urlValue(payload.thumbnail_url) ?? urlValue(payload.image_url)
 	const index = /^m(\d+)$/.exec(key)?.[1]
-	if (index === undefined) return null
-	return mediaEntries(payload)[Number(index)]?.url ?? null
+	if (index !== undefined) return mediaEntries(payload)[Number(index)]?.url ?? null
+	const assetMatch = /^a-images-(\d+)$/.exec(key)
+	if (!assetMatch) return null
+	const assetFeed = objectPayload(payload.asset_feed_spec)
+	const asset = objectPayload(arrayPayload(assetFeed.images)[Number(assetMatch[1])])
+	return urlValue(asset.url)
 }
 
 function objectPayload(value: unknown): Record<string, unknown> {
@@ -84,7 +97,6 @@ function mediaEntries(payload: Record<string, unknown>) {
 	}
 	add(payload.image_url, 'image', 'Зображення')
 	add(payload.video_url, 'video', 'Відео')
-	if (!stringValue(payload.video_url)) add(payload.thumbnail_url, 'image', 'Ескіз відео')
 	const assetFeed = objectPayload(payload.asset_feed_spec)
 	for (const [index, video] of arrayPayload(assetFeed.videos).entries()) {
 		add(objectPayload(video).video_url, 'video', `Відео ${index + 1}`)
@@ -102,12 +114,13 @@ function assetFeedEntries(assetFeed: Record<string, unknown>): CreativeAsset[] {
 	const add = (field: string, kind: AssetKind, label: string, valueFields: string[]) => {
 		for (const [index, item] of arrayPayload(assetFeed[field]).entries()) {
 			const record = objectPayload(item)
+			const mediaKey = field === 'images' && urlValue(record.url) ? `a-images-${index}` : null
 			entries.push({
 				key: `a-${field}-${index}`,
 				kind,
 				label: `${label} ${index + 1}`,
 				value: valueFields.map(fieldName => stringValue(record[fieldName])).find(Boolean) ?? null,
-				mediaKey: null,
+				mediaKey,
 			})
 		}
 	}

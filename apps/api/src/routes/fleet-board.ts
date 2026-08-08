@@ -19,6 +19,7 @@ import {
 	readFleetBoardChildren,
 	readFleetBoardRoot,
 	mediaUrlForKey,
+	needsCreativeMediaRefresh,
 } from '../fleet-board/read-model'
 import { fetchCreativeMedia, mediaRange } from '../fleet-board/media'
 import { getHeartbeatDependencies, triggerBackgroundSync } from '../sync/runtime'
@@ -64,7 +65,12 @@ const creativeRoute = createRoute({
 const mediaRoute = createRoute({
 	method: 'get',
 	path: '/creatives/{creativeId}/media/{key}',
-	request: { params: z.object({ creativeId: z.string().min(1).max(200), key: z.string().regex(/^(m\d+|thumb)$/) }) },
+	request: {
+		params: z.object({
+			creativeId: z.string().min(1).max(200),
+			key: z.string().regex(/^(m\d+|a-images-\d+|thumb)$/),
+		}),
+	},
 	responses: { 200: { description: 'Creative media stream' }, 404: { description: 'Media unavailable' } },
 })
 
@@ -84,8 +90,13 @@ export const fleetBoardRoutes = fleetBoardBase
 		return c.json(fleetBoardHierarchyResponseSchema.parse(result), 200)
 	})
 	.openapi(creativeRoute, async c => {
-		const record = await readCreative(c.get('orgId'), c.req.valid('param').adId)
+		let record = await readCreative(c.get('orgId'), c.req.valid('param').adId)
 		if (!record) return apiError(c, 'NOT_FOUND')
+		if (needsCreativeMediaRefresh(record.creative)) {
+			await refreshCreative(c.get('orgId'), record)
+			record = await readCreative(c.get('orgId'), c.req.valid('param').adId)
+			if (!record) return apiError(c, 'NOT_FOUND')
+		}
 		return c.json(fleetBoardCreativeResponseSchema.parse(normalizeCreative(record.creative)), 200)
 	})
 	.openapi(mediaRoute, async c => {
@@ -113,7 +124,7 @@ export const fleetBoardRoutes = fleetBoardBase
 
 async function readCreativeByCreativeId(agencyId: string, creativeId: string) {
 	const [owned] = await db
-		.select({ creative: adCreative, ad })
+		.select({ creative: adCreative, ad, adAccountId: adAccount.id })
 		.from(adCreative)
 		.innerJoin(ad, eq(adCreative.adId, ad.id))
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
@@ -132,7 +143,7 @@ async function refreshCreative(
 	try {
 		const metaClient = await resolveMetaClient(agencyId)
 		if (!metaClient) return
-		const refreshed = await metaClient.getCreative(record.ad.id)
+		const refreshed = await metaClient.getCreative(record.ad.id, record.adAccountId)
 		if (!refreshed || refreshed.id !== record.creative.id) return
 		await db
 			.update(adCreative)

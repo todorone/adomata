@@ -23,7 +23,7 @@ import {
 } from './domain'
 import { logger } from '../core/logger'
 
-export { mediaUrlForKey, normalizeCreative } from './creative'
+export { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 2 * 60 * 60 * 1000
@@ -157,7 +157,7 @@ export async function readFleetBoardChildren(
 
 export async function readCreative(agencyId: string, adId: string) {
 	const [row] = await db
-		.select({ creative: adCreative, ad })
+		.select({ creative: adCreative, ad, adAccountId: adAccount.id })
 		.from(adCreative)
 		.innerJoin(ad, eq(adCreative.adId, ad.id))
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
@@ -167,7 +167,7 @@ export async function readCreative(agencyId: string, adId: string) {
 		.where(and(eq(client.agencyId, agencyId), eq(ad.id, adId)))
 		.limit(1)
 	if (!row) return null
-	return { creative: row.creative, ad: row.ad }
+	return { creative: row.creative, ad: row.ad, adAccountId: row.adAccountId }
 }
 
 async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now: Date): Promise<FleetBoardModel> {

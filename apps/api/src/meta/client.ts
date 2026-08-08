@@ -84,6 +84,9 @@ const creativeResponseSchema = z.object({
 	object_url: z.string().url().optional(),
 })
 const videoResponseSchema = z.object({ source: z.string().url().optional() })
+const adImagesResponseSchema = z.object({
+	data: z.array(z.object({ hash: z.string(), url: z.string().url().optional() })),
+})
 const adResponseSchema = z.object({ id: z.string(), creative: creativeResponseSchema.nullable().optional() })
 const insightSchema = z.object({
 	ad_id: z.string(),
@@ -288,7 +291,7 @@ export class MetaClient {
 		)
 	}
 
-	async getCreative(adId: string): Promise<MetaCreative | null> {
+	async getCreative(adId: string, adAccountId?: string): Promise<MetaCreative | null> {
 		const url = this.graphUrl(`/${adId}`)
 		url.searchParams.set(
 			'fields',
@@ -307,7 +310,11 @@ export class MetaClient {
 					.map(async videoId => [videoId, await this.getVideoSource(videoId)] as const),
 			),
 		)
-		const assetFeed = addAssetFeedVideoSources(ad.creative.asset_feed_spec, videoSources)
+		const assetFeedWithVideos = addAssetFeedVideoSources(ad.creative.asset_feed_spec, videoSources)
+		const assetFeed = assetFeedWithVideos ?? ad.creative.asset_feed_spec
+		const imageHashes = assetFeedImageHashes(assetFeed)
+		const imageUrls = adAccountId ? await this.getAdImageUrls(adAccountId, imageHashes) : new Map<string, string>()
+		const assetFeedWithImages = addAssetFeedImageSources(assetFeed, imageUrls)
 		const videoUrl = primaryVideoId ? videoSources.get(primaryVideoId) : null
 		return {
 			id,
@@ -316,7 +323,7 @@ export class MetaClient {
 			payload: {
 				...payloadFields,
 				...(videoUrl ? { video_url: videoUrl } : {}),
-				...(assetFeed ? { asset_feed_spec: assetFeed } : {}),
+				...(assetFeedWithImages ? { asset_feed_spec: assetFeedWithImages } : {}),
 			},
 		}
 	}
@@ -390,6 +397,24 @@ export class MetaClient {
 		}
 	}
 
+	private async getAdImageUrls(adAccountId: string, hashes: string[]) {
+		if (hashes.length === 0) return new Map<string, string>()
+		try {
+			const url = this.graphUrl(`/${formatAdAccountId(adAccountId)}/adimages`)
+			url.searchParams.set('fields', 'hash,url')
+			url.searchParams.set('hashes', JSON.stringify(hashes))
+			const { payload } = await this.request(url)
+			return new Map(
+				adImagesResponseSchema
+					.parse(payload)
+					.data.flatMap(image => (image.url ? ([[image.hash, image.url]] as const) : [])),
+			)
+		} catch {
+			// A missing image-library permission should not make the whole creative unavailable.
+			return new Map<string, string>()
+		}
+	}
+
 	private safeCursor(cursor: string) {
 		const url = new URL(cursor)
 		if (
@@ -448,6 +473,17 @@ function assetFeedVideoIds(assetFeed: unknown) {
 	})
 }
 
+function assetFeedImageHashes(assetFeed: unknown) {
+	if (!assetFeed || typeof assetFeed !== 'object' || Array.isArray(assetFeed)) return []
+	const images = (assetFeed as Record<string, unknown>).images
+	if (!Array.isArray(images)) return []
+	return images.flatMap(image => {
+		if (!image || typeof image !== 'object' || Array.isArray(image)) return []
+		const hash = (image as Record<string, unknown>).hash
+		return typeof hash === 'string' && hash.length > 0 ? [hash] : []
+	})
+}
+
 function addAssetFeedVideoSources(assetFeed: unknown, videoSources: Map<string, string | null>) {
 	if (!assetFeed || typeof assetFeed !== 'object' || Array.isArray(assetFeed)) return null
 	const record = assetFeed as Record<string, unknown>
@@ -463,13 +499,34 @@ function addAssetFeedVideoSources(assetFeed: unknown, videoSources: Map<string, 
 	}
 }
 
+function addAssetFeedImageSources(assetFeed: unknown, imageUrls: Map<string, string>) {
+	if (!assetFeed || typeof assetFeed !== 'object' || Array.isArray(assetFeed)) return null
+	const record = assetFeed as Record<string, unknown>
+	if (!Array.isArray(record.images)) return assetFeed
+	return {
+		...record,
+		images: record.images.map(image => {
+			if (!image || typeof image !== 'object' || Array.isArray(image)) return image
+			const imageRecord = image as Record<string, unknown>
+			const hash = imageRecord.hash
+			const url = typeof hash === 'string' ? imageUrls.get(hash) : undefined
+			return url ? { ...imageRecord, url } : image
+		}),
+	}
+}
+
 function metaVideoId(value: unknown) {
 	return typeof value === 'string' && /^\d{1,30}$/.test(value) ? value : null
 }
 
 function resolveResultActionType(optimizationGoal: string | null, promotedObject: Record<string, unknown> | null) {
 	if (typeof promotedObject?.custom_event_type === 'string') return promotedObject.custom_event_type.toLowerCase()
-	if (optimizationGoal === 'LEAD_GENERATION' || optimizationGoal === 'OFFSITE_CONVERSIONS_LEADS') return 'lead'
+	if (
+		optimizationGoal === 'LEAD_GENERATION' ||
+		optimizationGoal === 'OFFSITE_CONVERSIONS_LEADS' ||
+		optimizationGoal === 'QUALITY_LEAD'
+	)
+		return 'lead'
 	if (optimizationGoal === 'OFFSITE_CONVERSIONS' || optimizationGoal === 'VALUE' || optimizationGoal === 'PURCHASE')
 		return 'purchase'
 	if (optimizationGoal === 'LINK_CLICKS') return 'link_click'

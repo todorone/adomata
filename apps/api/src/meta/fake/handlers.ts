@@ -153,6 +153,27 @@ export const fakeMetaHandlers = [
 			})),
 		)
 	}),
+	http.get(`${graph}/:accountId/adimages`, ({ request }) => {
+		if (!requireToken(request)) return graphContractError('Missing access token')
+		const url = new URL(request.url)
+		if (url.searchParams.get('fields') !== 'hash,url')
+			return graphContractError('Unsupported Ad Image fields requested')
+		let hashes: unknown
+		try {
+			hashes = JSON.parse(url.searchParams.get('hashes') ?? '[]') as unknown
+		} catch {
+			return graphContractError('Invalid Ad Image hashes requested')
+		}
+		if (!Array.isArray(hashes) || hashes.some(hash => typeof hash !== 'string'))
+			return graphContractError('Invalid Ad Image hashes requested')
+		const imageUrls: Record<string, string> = {
+			'asset-1': 'https://media.example.test/asset-1.jpg',
+			'asset-2': 'https://media.example.test/asset-2.jpg',
+		}
+		return HttpResponse.json({
+			data: hashes.flatMap(hash => (imageUrls[hash] ? [{ hash, url: imageUrls[hash] }] : [])),
+		})
+	}),
 	http.get(`${graph}/:adId`, ({ params, request }) => {
 		const id = String(params.adId)
 		const url = new URL(request.url)

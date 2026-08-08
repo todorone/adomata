@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeCreative } from './creative'
+import { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 describe('Fleet Board creative normalization', () => {
 	it('keeps every asset-feed variant and existing-post fallback visible', () => {
@@ -75,5 +75,41 @@ describe('Fleet Board creative normalization', () => {
 		})
 
 		expect(creative.assets[0]).toMatchObject({ kind: 'video', label: 'Відео 1', mediaKey: 'm0' })
+	})
+
+	it('uses resolved asset-feed image URLs and excludes the ad thumbnail from expanded media', () => {
+		const payload = {
+			thumbnail_url: 'https://media.example.test/thumbnail-64.jpg',
+			asset_feed_spec: {
+				images: [
+					{ hash: 'image-1', url: 'https://media.example.test/image-1.jpg' },
+					{ hash: 'image-2', url: 'https://media.example.test/image-2.jpg' },
+				],
+			},
+		}
+		const creative = normalizeCreative({
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Resolved asset feed',
+			payload,
+		})
+
+		expect(creative.assets.filter(asset => asset.mediaKey)).toEqual([
+			{ key: 'a-images-0', kind: 'image', label: 'Зображення 1', value: 'image-1', mediaKey: 'a-images-0' },
+			{ key: 'a-images-1', kind: 'image', label: 'Зображення 2', value: 'image-2', mediaKey: 'a-images-1' },
+		])
+		expect(creative.assets.some(asset => asset.label === 'Ескіз відео')).toBe(false)
+		expect(mediaUrlForKey({ payload }, 'a-images-1')).toBe('https://media.example.test/image-2.jpg')
+	})
+
+	it('marks hash-only asset-feed images for refresh', () => {
+		expect(needsCreativeMediaRefresh({ payload: { asset_feed_spec: { images: [{ hash: 'image-1' }] } } })).toBe(true)
+		expect(
+			needsCreativeMediaRefresh({
+				payload: {
+					asset_feed_spec: { images: [{ hash: 'image-1', url: 'https://media.example.test/image-1.jpg' }] },
+				},
+			}),
+		).toBe(false)
 	})
 })

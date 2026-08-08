@@ -213,6 +213,31 @@ describe('MetaClient', () => {
 		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,currency,timezone_name,business{id,name}')
 	})
 
+	it('resolves Quality Leads ad sets to the lead result action type', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					data: [
+						{
+							id: 'adset-1',
+							campaign_id: 'campaign-1',
+							name: 'Украина',
+							effective_status: 'ACTIVE',
+							optimization_goal: 'QUALITY_LEAD',
+							promoted_object: null,
+						},
+					],
+				}),
+				{ status: 200 },
+			),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.listAdSets('act_100000000000001')).resolves.toMatchObject({
+			items: [{ id: 'adset-1', optimizationGoal: 'QUALITY_LEAD', resultActionType: 'lead' }],
+		})
+	})
+
 	it('rejects an untrusted pagination cursor before requesting it', async () => {
 		const fetch = vi.fn().mockResolvedValue(
 			new Response(
@@ -325,6 +350,50 @@ describe('MetaClient', () => {
 				asset_feed_spec: { videos: [{ video_id: '1001', video_url: 'https://media.example.test/1001.mp4' }] },
 			},
 		})
+	})
+
+	it('resolves asset-feed image hashes through the ad account image library', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: 'ad-1',
+						creative: {
+							id: 'creative-1',
+							asset_feed_spec: { images: [{ hash: 'image-1' }, { hash: 'image-2' }] },
+						},
+					}),
+					{ status: 200 },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						data: [
+							{ hash: 'image-1', url: 'https://media.example.test/image-1.jpg' },
+							{ hash: 'image-2', url: 'https://media.example.test/image-2.jpg' },
+						],
+					}),
+					{ status: 200 },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getCreative('ad-1', 'act_123')).resolves.toMatchObject({
+			payload: {
+				asset_feed_spec: {
+					images: [
+						{ hash: 'image-1', url: 'https://media.example.test/image-1.jpg' },
+						{ hash: 'image-2', url: 'https://media.example.test/image-2.jpg' },
+					],
+				},
+			},
+		})
+		const [url] = fetch.mock.calls[1] as [string]
+		expect(new URL(url).pathname).toBe('/v25.0/act_123/adimages')
+		expect(new URL(url).searchParams.get('fields')).toBe('hash,url')
+		expect(new URL(url).searchParams.get('hashes')).toBe(JSON.stringify(['image-1', 'image-2']))
 	})
 
 	it('does not request a video source for malformed asset-feed IDs', async () => {

@@ -93,7 +93,7 @@ export function Lightbox({
 				<video
 					key={asset.key}
 					aria-label={asset.label}
-					className="h-full w-auto max-w-full object-contain"
+					className="h-full w-full object-contain"
 					controls
 					preload="metadata"
 					src={mediaUrl(asset.mediaKey)}
@@ -105,7 +105,7 @@ export function Lightbox({
 			<img
 				src={mediaUrl(asset.mediaKey)}
 				alt={asset.label}
-				className="h-full w-auto max-w-full object-contain"
+				className="h-full w-full object-contain"
 				onError={() => markMediaFailed(asset.key)}
 			/>
 		)
@@ -114,7 +114,7 @@ export function Lightbox({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
-				className="flex h-[calc(100dvh-1rem)] w-fit max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:h-[calc(100dvh-2rem)] sm:max-w-[calc(100vw-2rem)]"
+				className="flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 sm:h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)] sm:max-w-none"
 				showCloseButton
 			>
 				<DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-6">
@@ -137,18 +137,18 @@ export function Lightbox({
 							aria-label="Перегляд медіафайлу"
 						>
 							<div
-								className="flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center gap-2"
+								className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center"
 								onTouchStart={handleTouchStart}
 								onTouchEnd={handleTouchEnd}
 							>
 								{previousAsset ? (
 									<button
 										type="button"
-										className="shrink-0 rounded-md p-2 text-white outline-offset-2 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+										className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white outline-offset-2 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white sm:left-4"
 										onClick={() => moveTo(previousAsset)}
 										aria-label="Попередній варіант креативу"
 									>
-										<ChevronLeft size={24} aria-hidden="true" />
+										<ChevronLeft size={28} aria-hidden="true" />
 									</button>
 								) : null}
 								<div className="flex h-full min-h-0 min-w-0 items-center justify-center">
@@ -157,11 +157,11 @@ export function Lightbox({
 								{nextAsset ? (
 									<button
 										type="button"
-										className="shrink-0 rounded-md p-2 text-white outline-offset-2 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+										className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white outline-offset-2 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white sm:right-4"
 										onClick={() => moveTo(nextAsset)}
 										aria-label="Наступний варіант креативу"
 									>
-										<ChevronRight size={24} aria-hidden="true" />
+										<ChevronRight size={28} aria-hidden="true" />
 									</button>
 								) : null}
 							</div>

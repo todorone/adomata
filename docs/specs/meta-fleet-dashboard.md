@@ -32,7 +32,7 @@ Three personas, and the question each brings:
 | ---------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Media buyer** (таргетолог) | "Where is the problem, right now?" | Sees the break immediately instead of touring accounts on a schedule. Drives the 5-minute **Account Tier** — a blocked account or stopped campaign is what they need to catch fast. |
 | **Project manager**          | "What's the operational picture?"  | Cross-client visibility in one place. The shareable-URL property of **Metric Selection** (§5) serves this persona specifically.                                                     |
-| **Agency director**          | "Is this particular client fine?"  | Glances at the Client list and reads a rolled-up answer without expanding anything — which is why a **Client-grouped view** row is a real KPI aggregate, not a bare header.         |
+| **Agency director**          | "Is this particular client fine?"  | Filters to the Client and scans its Ad Accounts directly, with each account's health and KPIs visible without expanding a Client aggregate.                                         |
 
 None of the three watches the board continuously; all check in opportunistically a few times a day. That
 finding is load-bearing — it is why fixed-interval polling suffices instead of streaming, and why the
@@ -42,7 +42,7 @@ sync heartbeat can safely ride on the board's own read traffic (§7).
 
 ---
 
-## 2. The hierarchy and the grouping toggle
+## 2. The hierarchy and Client metadata
 
 ### The tree
 
@@ -62,17 +62,8 @@ sync heartbeat can safely ride on the board's own read traffic (§7).
   A carousel or Advantage+ asset-feed Ad carries several assets, but those are internal structure of that
   one Creative.
 
-### The grouping toggle
-
-Grouping is itself a toggle, defaulting to Client-grouped in every complete view:
-
-- **Client-grouped view** makes Client a KPI aggregate above its Ad Accounts: a collapsible row in Tree,
-  a rail group in Control Room, or a card placed into a Signals lane by rolled-up operational state.
-- **Flat view** removes that level and presents every Ad Account directly; Client is demoted to metadata
-  and a filter, and no Client-level aggregate is shown.
-
-Both are a presentation choice over the same underlying data. The Client rollup always exists regardless
-of which mode is active.
+Client is metadata for each Ad Account and a root filter. Every view presents Ad Accounts directly; no
+view groups or renders aggregate rows/cards by Client.
 
 ### Connection status vs. Account Health
 
@@ -143,9 +134,9 @@ The board ships three functionally complete presentations over one data and doma
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Tree** (default) | One comparison-first hierarchy table. Campaign / Ad Set / Ad rows appear indented beneath their parent and share aligned KPI columns. Local row expansion is additive to View Depth.                                               |
 | **Control Room**   | A virtualized fleet rail beside one selected Ad Account's hierarchy and detail. The selected Ad Account and Ad are URL-addressable; a missing or stale selection falls back to the first sorted account without rewriting the URL. |
-| **Signals**        | Four operational lanes with expandable cards: Needs Attention, Postpay, Active, Awaiting Data. Client-grouped mode places Client cards by rolled-up operational state; Flat mode places Ad Account cards directly.                 |
+| **Signals**        | Four operational lanes with expandable Ad Account cards: Needs Attention, Postpay, Active, Awaiting Data. Each card carries its Client as metadata.                                                                                |
 
-Every view exposes the same **Time Range**, **Metric Selection**, grouping, View Depth, filters, sorting
+Every view exposes the same **Time Range**, **Metric Selection**, View Depth, filters, sorting
 inputs, freshness, hierarchy levels, and Creative data. A later evidence-based decision may promote one,
 retain genuinely distinct secondary workflows, and delete redundant views; the implementation must not
 fork domain or data-loading behavior between them.
@@ -162,18 +153,13 @@ Consequences:
 - An opened parent keeps showing its own aggregate; detail never replaces the parent's numbers.
 - Tree uses a Health dot beside the always-visible Health Reason. Signals uses operational lanes rather
   than raw color lanes so a lost connection belongs to Needs Attention and yellow stays neutral.
-- Sorting and filtering apply to Client or Ad Account roots, never interior Campaign / Ad Set / Ad rows.
+- Sorting and filtering apply to Ad Account roots, never interior Campaign / Ad Set / Ad rows.
   Column headers are the sorting affordance: clicking one sorts by it, clicking it again reverses
   direction, and the active column and direction are shown on the header.
 - The brief view is Ad Account depth: Account Health, amount owed, Running state, and selected KPIs. Each
   is its own aligned cell in the table's single column definition — Health (Color dot plus always-visible
   Reason) and Running are two columns, not one, and amount owed is right-aligned and sortable. Interior
   rows leave Health and amount owed empty and carry Meta's `effective_status` in the Running column.
-- A Client with exactly **one** Ad Account renders as a single merged row in Client-grouped view, showing
-  the Client name with the Ad Account name as secondary text and taking Health, Running, amount owed and
-  KPIs from that Ad Account. Its rollup is by definition equal to the Ad Account's own values, so a
-  separate group row would restate them and cost a row. Purely a rendering decision — no rollup is
-  recomputed. A Client with two or more Ad Accounts keeps its group row.
 - Each Ad Account carries an **«Відкрити у Meta Ads Manager»** external link, built from the Meta
   identifier already stored and opening in a new tab. The board diagnoses and stays read-only
   ([ADR 0005](../adr/0005-fleet-board-is-read-only.md)); this is navigation, not a write action. Ad
@@ -181,9 +167,9 @@ Consequences:
 
 All three views remain continuous rather than root-paginated. Virtualized rendering bounds mounted UI,
 and descendants are loaded from Adomata's database only when View Depth or local detail needs them. The
-initial response contains all visible Client / Ad Account roots and aggregates, not the entire hidden
-tree. Newly opened parents are batched per hierarchy level; Creative payload and media load only when an
-Ad's detail opens.
+initial response contains Client metadata for filtering and all visible Ad Account roots, not the entire
+hidden tree. Newly opened parents are batched per hierarchy level; Creative payload and media load only
+when an Ad's detail opens.
 
 ---
 
@@ -226,19 +212,17 @@ The single **Time Range** is Today, Last 7 days, or Month to date, defaulting to
 was the original default, but a director opening the board in the morning saw a column of `0,00` for a
 fleet that was in fact spending. The set of ranges is unchanged. V1 has no
 period-over-period comparison. Each Ad Account evaluates the period in its own Meta-configured timezone;
-a Client rollup can therefore combine accounts whose local boundaries differ, which the UI flags
-([ADR 0023](../adr/0023-fleet-board-time-ranges-are-account-local.md)).
+Accounts can therefore have different local period boundaries; the UI keeps each account's timezone
+visible through its metadata ([ADR 0023](../adr/0023-fleet-board-time-ranges-are-account-local.md)).
 
-Time Range, Metric Selection, complete view, grouping, View Depth, search, filters, and root sorting are
+Time Range, Metric Selection, complete view, View Depth, search, filters, and root sorting are
 URL-encoded. A missing parameter uses its default without rewriting the URL. Control Room also encodes
 its selected Ad Account and Ad because selection is its primary context. Individual Tree / Signals
 expansions stay ephemeral so a URL does not accumulate stale object IDs.
 
 V1 filtering is deliberately small: Client / Ad Account name search, Needs Attention, and a Client
-selector in Flat view. Root sorts are Needs Attention, name, and any currently visible KPI. A removed
-sort KPI falls back to Needs Attention. Default ordering is Needs Attention first, then name; in grouped
-mode Clients with an attention-worthy child rise first. Filtered Client rollups include only matching Ad
-Accounts (§7).
+selector. Root sorts are Needs Attention, name, and any currently visible KPI. A removed sort KPI falls
+back to Needs Attention. Default ordering is Needs Attention first, then name.
 
 ---
 
@@ -300,7 +284,7 @@ to display creative — the board never writes ([ADR 0005](../adr/0005-fleet-boa
 
 ## 7. Aggregation and rollup
 
-Every tree level above Ad — Ad Set, Campaign, Ad Account, Client — is a **SQL sum over child Ad rows**,
+Every tree level above Ad — Ad Set, Campaign, and Ad Account — is a **SQL sum over child Ad rows**,
 with ratios re-derived from the summed components rather than summed or averaged directly
 ([ADR 0010](../adr/0010-insights-stored-at-ad-grain-only.md),
 [ADR 0019](../adr/0019-fleet-board-rollup-rules.md)).
@@ -313,7 +297,7 @@ with ratios re-derived from the summed components rather than summed or averaged
 ### Zero denominators
 
 CTR, CPA, and ROAS show a **blank (em dash), never `0` or `0%`**, whenever the denominator is zero — 0
-impressions, 0 attributed actions, 0 spend — **at every level**, not just Client. A zero-denominator
+impressions, 0 attributed actions, 0 spend — **at every level**. A zero-denominator
 ratio is undefined, not zero; `0%` would read as "this performed at zero," which isn't what happened.
 This also gives ROAS one uniform blank rule instead of two (its "no conversion tracking" nullability plus
 a separate zero-spend case). ROAS extends that blank to a computed **zero numerator**: a ROAS of exactly
@@ -329,32 +313,10 @@ than a forced Fleet Board-wide window ([ADR 0025](../adr/0025-kpis-follow-meta-a
 
 ### Partial ROAS tracking
 
-A Client's ROAS sums `action_values` and `spend` across **all** child Ad Accounts, including untracked
-ones — an untracked account contributes $0 to the numerator while its spend still counts toward the
-denominator. Chosen over blanking the Client's ROAS or computing it only over tracked accounts with a
-coverage badge: both of those force the UI to explain a partial-coverage caveat, while sum-everything
-stays consistent with the "always a SQL sum" rule. **It understates rather than hides.** Recorded as a
-trade-off to revisit if agencies with real mixed-tracking Clients report it as misleading.
+### Account health
 
-### Health rollup
-
-Health Color rolls up **worst-child-wins**, by strict severity:
-
-| Severity  | Color      | Wins when                                                 |
-| --------- | ---------- | --------------------------------------------------------- |
-| 1 (worst) | **red**    | any child is red                                          |
-| 2         | **yellow** | no red child, any child is yellow                         |
-| 3         | **green**  | no red or yellow child, at least one child is green       |
-| 4         | **grey**   | _every_ child is grey — grey never outranks a real signal |
-
-A single grey child among green siblings does **not** grey out the Client: an account Adomata can't
-currently read is not evidence the Client needs attention, and both common-case boards (all-green, and
-all-grey because nothing is connected yet) must read unambiguously.
-
-The parent's Health Reason never copies one child's reason onto siblings. If any children are red, it
-counts only red children as needing attention. Yellow is neutral postpay, so a no-red Client with yellow
-children summarizes the postpay count instead. All-green and all-grey Clients use active and no-data
-summaries respectively.
+Health Color and Health Reason are properties of each Ad Account. Hierarchy rows leave Health empty and
+show Meta's effective status instead; no Client health is computed or returned.
 
 ### Running rollup
 
@@ -364,15 +326,9 @@ the tree — not a stricter all-children rule.
 
 ### Currency
 
-**Client rollups assume one currency per Client.** Spend, amount owed, and the values behind CPA/ROAS are
-summed across a Client's Ad Accounts with **no conversion**. Amount owed is not a KPI and has no
-per-level rollup — interior Campaign / Ad Set / Ad rows carry none — but a Client total is required for
-the board to sort roots by debt in its default grouped mode, and it follows the same single-currency rule
-as Spend rather than inventing one. A Client whose Ad Accounts actually use different
-currencies is an **explicit unsupported state to detect and flag**, not a case to silently sum through
-([ADR 0012](../adr/0012-client-rollup-assumes-single-currency.md)). Converting at rollup time was
-rejected for now — it opens a real design problem (which rate, as of when, whose source) that nothing has
-asked for.
+An Ad Account's amount owed is not a KPI and has no per-level rollup — interior Campaign / Ad Set / Ad rows
+carry none. Client currency is metadata used only to identify accounts in the Client filter; the Fleet Board
+does not sum money or KPIs across a Client or convert between account currencies.
 
 ### Collapse vs. filter
 
@@ -382,12 +338,9 @@ parent's rollup sums only its currently filtered-in children.
 Hiding non-Running interior rows belongs to the **collapse** family, not the filter family: it hides
 Campaign / Ad Set / Ad rows from display and never changes any parent's numbers. It exists because
 expanding View Depth otherwise floods the table with paused rows when the buyer asked to see what is
-running. It never hides Ad Account or Client roots, which stay governed by the root filters above, and it
+running. It never hides Ad Account roots, which stay governed by the root filters above, and it
 is URL-encoded like every other view control, defaulting to off. Framing it as a filter would contradict
 §4's rule that filtering applies to roots only.
-
-What's on screen is what's summed; a Client total under a "spend > $0" filter reflects only the matching
-accounts, not the Client's true total.
 
 ---
 
@@ -579,12 +532,12 @@ validation gate.
 | Section                          | Settled by                                                                                                                                                                                                                                                                                                                                    |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | §1 personas, scope               | [interview](../interviews/2026-07-25-agency-owner-fleet-dashboard.md), [#9](https://github.com/todorone/adomata/issues/9)                                                                                                                                                                                                                     |
-| §2 hierarchy, grouping           | [#10](https://github.com/todorone/adomata/issues/10), ADR [0004](../adr/0004-better-auth-organization-naming-stays-vendor-internal.md) · [0006](../adr/0006-ad-account-belongs-to-exactly-one-client.md) · [0007](../adr/0007-creative-is-a-property-of-an-ad-not-a-tree-level.md)                                                            |
+| §2 hierarchy, Client metadata    | [#10](https://github.com/todorone/adomata/issues/10), ADR [0004](../adr/0004-better-auth-organization-naming-stays-vendor-internal.md) · [0006](../adr/0006-ad-account-belongs-to-exactly-one-client.md) · [0007](../adr/0007-creative-is-a-property-of-an-ad-not-a-tree-level.md)                                                            |
 | §3 traffic light                 | [#11](https://github.com/todorone/adomata/issues/11), [ADR 0018](../adr/0018-account-health-is-color-plus-reason-not-color-alone.md), [health research](../research/2026-07-25-meta-ad-account-health-and-money-owed.md)                                                                                                                      |
 | §4 complete views, depth, scale  | [#13](https://github.com/todorone/adomata/issues/13), [ADR 0026](../adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md)                                                                                                                                                                                                        |
 | §5 KPI, Time Range, URL controls | [#14](https://github.com/todorone/adomata/issues/14), ADR [0020](../adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md) · [0023](../adr/0023-fleet-board-time-ranges-are-account-local.md) · [0024](../adr/0024-fleet-board-clicks-mean-inline-link-clicks.md), [insights research](../research/insights-metrics-by-level.md) |
 | §6 Creative detail               | [#16](https://github.com/todorone/adomata/issues/16), [ADR 0027](../adr/0027-creative-presentation-is-native-to-each-fleet-board-view.md), [#7 creative research](../research/2026-07-25-meta-creative-retrieval.md)                                                                                                                          |
-| §7 rollup                        | [#15](https://github.com/todorone/adomata/issues/15), ADR [0010](../adr/0010-insights-stored-at-ad-grain-only.md) · [0012](../adr/0012-client-rollup-assumes-single-currency.md) · [0019](../adr/0019-fleet-board-rollup-rules.md) · [0025](../adr/0025-kpis-follow-meta-ad-set-attribution.md)                                               |
+| §7 rollup                        | [#15](https://github.com/todorone/adomata/issues/15), ADR [0010](../adr/0010-insights-stored-at-ad-grain-only.md) · [0019](../adr/0019-fleet-board-rollup-rules.md) · [0025](../adr/0025-kpis-follow-meta-ad-set-attribution.md)                                                                                                              |
 | §8 data architecture             | [#12](https://github.com/todorone/adomata/issues/12) · [#18](https://github.com/todorone/adomata/issues/18) · [#19](https://github.com/todorone/adomata/issues/19), ADR 0009–0017, [rate-limit research](../research/2026-07-25-meta-api-rate-limits-fleet-refresh.md)                                                                        |
 | §9 freshness                     | [#8](https://github.com/todorone/adomata/issues/8), [ADR 0008](../adr/0008-two-tier-freshness-for-fleet-board.md)                                                                                                                                                                                                                             |
 | §10 non-goals                    | [map #2](https://github.com/todorone/adomata/issues/2) Out-of-scope, [ADR 0001](../adr/0001-meta-only-for-v1.md) · [0005](../adr/0005-fleet-board-is-read-only.md)                                                                                                                                                                            |

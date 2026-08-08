@@ -8,7 +8,6 @@ describe('Fleet Board URL state', () => {
 			view: 'tree',
 			range: 'last7',
 			metrics: ['spend', 'clicks', 'cpa', 'results'],
-			group: 'client',
 			depth: 'account',
 			search: '',
 			needsAttention: false,
@@ -16,6 +15,10 @@ describe('Fleet Board URL state', () => {
 			sort: 'attention',
 			direction: 'desc',
 		})
+	})
+
+	it('drops the removed Client grouping parameter', () => {
+		expect(fleetBoardSearchSchema.parse({ group: 'client' })).not.toHaveProperty('group')
 	})
 
 	it('drops invalid metrics and resets a hidden sort to Needs Attention', () => {

@@ -93,7 +93,6 @@ export function FleetBoard({
 
 	const viewProps = {
 		accounts: root.data?.accounts ?? [],
-		clients: root.data?.clients ?? [],
 		search,
 		setSearch,
 		loadedNodes,

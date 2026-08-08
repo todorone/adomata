@@ -59,10 +59,6 @@ export const fleetBoardHealthReasonSchema = z.discriminatedUnion('code', [
 	z.object({ code: z.literal('meta_inactive'), accountStatus: z.number().int().nullable() }),
 	z.object({ code: z.literal('postpay') }),
 	z.object({ code: z.literal('active') }),
-	z.object({ code: z.literal('client_attention'), count: z.number().int(), total: z.number().int() }),
-	z.object({ code: z.literal('client_postpay'), count: z.number().int() }),
-	z.object({ code: z.literal('client_active'), count: z.number().int() }),
-	z.object({ code: z.literal('client_awaiting_data'), count: z.number().int() }),
 ])
 
 export const fleetBoardKpisSchema = z.object({
@@ -75,7 +71,6 @@ export const fleetBoardKpisSchema = z.object({
 	results: z.string().nullable(),
 	roas: z.string().nullable(),
 	running: z.boolean(),
-	unsupported: z.literal('mixed_currency').nullable(),
 })
 
 const freshnessSchema = z.object({
@@ -117,20 +112,6 @@ export const fleetBoardHierarchyNodeSchema = z.object({
 export const fleetBoardClientSchema = z.object({
 	id: z.string(),
 	name: z.string(),
-	currency: z.string().nullable(),
-	mixedCurrency: z.boolean(),
-	mixedTimezone: z.boolean(),
-	// Summed across the Client's Ad Accounts under the single-currency assumption of
-	// ADR 0012 — null when the Client mixes currencies, exactly like its Spend.
-	amountOwed: z.string().nullable(),
-	health: z.object({
-		color: fleetBoardHealthColorSchema,
-		reason: fleetBoardHealthReasonSchema,
-		needsAttention: z.boolean(),
-	}),
-	signalsLane: fleetBoardSignalsLaneSchema,
-	kpis: fleetBoardKpisSchema,
-	accountIds: z.array(z.string()),
 })
 
 export const fleetBoardRootQuerySchema = z

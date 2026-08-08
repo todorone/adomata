@@ -19,7 +19,7 @@ toolbar switches between three URL-addressable views over the same synced Meta d
 - **Signals** — Needs Attention, Postpay, Active, and Awaiting Data lanes with expandable cards.
 
 Every view must complete the same tasks with the same values: choose a Time Range and Metric Selection,
-switch Client grouping, find attention-worthy accounts, sort/filter roots, inspect freshness, traverse to
+find attention-worthy accounts, sort/filter roots, inspect freshness, traverse to
 an Ad, and inspect its Creative. The implementation is complete only when parity is demonstrated through
 the acceptance matrix in §12.
 
@@ -136,8 +136,6 @@ Implement exhaustive mappings for:
 - Active prepay/unreadable prepay → green.
 - Needs Attention → red Health or access lost; pending and yellow do not qualify.
 - Signals Lane priority → Needs Attention, Postpay, Active, Awaiting Data.
-- Client Health → worst-child-color; Client Needs Attention → any attention-worthy account.
-- Client reason → red count first, otherwise postpay count, active summary, or no-data summary.
 
 Return reason codes and interpolation data from the API, not final English strings. Render Ukrainian copy
 in the client. Unknown future Meta enum values must produce a safe generic reason and structured server
@@ -147,7 +145,7 @@ log rather than crashing the entire board.
 
 Implement Today, Last 7 days, and Month to date using each Ad Account's IANA `timezoneName`. Use a clock
 argument in tests; cover DST changes, UTC date boundaries, month boundaries, and accounts on opposite
-sides of midnight. A Client response flags multiple timezones but does not re-bucket account-local days.
+sides of midnight. Keep account-local days; do not re-bucket them into a Client period.
 
 Implement:
 
@@ -170,13 +168,13 @@ purchase value. Derive display values only at the requested row level:
 - Zero denominator → null/em dash, never zero.
 - Partial ROAS tracking keeps all Spend in the denominator as specified.
 - Running source is Ad `effective_status = ACTIVE`; every parent uses any-active-child-wins.
-- Mixed Client currency → do not sum monetary KPIs; return a typed unsupported-state flag.
-- Filtering removes nonmatching Ad Accounts before Client aggregation. Collapse/selection never changes
-  aggregates.
+- Each Ad Account keeps its own currency; the root read model never sums monetary KPIs across Clients.
+- Filtering removes nonmatching Ad Accounts before the response is built. Collapse/selection never changes
+  account or hierarchy aggregates.
 
 Use one implementation for API rows at every hierarchy level. Tests must include mixed action types,
 unresolved types, partial ROAS, zero denominators, soft-deleted historical Ads, mixed currency, filtered
-Client rollups, and exact decimal arithmetic.
+account and hierarchy rollups, and exact decimal arithmetic.
 
 ## 6. Meta client and fake surface
 
@@ -283,15 +281,14 @@ without revealing object existence.
 ### 8.1 Root endpoint
 
 `GET /fleet-board` accepts validated `range`, search, Needs Attention, optional Client, and root-sort
-parameters. The active UI view, grouping, View Depth, Metric Selection, and local expansions do not alter
+parameters. The active UI view, View Depth, Metric Selection, and local expansions do not alter
 the database contract.
 
 Return:
 
-- Filtered Clients and Ad Accounts with IDs, names, currency/timezone, amount owed raw value, connection,
+- Matching Client IDs/names for the filter and filtered Ad Accounts with IDs, names, currency/timezone, amount owed raw value, connection,
   Health/Needs Attention/Signals Lane, Running, all six derived KPIs, CPA null reason, and per-tier
   freshness/error state.
-- Client aggregates computed after the Ad Account filter.
 - Mixed-currency and mixed-timezone flags.
 - Header freshness using the worst visible account.
 - Whether the selected range is Provisional.
@@ -342,7 +339,6 @@ Validate TanStack Router search state for:
 - `view=tree|control|signals` (Tree when absent)
 - `range=today|last7|month` (Today when absent)
 - selected KPI list (Spend + ROAS when absent)
-- `group=client|flat` (Client when absent)
 - `depth=account|campaign|adset|ad` (Ad Account when absent)
 - search, Needs Attention, optional Client, sort/direction
 - optional Control Room Ad Account and Ad IDs
@@ -379,7 +375,7 @@ are working. Each view consumes the same model and shared leaf components.
 ### 10.1 Tree
 
 - Render a semantic treegrid/table with aligned fixed KPI columns and sticky identity column.
-- Client-grouped mode shows Client aggregate rows above accounts; Flat mode adds Client metadata/filter.
+- Render Ad Account rows directly; Client remains metadata and a root filter.
 - View Depth opens all loaded branches to the requested level; local chevrons are additive.
 - Parent aggregates remain visible when opened.
 - Ad expansion renders full-width Creative detail.
@@ -387,7 +383,7 @@ are working. Each view consumes the same model and shared leaf components.
 
 ### 10.2 Control Room
 
-- Render the filtered/sorted fleet as a virtualized rail, grouped by Client or flat.
+- Render the filtered/sorted fleet as a virtualized Ad Account rail.
 - Render one selected account's hierarchy/detail beside it using the same View Depth and lazy loaders.
 - Encode selected account and Ad in the URL; stale/unauthorized IDs fall back without rewriting.
 - Creative uses the dedicated selected-Ad panel with identical content and Metric Selection.
@@ -396,8 +392,7 @@ are working. Each view consumes the same model and shared leaf components.
 ### 10.3 Signals
 
 - Render four lanes in domain priority: Needs Attention, Postpay, Active, Awaiting Data.
-- Client-grouped mode uses Client aggregate cards and reveals all child accounts; Flat mode uses Ad
-  Account cards directly.
+- Use Ad Account cards directly, with Client shown as metadata.
 - Root sorting orders cards inside a lane; it never changes lane priority.
 - View Depth and local expansion reveal the full hierarchy, not a capped preview subset.
 - Creative renders in full expanded card detail with identical whole-Ad attribution labels.
@@ -431,7 +426,7 @@ Each slice is mergeable and leaves its smallest meaningful check behind.
    Ad in the minimal Tree. Prove View Depth and local expansion against database snapshots.
 7. **Creative vertical slice.** Add normalized Creative endpoint, media proxy, every fixture shape, and Tree
    detail with failure isolation.
-8. **Shared production shell + virtualization.** Finish toolbar, grouping, filters/sorts, normalized model,
+8. **Shared production shell + virtualization.** Finish toolbar, filters/sorts, normalized model,
    responsive/accessibility behavior, and target-scale checks.
 9. **Tree completion.** Match the parity contract and remove any Tree-specific domain calculation.
 10.   **Control Room completion.** Reuse the shared model, add URL selection and responsive layout, pass the
@@ -472,7 +467,7 @@ contract; otherwise they will accidentally fork business behavior.
 - Complete sync upsert, partial-page no-delete, full-enumeration soft delete, re-run idempotency.
 - Reconciliation revision and omitted-row-to-zero behavior.
 - First-connect boundary and per-account timezone dates.
-- Filter-before-Client-rollup and soft-deleted historical performance.
+- Client filtering and soft-deleted historical performance.
 
 **API tests**
 
@@ -484,7 +479,7 @@ contract; otherwise they will accidentally fork business behavior.
 **Client tests**
 
 - One shared mocked API fixture rendered in all three views yields the same values/counts.
-- View/Time Range/Metric/group/depth/filter/sort URL controls.
+- View/Time Range/Metric/depth/filter/sort URL controls.
 - Lazy child loading is batched and cache-reused.
 - Keyboard expansion/selection/switching, text alternatives, focus retention under virtualization.
 - Narrow-screen structures for each view.
@@ -501,7 +496,7 @@ Run every task in Tree, Control Room, and Signals using the same Agency fixture:
 2. Explain why a yellow postpay account does not need attention.
 3. Switch Today → Last 7 days → Month to date and obtain identical KPI values.
 4. Toggle Spend/ROAS to all six KPIs; share and reopen the URL.
-5. Switch Client-grouped ↔ Flat and verify filtered Client rollups.
+5. Filter by Client and verify the matching Ad Accounts remain directly visible.
 6. Search for an account, apply Needs Attention, and sort by a visible KPI.
 7. Traverse to one Ad, inspect all carousel/asset-feed assets, and verify results stay attributed to the
    whole Ad.

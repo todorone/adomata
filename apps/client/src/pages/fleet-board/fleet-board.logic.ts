@@ -7,8 +7,8 @@ export type Account = FleetBoardRoot['accounts'][number]
 export type Client = FleetBoardRoot['clients'][number]
 export type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
 export type Node = Account | HierarchyNode
-export type TreeRow = { node: Node; level: number; currency: string | null; mergedClient?: Client }
-export type BoardRow = ({ kind: 'client'; client: Client } | ({ kind: 'node' } & TreeRow)) & { key: string }
+export type TreeRow = { node: Node; level: number; currency: string | null }
+export type BoardRow = TreeRow & { key: string }
 export type SortKey = FleetBoardSearch['sort']
 
 export const depthValues = ['account', 'campaign', 'adset', 'ad'] as const
@@ -16,25 +16,13 @@ export const noData = '—'
 
 export function flattenRows(
 	accounts: Account[],
-	clients: Client[],
 	search: FleetBoardSearch,
 	children: Record<string, HierarchyNode[]>,
 	expanded: Set<string>,
 ): BoardRow[] {
-	const nodeRows = (rows: TreeRow[]) => rows.map(row => ({ kind: 'node' as const, ...row, key: rowKey(row) }))
-	if (search.group === 'flat')
-		return accounts.flatMap(account => nodeRows(flattenAccount(account, 0, search, children, expanded)))
-	return clients.flatMap(client => {
-		const clientAccounts = accounts.filter(account => account.clientId === client.id)
-		if (clientAccounts.length === 1) {
-			const rows = flattenAccount(clientAccounts[0]!, 0, search, children, expanded)
-			return nodeRows(rows.map((row, index) => (index === 0 ? { ...row, mergedClient: client } : row)))
-		}
-		return [
-			{ kind: 'client' as const, client, key: `client:${client.id}` },
-			...clientAccounts.flatMap(account => nodeRows(flattenAccount(account, 1, search, children, expanded))),
-		]
-	})
+	return accounts.flatMap(account =>
+		flattenAccount(account, 0, search, children, expanded).map(row => ({ ...row, key: rowKey(row) })),
+	)
 }
 
 export function flattenAccount(
@@ -166,10 +154,6 @@ export function healthText(code: string) {
 				meta_inactive: 'Неактивний у Meta',
 				postpay: 'Післяплата',
 				active: 'Активний',
-				client_attention: 'Потребують уваги',
-				client_postpay: 'Є післяплатні',
-				client_active: 'Активні кабінети',
-				client_awaiting_data: 'Очікуються дані',
 			} as Record<string, string>
 		)[code] ?? 'Стан Meta невідомий'
 	)
@@ -247,15 +231,14 @@ export function metaAdsManagerUrl(accountId: string) {
 	return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actId)}`
 }
 
-export function syncNote(accounts: Account[]) {
-	const tiers = accounts.flatMap(account => [account.freshness.accountTier, account.freshness.insightsTier])
-	const count = (matches: typeof tiers) => (accounts.length > 1 ? `: ${matches.length}` : '')
+export function syncNote(account: Account) {
+	const tiers = [account.freshness.accountTier, account.freshness.insightsTier]
 	const failed = tiers.filter(tier => tier.failed)
-	if (failed.length > 0) return `Помилка синхронізації Meta${count(failed)}`
+	if (failed.length > 0) return 'Помилка синхронізації Meta'
 	const neverSynced = tiers.filter(tier => tier.refreshedAt === null)
-	if (neverSynced.length > 0) return `Ще не синхронізовано${count(neverSynced)}`
+	if (neverSynced.length > 0) return 'Ще не синхронізовано'
 	const stale = tiers.filter(tier => tier.stale)
-	if (stale.length > 0) return `Дані застаріли${count(stale)}`
+	if (stale.length > 0) return 'Дані застаріли'
 	return null
 }
 

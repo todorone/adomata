@@ -57,7 +57,6 @@ const metricLabels: Record<FleetBoardMetricKey, string> = {
 	roas: 'ROAS',
 }
 const depthLabels = { account: 'Кабінети', campaign: 'Кампанії', adset: 'Групи оголошень', ad: 'Оголошення' } as const
-const groupLabels = { client: 'За клієнтом', flat: 'Без групування' } as const
 const viewLabels = { tree: 'Дерево', control: 'Пульт', signals: 'Сигнали' } as const
 const laneLabels = {
 	needs_attention: 'Потрібна увага',
@@ -68,7 +67,6 @@ const laneLabels = {
 
 export type ViewProps = {
 	accounts: Account[]
-	clients: Client[]
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	loadedNodes: Record<string, HierarchyNode[]>
@@ -156,12 +154,6 @@ export function FleetToolbar({
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<DateRangePicker value={search.range} onChange={range => setSearch({ range })} />
-				<CompactSelect
-					label="Групування"
-					value={search.group}
-					labels={groupLabels}
-					onChange={group => setSearch({ group })}
-				/>
 				<CompactSelect
 					label="Глибина"
 					value={search.depth}
@@ -288,17 +280,8 @@ function CompactSelect<Value extends string>({
 	)
 }
 
-export function TreeView({
-	accounts,
-	clients,
-	search,
-	setSearch,
-	loadedNodes,
-	expanded,
-	creativeAdId,
-	onToggle,
-}: ViewProps) {
-	const rows = flattenRows(accounts, clients, search, loadedNodes, expanded)
+export function TreeView({ accounts, search, setSearch, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
+	const rows = flattenRows(accounts, search, loadedNodes, expanded)
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -334,17 +317,13 @@ export function TreeView({
 											transform: `translateY(${item.start}px)`,
 										}}
 									>
-										{row.kind === 'client' ? (
-											<ClientRow client={row.client} metrics={search.metrics} />
-										) : (
-											<NodeRow
-												row={row}
-												metrics={search.metrics}
-												expanded={expanded}
-												creativeAdId={creativeAdId}
-												onToggle={onToggle}
-											/>
-										)}
+										<NodeRow
+											row={row}
+											metrics={search.metrics}
+											expanded={expanded}
+											creativeAdId={creativeAdId}
+											onToggle={onToggle}
+										/>
 									</div>
 								)
 							})}
@@ -413,24 +392,9 @@ function ColumnHeader({
 	)
 }
 
-export function ControlRoom({
-	accounts,
-	clients,
-	search,
-	setSearch,
-	loadedNodes,
-	expanded,
-	creativeAdId,
-	onToggle,
-}: ViewProps) {
+export function ControlRoom({ accounts, search, setSearch, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
-	const railItems: Array<{ client: Client } | { account: Account }> =
-		search.group === 'client'
-			? clients.flatMap(client => [
-					{ client },
-					...accounts.filter(account => account.clientId === client.id).map(account => ({ account })),
-				])
-			: accounts.map(account => ({ account }))
+	const railItems = accounts
 	const railRef = useRef<HTMLDivElement>(null)
 	const rail = useVirtualizer({
 		count: railItems.length,
@@ -447,21 +411,7 @@ export function ControlRoom({
 				<div ref={railRef} className="max-h-64 min-h-0 overflow-auto lg:max-h-none lg:flex-1">
 					<div style={{ height: rail.getTotalSize(), position: 'relative' }}>
 						{rail.getVirtualItems().map(item => {
-							const itemValue = railItems[item.index]!
-							if ('client' in itemValue) {
-								return (
-									<p
-										key={`client:${itemValue.client.id}`}
-										ref={rail.measureElement}
-										data-index={item.index}
-										className="absolute w-full truncate px-2 py-2 text-xs font-semibold text-muted-foreground"
-										style={{ transform: `translateY(${item.start}px)` }}
-									>
-										{itemValue.client.name}
-									</p>
-								)
-							}
-							const { account } = itemValue
+							const account = railItems[item.index]!
 							const isSelected = account.id === selected.id
 							return (
 								<button
@@ -501,8 +451,7 @@ export function ControlRoom({
 				<p className="mb-2 shrink-0 text-xs text-muted-foreground">{selected.clientName}</p>
 				<TreeView
 					accounts={[selected]}
-					clients={clients.filter(client => client.id === selected.clientId)}
-					search={{ ...search, group: 'flat' }}
+					search={search}
 					setSearch={setSearch}
 					loadedNodes={loadedNodes}
 					expanded={expanded}
@@ -514,24 +463,19 @@ export function ControlRoom({
 	)
 }
 
-export function SignalsView({ accounts, clients, search, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
-	const [openedClients, setOpenedClients] = useState<Set<string>>(new Set())
-	const items = search.group === 'client' ? clients : accounts
+export function SignalsView({ accounts, search, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
 	return (
 		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
 				<SignalLane
 					key={lane}
 					lane={lane}
-					items={items.filter(item => item.signalsLane === lane)}
-					accounts={accounts}
+					items={accounts.filter(account => account.signalsLane === lane)}
 					search={search}
 					loadedNodes={loadedNodes}
 					expanded={expanded}
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
-					openedClients={openedClients}
-					setOpenedClients={setOpenedClients}
 				/>
 			))}
 		</div>
@@ -541,25 +485,19 @@ export function SignalsView({ accounts, clients, search, loadedNodes, expanded, 
 function SignalLane({
 	lane,
 	items,
-	accounts,
 	search,
 	loadedNodes,
 	expanded,
 	creativeAdId,
 	onToggle,
-	openedClients,
-	setOpenedClients,
 }: {
 	lane: keyof typeof laneLabels
-	items: Array<Client | Account>
-	accounts: Account[]
+	items: Account[]
 	search: FleetBoardSearch
 	loadedNodes: Record<string, HierarchyNode[]>
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
-	openedClients: Set<string>
-	setOpenedClients: (next: Set<string>) => void
 }) {
 	return (
 		<section className="rounded-xl border border-border bg-card p-2 shadow-sm" aria-labelledby={`lane-${lane}`}>
@@ -571,40 +509,27 @@ function SignalLane({
 			</header>
 			{items.length === 0 ? null : (
 				<div className="mt-2 flex flex-col gap-2">
-					{items.map(value => {
-						const isClient = !('type' in value)
-						const isOpen = isClient ? openedClients.has(value.id) : expanded.has(parentKey('account', value.id))
-						const childAccounts = isClient ? accounts.filter(account => account.clientId === value.id) : [value]
-						const sync = syncNote(childAccounts)
+					{items.map(account => {
+						const isOpen = expanded.has(parentKey('account', account.id))
+						const sync = syncNote(account)
 						return (
-							<article key={value.id} className="rounded-lg border bg-background p-2">
+							<article key={account.id} className="rounded-lg border bg-background p-2">
 								<button
 									type="button"
 									className="flex w-full items-start justify-between gap-3 text-left"
-									onClick={() => {
-										if (isClient) {
-											const next = new Set(openedClients)
-											if (next.has(value.id)) next.delete(value.id)
-											else next.add(value.id)
-											setOpenedClients(next)
-										} else onToggle(value)
-									}}
+									onClick={() => onToggle(account)}
 								>
 									<span className="min-w-0">
-										<span className="block truncate text-sm font-medium">{value.name}</span>
-										{isClient ? null : (
-											<span className="block truncate text-xs text-muted-foreground">
-												{value.clientName}
-											</span>
-										)}
+										<span className="block truncate text-sm font-medium">{account.name}</span>
+										<span className="block truncate text-xs text-muted-foreground">{account.clientName}</span>
 									</span>
-									<HealthLabel health={value.health} muted={value.signalsLane === lane} />
+									<HealthLabel health={account.health} muted={account.signalsLane === lane} />
 								</button>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 									<span>
 										Заборгованість:{' '}
 										<strong className="font-medium text-foreground">
-											{formatMoney(value.amountOwed, value.currency)}
+											{formatMoney(account.amountOwed, account.currency)}
 										</strong>
 									</span>
 									{/* A failed or missing sync is Adomata's reach, not Meta's verdict on the
@@ -612,23 +537,21 @@ function SignalLane({
 									{sync ? (
 										<span className="rounded-full bg-muted px-2 py-0.5 text-foreground">{sync}</span>
 									) : null}
-									{isClient ? null : <MetaAdsManagerLink accountId={value.id} />}
+									<MetaAdsManagerLink accountId={account.id} />
 								</div>
-								<KpiStrip kpis={value.kpis} metrics={search.metrics} currency={value.currency} />
+								<KpiStrip kpis={account.kpis} metrics={search.metrics} currency={account.currency} />
 								{isOpen ? (
 									<div className="mt-2 border-t pt-1">
-										{childAccounts
-											.flatMap(account => flattenAccount(account, 0, search, loadedNodes, expanded))
-											.map(row => (
-												<NodeRow
-													key={`${row.node.type}:${row.node.id}`}
-													row={row}
-													metrics={search.metrics}
-													expanded={expanded}
-													creativeAdId={creativeAdId}
-													onToggle={onToggle}
-												/>
-											))}
+										{flattenAccount(account, 0, search, loadedNodes, expanded).map(row => (
+											<NodeRow
+												key={`${row.node.type}:${row.node.id}`}
+												row={row}
+												metrics={search.metrics}
+												expanded={expanded}
+												creativeAdId={creativeAdId}
+												onToggle={onToggle}
+											/>
+										))}
 									</div>
 								) : null}
 							</article>
@@ -637,29 +560,6 @@ function SignalLane({
 				</div>
 			)}
 		</section>
-	)
-}
-
-function ClientRow({ client, metrics }: { client: Client; metrics: FleetBoardMetricKey[] }) {
-	return (
-		<div
-			role="row"
-			className="grid min-h-9 items-center gap-2 border-b bg-muted/35 px-2 text-sm font-semibold"
-			style={{ gridTemplateColumns: gridTemplate(metrics) }}
-		>
-			<span className="truncate">
-				{client.name}
-				{client.mixedTimezone ? (
-					<small className="ml-2 font-normal text-muted-foreground">кілька часових поясів</small>
-				) : null}
-			</span>
-			<HealthLabel health={client.health} />
-			<RunningCell running={client.kpis.running} />
-			<span className="text-right tabular-nums">{formatMoney(client.amountOwed, client.currency)}</span>
-			{metrics.map(metric => (
-				<KpiCell key={metric} metric={metric} kpis={client.kpis} currency={client.currency} />
-			))}
-		</div>
 	)
 }
 
@@ -720,10 +620,10 @@ function NodeRow({
 						) : (
 							<AdThumbnail creativeId={node.creativeId} />
 						)}
-						{row.mergedClient ? (
+						{isAccount ? (
 							<span className="min-w-0 truncate">
-								{row.mergedClient.name}
-								<small className="ml-2 font-normal text-muted-foreground">{node.name}</small>
+								<span className="block truncate">{node.name}</span>
+								<small className="block truncate font-normal text-muted-foreground">{node.clientName}</small>
 							</span>
 						) : (
 							<span className="truncate">{node.name}</span>
@@ -880,7 +780,7 @@ function KpiStrip({
 	metrics,
 	currency,
 }: {
-	kpis: Node['kpis'] | Client['kpis']
+	kpis: Node['kpis']
 	metrics: FleetBoardMetricKey[]
 	currency: string | null
 }) {
@@ -902,7 +802,7 @@ function KpiCell({
 	currency,
 }: {
 	metric: FleetBoardMetricKey
-	kpis: Node['kpis'] | Client['kpis']
+	kpis: Node['kpis']
 	currency: string | null
 }) {
 	return <span className="text-right tabular-nums">{formatKpi(metric, kpis[metric], currency)}</span>

@@ -15,10 +15,8 @@ import {
 	isProvisional,
 	isStale,
 	rollupKpis,
-	rollupMetricsForClient,
 	signalLaneFor,
 	sumDecimalStrings,
-	summarizeClientHealth,
 	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
@@ -42,8 +40,6 @@ type ClientView = FleetBoardRootResponse['clients'][number]
 type FleetBoardModel = {
 	accounts: AccountView[]
 	clients: ClientView[]
-	clientRowsById: Map<string, ClientRow>
-	accountContributions: Map<string, Contribution[]>
 	childNodes: {
 		campaigns: Array<{ row: CampaignRow; kpis: AccountView['kpis'] }>
 		adSets: Array<{ row: AdSetRow; kpis: AccountView['kpis'] }>
@@ -63,16 +59,9 @@ export async function readFleetBoardRoot(
 		if (query.needsAttention && !account.health.needsAttention) return false
 		return !search || `${account.name} ${account.clientName}`.toLocaleLowerCase().includes(search)
 	})
-	const visibleClients = [...model.clientRowsById.values()]
+	const visibleClients = model.clients
 		.filter(client => visibleAccounts.some(account => account.clientId === client.id))
-		.map(client =>
-			makeClientView(
-				client,
-				visibleAccounts.filter(account => account.clientId === client.id),
-				model.accountContributions,
-			),
-		)
-		.sort((left, right) => compareRootRows(left, right, query.sort, query.direction))
+		.sort((left, right) => left.name.localeCompare(right.name))
 	const sortedAccounts = [...visibleAccounts].sort((left, right) =>
 		compareRootRows(left, right, query.sort, query.direction),
 	)
@@ -180,8 +169,6 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		return {
 			accounts: [],
 			clients: [],
-			clientRowsById: new Map(),
-			accountContributions: new Map(),
 			childNodes: { campaigns: [], adSets: [], ads: [] },
 		}
 	}
@@ -264,16 +251,13 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	const accounts = accountRows.map(({ account, client: accountClient }) =>
 		accountView(account, accountClient, accountContributions.get(account.id) ?? [], now),
 	)
-	const clientRowsById = new Map(accountRows.map(row => [row.client.id, row.client]))
-	const clients = [...clientRowsById.values()].map(clientRow => {
-		const clientAccountViews = accounts.filter(account => account.clientId === clientRow.id)
-		return makeClientView(clientRow, clientAccountViews, accountContributions)
-	})
+	const clients = [...new Map(accountRows.map(row => [row.client.id, row.client])).values()].map(client => ({
+		id: client.id,
+		name: client.name,
+	}))
 	return {
 		accounts,
 		clients,
-		clientRowsById,
-		accountContributions,
 		childNodes: {
 			campaigns: uniqueRows(
 				hierarchyRows.map(row => ({ row: row.campaign, kpis: kpisForCampaign.get(row.campaign.id)! })),
@@ -333,36 +317,6 @@ function accountView(
 	}
 }
 
-function makeClientView(
-	clientRow: Pick<ClientRow, 'id' | 'name'>,
-	accounts: AccountView[],
-	accountContributions: Map<string, Contribution[]>,
-): ClientView {
-	const health = summarizeClientHealth(accounts.map(account => account.health))
-	const input = accounts.flatMap(account =>
-		(accountContributions.get(account.id) ?? []).map(contribution => ({
-			...contribution,
-			currency: account.currency,
-		})),
-	)
-	const currencies = new Set(accounts.map(account => account.currency))
-	const timezones = new Set(accounts.map(account => account.timezoneName))
-	const kpis = rollupMetricsForClient(input)
-	const owed = accounts.flatMap(account => (account.amountOwed === null ? [] : [account.amountOwed]))
-	return {
-		id: clientRow.id,
-		name: clientRow.name,
-		currency: currencies.size === 1 ? [...currencies][0]! : null,
-		mixedCurrency: currencies.size > 1,
-		mixedTimezone: timezones.size > 1,
-		amountOwed: currencies.size > 1 || owed.length === 0 ? null : sumDecimalStrings(owed),
-		health,
-		signalsLane: signalLaneFor(health),
-		kpis: toApiKpis(kpis),
-		accountIds: accounts.map(account => account.id),
-	}
-}
-
 function zeroContribution(adRow: AdRow): Contribution {
 	return {
 		spend: '0',
@@ -404,8 +358,8 @@ function parsedActionItems(input: unknown) {
 	return parsed.success ? parsed.data : []
 }
 
-function toApiKpis(kpis: ReturnType<typeof rollupKpis> | ReturnType<typeof rollupMetricsForClient>) {
-	return { ...kpis, unsupported: 'unsupported' in kpis ? kpis.unsupported : null }
+function toApiKpis(kpis: ReturnType<typeof rollupKpis>) {
+	return kpis
 }
 
 function freshness(refreshedAt: Date | null, failed: boolean, threshold: number, now: Date) {
@@ -429,8 +383,8 @@ function headerFreshness(accounts: AccountView[], range: FleetBoardRange, now: D
 }
 
 function compareRootRows(
-	left: AccountView | ClientView,
-	right: AccountView | ClientView,
+	left: AccountView,
+	right: AccountView,
 	sort: FleetBoardRootQuery['sort'],
 	direction: FleetBoardRootQuery['direction'],
 ) {
@@ -443,7 +397,7 @@ function compareRootRows(
 	return direction === 'asc' ? result : -result
 }
 
-function rootSortValue(row: AccountView | ClientView, sort: FleetBoardRootQuery['sort']) {
+function rootSortValue(row: AccountView, sort: FleetBoardRootQuery['sort']) {
 	if (sort === 'attention') return Number(row.health.needsAttention)
 	if (sort === 'name') return row.name
 	if (sort === 'owed') return row.amountOwed === null ? -Infinity : Number(row.amountOwed)

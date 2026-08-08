@@ -21,7 +21,6 @@ function kpis(overrides: Partial<Kpis> = {}): Kpis {
 		results: '4',
 		roas: '2',
 		running: true,
-		unsupported: null,
 		...overrides,
 	}
 }
@@ -75,27 +74,11 @@ const duoSecond: Account = {
 const soloClient: Client = {
 	id: 'client-solo',
 	name: 'DeviAcademy',
-	currency: 'UAH',
-	mixedCurrency: false,
-	mixedTimezone: false,
-	amountOwed: '592284.00',
-	health: { color: 'green', reason: { code: 'client_active', count: 1 }, needsAttention: false },
-	signalsLane: 'active',
-	kpis: kpis({ spend: '1234.50', roas: '0' }),
-	accountIds: [soloAccount.id],
 }
 
 const duoClient: Client = {
 	id: 'client-duo',
 	name: 'Northstar',
-	currency: 'USD',
-	mixedCurrency: false,
-	mixedTimezone: false,
-	amountOwed: '10.00',
-	health: { color: 'red', reason: { code: 'client_attention', count: 1, total: 2 }, needsAttention: true },
-	signalsLane: 'needs_attention',
-	kpis: kpis(),
-	accountIds: [duoFirst.id, duoSecond.id],
 }
 
 const hierarchyNodes: HierarchyNode[] = [
@@ -285,7 +268,7 @@ describe('Fleet Board', () => {
 		const childRequests: Array<Array<{ id: string }>> = []
 		childrenSpy.mockImplementation(parents => childRequests.push(parents))
 
-		await renderToAdDepth({ group: 'flat' })
+		await renderToAdDepth()
 		await new Promise(resolve => setTimeout(resolve, 50))
 
 		// The two Northstar accounts have no children. Until their empty result was recorded they
@@ -305,21 +288,16 @@ describe('Fleet Board', () => {
 		expect(row('Оголошення відхилене').querySelector('svg')).toBeTruthy()
 	})
 
-	it('renders a Client with exactly one Ad Account as a single row', () => {
+	it('renders every Ad Account directly without a Client aggregate row', () => {
 		renderBoard()
 
-		const merged = row('DeviAcademy Ad')
-		expect(merged.textContent).toContain('DeviAcademy')
+		row('DeviAcademy Ad')
 		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('DeviAcademy'))).toHaveLength(1)
-	})
-
-	it('keeps the group row and both children for a Client with two Ad Accounts', () => {
-		renderBoard()
 
 		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
 		expect(screen.getByText('Northstar Postpay')).toBeTruthy()
-		// The group row plus its two Ad Account rows.
-		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('Northstar'))).toHaveLength(3)
+		// Both Ad Accounts render directly; there is no extra Client aggregate row.
+		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('Northstar'))).toHaveLength(2)
 	})
 
 	it('puts amount owed on the Ad Account row and leaves interior rows empty', async () => {
@@ -332,7 +310,7 @@ describe('Fleet Board', () => {
 	})
 
 	it('expands and collapses when clicking anywhere on a row', async () => {
-		renderBoard({ group: 'flat' })
+		renderBoard()
 
 		const accountRow = row('DeviAcademy Ad')
 		expect(accountRow.className).toContain('cursor-pointer')
@@ -349,7 +327,7 @@ describe('Fleet Board', () => {
 	})
 
 	it.each(['tree', 'control', 'signals'])('shows Health Color paired with Health Reason in the %s view', view => {
-		renderBoard({ view, group: 'flat' })
+		renderBoard({ view })
 
 		// The Color dot and the Reason share one accessible label, so the pair is what is asserted.
 		expect(screen.getAllByLabelText('Активний').length).toBeGreaterThan(0)
@@ -364,7 +342,7 @@ describe('Fleet Board', () => {
 	})
 
 	it('renders ROAS as no data without purchase value while a zero Spend stays a number', () => {
-		renderBoard({ group: 'flat', metrics: 'spend,roas' })
+		renderBoard({ metrics: 'spend,roas' })
 
 		const noPurchaseValue = row('DeviAcademy Ad')
 		expect(noPurchaseValue.textContent).toContain(money('1234.50', 'UAH'))
@@ -393,7 +371,7 @@ describe('Fleet Board', () => {
 	})
 
 	it('links each Ad Account to Meta Ads Manager in a new tab', () => {
-		renderBoard({ group: 'flat' })
+		renderBoard()
 
 		const links = screen.getAllByRole('link', { name: 'Відкрити у Meta Ads Manager' })
 		expect(links).toHaveLength(3)
@@ -404,13 +382,13 @@ describe('Fleet Board', () => {
 	it('collapses an empty Signals lane to its header and count', () => {
 		renderBoard({ view: 'signals' })
 
-		// Both Clients land in other lanes, so Postpay holds nothing at all.
-		expect(screen.getByRole('region', { name: 'Післяплата' }).textContent).toBe('Післяплата0')
+		// Account cards occupy their own operational lanes.
+		expect(screen.getByRole('region', { name: 'Післяплата' }).textContent).toContain('Northstar Postpay')
 		expect(screen.getByRole('region', { name: 'Потрібна увага' }).textContent).toContain('Northstar')
 	})
 
 	it('leads each Control Room rail row with the Ad Account name', () => {
-		renderBoard({ view: 'control', group: 'flat' })
+		renderBoard({ view: 'control' })
 
 		const railRow = screen.getAllByRole('button').find(element => element.textContent?.includes('Northstar Prepay'))!
 		expect(railRow.textContent!.indexOf('Northstar Prepay')).toBeLessThan(

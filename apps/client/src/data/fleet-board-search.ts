@@ -30,7 +30,6 @@ export const fleetBoardSearchSchema = z
 		view: z.enum(['tree', 'control', 'signals']).optional(),
 		range: z.union([rangePresetSchema, customRangeSchema]).optional(),
 		metrics: z.union([z.string(), z.array(z.string())]).optional(),
-		group: z.enum(['client', 'flat']).optional(),
 		depth: z.enum(['account', 'campaign', 'adset', 'ad']).optional(),
 		search: z.string().max(200).optional(),
 		needsAttention: z.union([z.enum(['true', 'false']), z.boolean()]).optional(),
@@ -57,7 +56,6 @@ export const fleetBoardSearchSchema = z
 			// of 0,00 for a fleet that was in fact spending.
 			range: input.range ?? 'last7',
 			metrics: selectedMetrics,
-			group: input.group ?? 'client',
 			depth: input.depth ?? 'account',
 			search: input.search ?? '',
 			needsAttention: input.needsAttention === 'true' || input.needsAttention === true,

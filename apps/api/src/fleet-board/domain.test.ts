@@ -8,9 +8,7 @@ import {
 	isStale,
 	reconciliationWindow,
 	rollupKpis,
-	rollupMetricsForClient,
 	signalLaneFor,
-	summarizeClientHealth,
 	summarizeFleetTier,
 } from './domain'
 
@@ -48,23 +46,6 @@ describe('Fleet Board domain rules', () => {
 		expect(signalLaneFor({ color: 'yellow', needsAttention: false })).toBe('postpay')
 		expect(signalLaneFor({ color: 'green', needsAttention: false })).toBe('active')
 		expect(signalLaneFor({ color: 'grey', needsAttention: false })).toBe('awaiting_data')
-	})
-
-	it('rolls client health up by worst useful signal and summary counts', () => {
-		expect(
-			summarizeClientHealth([
-				{ color: 'green', needsAttention: false },
-				{ color: 'grey', needsAttention: true },
-				{ color: 'yellow', needsAttention: false },
-			]),
-		).toEqual({ color: 'yellow', needsAttention: true, reason: { code: 'client_attention', count: 1, total: 3 } })
-		expect(
-			summarizeClientHealth([
-				{ color: 'red', needsAttention: true },
-				{ color: 'red', needsAttention: true },
-				{ color: 'green', needsAttention: false },
-			]),
-		).toEqual({ color: 'red', needsAttention: true, reason: { code: 'client_attention', count: 2, total: 3 } })
 	})
 
 	it('uses every account local timezone for ranges across opposite sides of midnight and DST', () => {
@@ -199,42 +180,5 @@ describe('Fleet Board domain rules', () => {
 				},
 			]),
 		).toMatchObject({ cpa: null, cpaReason: 'unresolved_result_type', results: null })
-	})
-
-	it('does not aggregate monetary client KPIs across currencies but preserves safe CTR', () => {
-		const result = rollupMetricsForClient([
-			{
-				currency: 'USD',
-				spend: '10',
-				impressions: 100,
-				inlineLinkClicks: 10,
-				resultActionType: 'lead',
-				resultCount: '1',
-				purchaseValue: '20',
-				running: true,
-			},
-			{
-				currency: 'EUR',
-				spend: '10',
-				impressions: 100,
-				inlineLinkClicks: 10,
-				resultActionType: 'lead',
-				resultCount: '1',
-				purchaseValue: '20',
-				running: false,
-			},
-		])
-		expect(result).toEqual({
-			unsupported: 'mixed_currency',
-			spend: null,
-			impressions: 200,
-			clicks: 20,
-			ctr: '0.1',
-			cpa: null,
-			cpaReason: null,
-			results: '2',
-			roas: null,
-			running: true,
-		})
 	})
 })

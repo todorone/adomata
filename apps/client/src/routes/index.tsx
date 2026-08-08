@@ -29,7 +29,6 @@ function Home() {
 							view: next.view,
 							range: next.range,
 							metrics: metricsSearchValue(next.metrics),
-							group: next.group,
 							depth: next.depth,
 							search: next.search || undefined,
 							needsAttention: next.needsAttention ? 'true' : undefined,

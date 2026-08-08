@@ -52,7 +52,7 @@ test('a user can log out from a Fleet Board URL', async ({ page }) => {
 	await expect(page).toHaveURL(url => url.pathname === '/')
 
 	await page.goto(
-		'/?view=tree&range=today&metrics=%5B%22spend%22%2C%22roas%22%5D&group=client&depth=account&search=&needsAttention=false&sort=attention&direction=desc',
+		'/?view=tree&range=today&metrics=%5B%22spend%22%2C%22roas%22%5D&depth=account&search=&needsAttention=false&sort=attention&direction=desc',
 	)
 	await expect(page.getByRole('heading', { name: 'Огляд рекламних кабінетів' })).toBeVisible()
 	await page.getByRole('button', { name: `${SUPERADMIN.name} ${SUPERADMIN.email}` }).click()

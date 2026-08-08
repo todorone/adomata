@@ -12,10 +12,6 @@ export type HealthReason =
 	| { code: 'meta_inactive'; accountStatus: number | null }
 	| { code: 'postpay' }
 	| { code: 'active' }
-	| { code: 'client_attention'; count: number; total: number }
-	| { code: 'client_postpay'; count: number }
-	| { code: 'client_active'; count: number }
-	| { code: 'client_awaiting_data'; count: number }
 
 export type HealthState = {
 	color: HealthColor
@@ -74,33 +70,6 @@ export function signalLaneFor(health: Pick<HealthState, 'color' | 'needsAttentio
 	if (health.color === 'yellow') return 'postpay'
 	if (health.color === 'green') return 'active'
 	return 'awaiting_data'
-}
-
-export function summarizeClientHealth(accounts: readonly Pick<HealthState, 'color' | 'needsAttention'>[]): HealthState {
-	const counts = accounts.reduce(
-		(total, account) => ({
-			...total,
-			[account.color]: total[account.color] + 1,
-			attention: total.attention + Number(account.needsAttention),
-		}),
-		{ green: 0, yellow: 0, red: 0, grey: 0, attention: 0 },
-	)
-	const color: HealthColor =
-		counts.red > 0 ? 'red' : counts.yellow > 0 ? 'yellow' : counts.green > 0 ? 'green' : 'grey'
-	if (counts.attention > 0) {
-		return {
-			color,
-			needsAttention: true,
-			reason: { code: 'client_attention', count: counts.attention, total: accounts.length },
-		}
-	}
-	if (counts.yellow > 0) {
-		return { color, needsAttention: false, reason: { code: 'client_postpay', count: counts.yellow } }
-	}
-	if (counts.green > 0) {
-		return { color, needsAttention: false, reason: { code: 'client_active', count: counts.green } }
-	}
-	return { color, needsAttention: false, reason: { code: 'client_awaiting_data', count: counts.grey } }
 }
 
 export type AccountDateRange = { start: string; end: string }
@@ -322,21 +291,4 @@ export function rollupKpis(contributions: readonly KpiContribution[]): KpiValues
 		roas: divideDecimals(totals.purchaseValue, totals.spend),
 		running: totals.running,
 	}
-}
-
-export type ClientKpiValues = Omit<KpiValues, 'spend' | 'cpa' | 'roas'> & {
-	unsupported: 'mixed_currency' | null
-	spend: string | null
-	cpa: string | null
-	roas: string | null
-}
-
-export function rollupMetricsForClient(
-	contributions: readonly (KpiContribution & { currency: string })[],
-): ClientKpiValues {
-	const kpis = rollupKpis(contributions)
-	if (new Set(contributions.map(row => row.currency)).size > 1) {
-		return { ...kpis, unsupported: 'mixed_currency', spend: null, cpa: null, cpaReason: null, roas: null }
-	}
-	return { ...kpis, unsupported: null }
 }

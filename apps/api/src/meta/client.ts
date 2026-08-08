@@ -16,12 +16,6 @@ export const accountTierFields = [...accountTierPrepayFields, 'funding_source_de
 
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
-// Meta rejects DELETED in this filter on the list endpoints (#100 subcode 1815001, "Cannot
-// Request for Deleted Objects"). Deletions are detected locally instead, by diffing against
-// what Meta still returns (see softDeleteMissingHierarchy). The remaining values are every
-// other effective_status Meta defines — omitting any of them (e.g. CAMPAIGN_PAUSED,
-// ADSET_PAUSED) would silently drop ad sets/ads whose parent is paused, orphaning their
-// children and breaking the foreign-key inserts below.
 const hierarchyEffectiveStatuses = [
 	'ACTIVE',
 	'PAUSED',

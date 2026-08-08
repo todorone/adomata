@@ -1,6 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 
-const DEFAULT_STALE_TIME = 10 * 60 * 1000
+const DEFAULT_STALE_TIME = 60 * 1000
 const DEFAULT_GC_TIME = 7 * 24 * 60 * 60 * 1000
 
 export const queryClient = new QueryClient({

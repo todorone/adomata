@@ -14,7 +14,7 @@ import { adAccount, client, organizationSettings } from '../db/schema'
 import { apiError } from '../logic/apiError'
 import { isOwner, requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import { MetaApiError } from '../meta/client'
-import { getHeartbeatDependencies } from '../sync/runtime'
+import { getHeartbeatDependencies, triggerBackgroundSync } from '../sync/runtime'
 
 const getRoute = createRoute({
 	method: 'get',
@@ -223,6 +223,8 @@ export const metaAccountsRoutes = metaAccountsBase
 
 			return accounts.length
 		})
+
+		triggerBackgroundSync()
 
 		return c.json(connectMetaAccountsResponseSchema.parse({ connected }), 200)
 	})

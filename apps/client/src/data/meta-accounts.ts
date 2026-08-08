@@ -8,6 +8,7 @@ import {
 
 import { api } from './core/apiClient'
 import { parseResponse } from './core/apiFetch'
+import { fleetBoardKeys } from './fleet-board'
 
 export const metaAccountsKeys = {
 	discovery: ['meta-accounts'] as const,
@@ -36,7 +37,10 @@ export function useConnectMetaAccounts() {
 				connectMetaAccountsResponseSchema,
 				'POST /meta-accounts/connect',
 			),
-		onSuccess: () => qc.invalidateQueries({ queryKey: metaAccountsKeys.discovery }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: metaAccountsKeys.discovery })
+			qc.invalidateQueries({ queryKey: fleetBoardKeys.all })
+		},
 	})
 }
 

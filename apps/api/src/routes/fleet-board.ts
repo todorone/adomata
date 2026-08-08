@@ -21,8 +21,7 @@ import {
 	mediaUrlForKey,
 } from '../fleet-board/read-model'
 import { fetchCreativeMedia, mediaRange } from '../fleet-board/media'
-import { getHeartbeatDependencies } from '../sync/runtime'
-import { runHeartbeat } from '../sync/account-tier'
+import { getHeartbeatDependencies, triggerBackgroundSync } from '../sync/runtime'
 
 const rootRoute = createRoute({
 	method: 'get',
@@ -74,7 +73,7 @@ fleetBoardBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
 export const fleetBoardRoutes = fleetBoardBase
 	.openapi(rootRoute, async c => {
-		startBackgroundSync()
+		triggerBackgroundSync()
 		const result = await readFleetBoardRoot(c.get('orgId'), c.req.valid('query'))
 		return c.json(fleetBoardRootResponseSchema.parse(result), 200)
 	})
@@ -111,17 +110,6 @@ export const fleetBoardRoutes = fleetBoardBase
 		}
 		return media.status === 206 ? c.body(media.body, 206, headers) : c.body(media.body, 200, headers)
 	})
-
-function startBackgroundSync() {
-	try {
-		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
-		runHeartbeat({ metaMode, buildMetaClient }).catch(error =>
-			logger.warn('Fleet Board background sync failed', { category: errorCategory(error) }),
-		)
-	} catch {
-		// Runtime configuration is intentionally absent in isolated API route tests.
-	}
-}
 
 async function readCreativeByCreativeId(agencyId: string, creativeId: string) {
 	const [owned] = await db

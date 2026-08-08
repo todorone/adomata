@@ -21,6 +21,7 @@ type RootInput = {
 }
 
 export const fleetBoardKeys = {
+	all: ['fleet-board'] as const,
 	root: (input: RootInput) => ['fleet-board', 'root', input] as const,
 	children: (range: FleetBoardRange, parents: FleetBoardParent[]) =>
 		['fleet-board', 'children', range, parents] as const,

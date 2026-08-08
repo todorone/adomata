@@ -66,6 +66,7 @@ function buildTransaction(options: {
 
 const dbCalls = vi.hoisted(() => ({ select: vi.fn(), transaction: vi.fn(), update: vi.fn() }))
 const metaCalls = vi.hoisted(() => ({ listAdAccounts: vi.fn(), buildMetaClient: vi.fn() }))
+const syncCalls = vi.hoisted(() => ({ triggerBackgroundSync: vi.fn() }))
 
 vi.mock('../db', () => ({
 	db: {
@@ -81,6 +82,7 @@ vi.mock('../sync/runtime', () => ({
 		metaMode: 'live' as const,
 		buildMetaClient: metaCalls.buildMetaClient,
 	}),
+	triggerBackgroundSync: syncCalls.triggerBackgroundSync,
 }))
 
 vi.mock('../logic/auth', () => ({
@@ -127,6 +129,7 @@ beforeEach(() => {
 	metaCalls.listAdAccounts.mockReset()
 	metaCalls.buildMetaClient.mockReset()
 	metaCalls.buildMetaClient.mockReturnValue({ listAdAccounts: metaCalls.listAdAccounts })
+	syncCalls.triggerBackgroundSync.mockReset()
 })
 
 describe('POST /meta-accounts/resync-insights', () => {
@@ -326,6 +329,7 @@ describe('POST /meta-accounts/connect', () => {
 		const body = apiErrorSchema.parse(await res.json())
 		expect(body.error.code).toBe('FORBIDDEN')
 		expect(dbCalls.transaction).not.toHaveBeenCalled()
+		expect(syncCalls.triggerBackgroundSync).not.toHaveBeenCalled()
 	})
 
 	it('rejects when no Meta token is configured', async () => {
@@ -339,6 +343,7 @@ describe('POST /meta-accounts/connect', () => {
 		const body = apiErrorSchema.parse(await res.json())
 		expect(body.error.code).toBe('BAD_REQUEST')
 		expect(dbCalls.transaction).not.toHaveBeenCalled()
+		expect(syncCalls.triggerBackgroundSync).not.toHaveBeenCalled()
 	})
 
 	it('attaches an account to the existing Client matched by Meta business id', async () => {
@@ -375,6 +380,7 @@ describe('POST /meta-accounts/connect', () => {
 		expect(upsertedAdAccounts).toEqual([
 			expect.objectContaining({ id: 'act_1', clientId: 'client_1', name: 'Account 1', currency: 'USD' }),
 		])
+		expect(syncCalls.triggerBackgroundSync).toHaveBeenCalledOnce()
 	})
 
 	it('creates exactly one Client, named after the business, when two accounts share a Meta business id', async () => {

@@ -12,12 +12,12 @@ import {
 	RefreshCw,
 	Search,
 	SlidersHorizontal,
-	Video,
 	X,
 } from 'lucide-react'
 import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
 
 import { DateRangePicker } from '@/components/date-range-picker'
+import { Lightbox } from '@/components/lightbox'
 import {
 	fleetBoardKeys,
 	fleetBoardQueries,
@@ -916,7 +916,8 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 		)
 	const data = creative.data
 	const mediaAssets = data.assets.filter(
-		(asset): asset is typeof asset & { mediaKey: string } => asset.mediaKey !== null,
+		(asset): asset is typeof asset & { kind: 'image' | 'video'; mediaKey: string } =>
+			asset.mediaKey !== null && (asset.kind === 'image' || asset.kind === 'video'),
 	)
 	const selectedAsset = mediaAssets.find(asset => asset.key === selectedAssetKey) ?? mediaAssets[0]
 	return (
@@ -951,51 +952,22 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 					</Button>
 				</div>
 			</div>
-			{selectedAsset?.mediaKey ? (
-				<div className="mt-3 overflow-hidden rounded-md border bg-background">
-					{selectedAsset.kind === 'video' ? (
-						<video
-							key={selectedAsset.key}
-							aria-label={selectedAsset.label}
-							className="max-h-[36rem] w-full bg-black object-contain"
-							controls
-							preload="metadata"
-							src={mediaUrl(data.id, selectedAsset.mediaKey)}
-						/>
-					) : (
-						<img
-							src={mediaUrl(data.id, selectedAsset.mediaKey)}
-							alt={selectedAsset.label}
-							className="max-h-[36rem] w-full object-contain"
-						/>
-					)}
-				</div>
-			) : null}
-			{mediaAssets.length > 1 ? (
-				<div className="mt-3 flex flex-wrap gap-2">
-					{mediaAssets.map(asset => (
-						<button
-							key={asset.key}
-							type="button"
-							className="w-28 overflow-hidden rounded-md border bg-background text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
-							onClick={() => setSelectedAssetKey(asset.key)}
-							aria-pressed={selectedAsset?.key === asset.key}
-						>
-							{asset.kind === 'video' ? (
-								<div className="flex aspect-square items-center justify-center bg-muted text-muted-foreground">
-									<Video size={24} aria-hidden="true" />
-								</div>
-							) : (
-								<img
-									src={mediaUrl(data.id, asset.mediaKey)}
-									alt=""
-									className="aspect-square w-full object-cover"
-								/>
-							)}
-							<p className="truncate px-2 py-1 text-xs">{asset.label}</p>
-						</button>
-					))}
-				</div>
+			{mediaAssets.length > 0 ? (
+				<Lightbox
+					assets={mediaAssets}
+					selectedAssetKey={selectedAsset?.key ?? null}
+					onSelectedAssetChange={setSelectedAssetKey}
+					mediaUnavailable={data.mediaUnavailable}
+					mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
+					metadata={{
+						title: creativeTitle(data),
+						body: data.body,
+						description: data.description,
+						callToAction: data.callToAction ? callToActionText(data.callToAction) : null,
+						destination: data.destination,
+					}}
+					hasMultipleAssets={data.assets.length > 1}
+				/>
 			) : null}
 			{data.assets.some(asset => !asset.mediaKey) || data.mediaUnavailable ? (
 				<div className="mt-3 flex flex-wrap gap-2">

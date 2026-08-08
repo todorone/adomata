@@ -154,7 +154,9 @@ describe('MetaClient', () => {
 		const [firstUrl] = fetch.mock.calls[0] as [string]
 		expect(new URL(firstUrl).pathname).toBe('/v25.0/act_100000000000001/campaigns')
 		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,effective_status,objective')
-		expect(new URL(firstUrl).searchParams.get('effective_status')).toBe('["ACTIVE","PAUSED","ARCHIVED","DELETED"]')
+		expect(new URL(firstUrl).searchParams.get('effective_status')).toBe(
+			'["ACTIVE","PAUSED","ARCHIVED","CAMPAIGN_PAUSED","ADSET_PAUSED","PENDING_REVIEW","DISAPPROVED","PREAPPROVED","PENDING_BILLING_INFO","IN_PROCESS","WITH_ISSUES"]',
+		)
 	})
 
 	it('lists Ad Accounts and normalizes missing timezones to null', async () => {

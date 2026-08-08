@@ -12,7 +12,8 @@ import {
 } from './roster'
 
 const graph = 'https://graph.facebook.com/v25.0'
-const hierarchyEffectiveStatuses = '["ACTIVE","PAUSED","ARCHIVED","DELETED"]'
+const hierarchyEffectiveStatuses =
+	'["ACTIVE","PAUSED","ARCHIVED","CAMPAIGN_PAUSED","ADSET_PAUSED","PENDING_REVIEW","DISAPPROVED","PREAPPROVED","PENDING_BILLING_INFO","IN_PROCESS","WITH_ISSUES"]'
 
 function accountFor(id: string) {
 	return fakeMetaAccounts.find(account => account.id === id)

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { requireSession } from '@/data/session'
-import { FleetBoard } from '@/components/fleet-board'
+import { FleetBoard } from '@/pages/fleet-board/fleet-board'
 import { fleetBoardSearchSchema, metricsSearchValue, type FleetBoardSearch } from '@/data/fleet-board-search'
 
 function rangeKey(range: FleetBoardSearch['range']) {

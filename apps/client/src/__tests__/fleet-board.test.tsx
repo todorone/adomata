@@ -235,7 +235,7 @@ vi.mock('@/data/fleet-board', () => ({
 	},
 }))
 
-const { FleetBoard } = await import('@/components/fleet-board')
+const { FleetBoard } = await import('@/pages/fleet-board/fleet-board')
 
 function money(value: string, currency: string) {
 	return new Intl.NumberFormat('uk-UA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(

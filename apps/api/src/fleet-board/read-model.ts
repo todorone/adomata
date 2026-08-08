@@ -47,7 +47,7 @@ type FleetBoardModel = {
 	childNodes: {
 		campaigns: Array<{ row: CampaignRow; kpis: AccountView['kpis'] }>
 		adSets: Array<{ row: AdSetRow; kpis: AccountView['kpis'] }>
-		ads: Array<{ row: AdRow; kpis: AccountView['kpis'] }>
+		ads: Array<{ row: AdRow; kpis: AccountView['kpis']; creativeId: string | null }>
 	}
 }
 
@@ -117,6 +117,7 @@ export async function readFleetBoardChildren(
 						name: node.row.name,
 						effectiveStatus: node.row.effectiveStatus,
 						kpis: node.kpis,
+						creativeId: null,
 					})),
 			)
 			continue
@@ -132,6 +133,7 @@ export async function readFleetBoardChildren(
 						name: node.row.name,
 						effectiveStatus: node.row.effectiveStatus,
 						kpis: node.kpis,
+						creativeId: null,
 					})),
 			)
 			continue
@@ -146,6 +148,7 @@ export async function readFleetBoardChildren(
 					name: node.row.name,
 					effectiveStatus: node.row.effectiveStatus,
 					kpis: node.kpis,
+					creativeId: node.creativeId,
 				})),
 		)
 	}
@@ -196,6 +199,14 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
+	const creativeRows = await db
+		.select({ adId: adCreative.adId, creativeId: adCreative.id })
+		.from(adCreative)
+		.innerJoin(ad, eq(adCreative.adId, ad.id))
+		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+		.where(inArray(campaign.adAccountId, accountIds))
+	const creativeIdByAd = new Map(creativeRows.map(row => [row.adId, row.creativeId]))
 	const insightRows = await db
 		.select({ insight: adInsight, ad, adSet, campaign })
 		.from(adInsight)
@@ -268,7 +279,11 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 				hierarchyRows.map(row => ({ row: row.campaign, kpis: kpisForCampaign.get(row.campaign.id)! })),
 			),
 			adSets: uniqueRows(hierarchyRows.map(row => ({ row: row.adSet, kpis: kpisForAdSet.get(row.adSet.id)! }))),
-			ads: hierarchyRows.map(row => ({ row: row.ad, kpis: kpisForAd.get(row.ad.id)! })),
+			ads: hierarchyRows.map(row => ({
+				row: row.ad,
+				kpis: kpisForAd.get(row.ad.id)!,
+				creativeId: creativeIdByAd.get(row.ad.id) ?? null,
+			})),
 		},
 	}
 }

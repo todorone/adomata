@@ -48,9 +48,11 @@ export function normalizeCreative(creative: CreativeRecord) {
 }
 
 export function mediaUrlForKey(creative: Pick<CreativeRecord, 'payload'>, key: string) {
+	const payload = objectPayload(creative.payload)
+	if (key === 'thumb') return urlValue(payload.thumbnail_url) ?? urlValue(payload.image_url)
 	const index = /^m(\d+)$/.exec(key)?.[1]
 	if (index === undefined) return null
-	return mediaEntries(objectPayload(creative.payload))[Number(index)]?.url ?? null
+	return mediaEntries(payload)[Number(index)]?.url ?? null
 }
 
 function objectPayload(value: unknown): Record<string, unknown> {

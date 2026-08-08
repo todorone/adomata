@@ -64,7 +64,7 @@ const creativeRoute = createRoute({
 const mediaRoute = createRoute({
 	method: 'get',
 	path: '/creatives/{creativeId}/media/{key}',
-	request: { params: z.object({ creativeId: z.string().min(1).max(200), key: z.string().regex(/^m\d+$/) }) },
+	request: { params: z.object({ creativeId: z.string().min(1).max(200), key: z.string().regex(/^(m\d+|thumb)$/) }) },
 	responses: { 200: { description: 'Creative media stream' }, 404: { description: 'Media unavailable' } },
 })
 

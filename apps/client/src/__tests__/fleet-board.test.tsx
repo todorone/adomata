@@ -105,6 +105,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		name: 'Кампанія Ліди',
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
+		creativeId: null,
 	},
 	{
 		id: 'adset-1',
@@ -113,6 +114,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		name: 'Група Київ',
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
+		creativeId: null,
 	},
 	{
 		id: 'ad-running',
@@ -121,6 +123,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		name: 'Оголошення що працює',
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '200', cpa: '17.5', running: true }),
+		creativeId: 'creative-1',
 	},
 	{
 		id: 'ad-disapproved',
@@ -129,6 +132,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		name: 'Оголошення відхилене',
 		effectiveStatus: 'DISAPPROVED',
 		kpis: kpis({ spend: '100', cpa: '11.25', running: false }),
+		creativeId: null,
 	},
 	{
 		id: 'ad-future-status',
@@ -137,6 +141,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		name: 'Оголошення новий статус',
 		effectiveStatus: 'SOME_STATUS_META_ADDED_LATER',
 		kpis: kpis({ spend: '0', running: false }),
+		creativeId: null,
 	},
 ]
 
@@ -287,6 +292,16 @@ describe('Fleet Board', () => {
 		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
 		const emptyAccountRequests = childRequests.filter(parents => parents.some(parent => parent.id === duoFirst.id))
 		expect(emptyAccountRequests).toHaveLength(1)
+	})
+
+	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {
+		await renderToAdDepth()
+
+		const thumbnail = row('Оголошення що працює').querySelector('img')
+		expect(thumbnail?.getAttribute('src')).toBe('http://localhost:3000/fleet-board/creatives/creative-1/media/thumb')
+
+		expect(row('Оголошення відхилене').querySelector('img')).toBeNull()
+		expect(row('Оголошення відхилене').querySelector('svg')).toBeTruthy()
 	})
 
 	it('renders a Client with exactly one Ad Account as a single row', () => {

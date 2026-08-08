@@ -837,7 +837,7 @@ function NodeRow({
 								: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
 						}
 					>
-						{isExpandable ? (
+						{node.type !== 'ad' ? (
 							<ChevronRight
 								size={14}
 								className={
@@ -845,13 +845,9 @@ function NodeRow({
 								}
 							/>
 						) : (
-							// The affordance that says a Creative opens on click.
-							<ImageIcon size={14} className="shrink-0 text-muted-foreground" aria-hidden />
+							<AdThumbnail creativeId={node.creativeId} />
 						)}
 						{row.mergedClient ? (
-							// A Client with exactly one Ad Account is one row: its rollup is by definition
-							// equal to the Ad Account's own values, so restating them costs a row and says
-							// nothing. Rendering only — no rollup is recomputed.
 							<span className="min-w-0 truncate">
 								{row.mergedClient.name}
 								<small className="ml-2 font-normal text-muted-foreground">{node.name}</small>
@@ -882,6 +878,23 @@ function NodeRow({
 				<CreativeDetail adId={node.id} onClose={() => onToggle(node)} />
 			) : null}
 		</div>
+	)
+}
+
+function AdThumbnail({ creativeId }: { creativeId: string | null }) {
+	const [failed, setFailed] = useState(false)
+	if (!creativeId || failed) {
+		return <ImageIcon size={14} className="mr-2 shrink-0 text-muted-foreground" aria-hidden />
+	}
+	return (
+		<img
+			src={mediaUrl(creativeId, 'thumb')}
+			alt=""
+			// Sized to the row's own min-h-9 (36px) minus 2px top/bottom, so it reads as "fills the
+			// row" without depending on the row's actual height at render time.
+			className="my-0.5 mr-2 h-8 w-8 shrink-0 rounded object-cover"
+			onError={() => setFailed(true)}
+		/>
 	)
 }
 

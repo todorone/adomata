@@ -109,6 +109,7 @@ export const fleetBoardHierarchyNodeSchema = z.object({
 	name: z.string(),
 	effectiveStatus: z.string(),
 	kpis: fleetBoardKpisSchema,
+	creativeId: z.string().nullable(),
 })
 
 export const fleetBoardClientSchema = z.object({

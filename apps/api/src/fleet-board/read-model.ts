@@ -36,7 +36,6 @@ const purchaseActionTypes = new Set(['purchase', 'omni_purchase', 'offsite_conve
 
 type AccountRow = typeof adAccount.$inferSelect
 type ClientRow = typeof client.$inferSelect
-type AdRow = typeof ad.$inferSelect
 type Contribution = Parameters<typeof rollupKpis>[0][number]
 type AccountView = FleetBoardRootResponse['accounts'][number]
 type ClientView = FleetBoardRootResponse['clients'][number]
@@ -46,6 +45,31 @@ type FleetBoardModel = {
 	accounts: AccountView[]
 	clients: ClientView[]
 	nodes: ModelNode[]
+}
+
+// Column subsets rather than whole rows. The joined parents repeat once per child row, and
+// `insightRows` repeats them once per Ad per day, so selecting full rows there is what actually
+// sizes the snapshot read.
+const campaignNodeFields = {
+	id: campaign.id,
+	adAccountId: campaign.adAccountId,
+	name: campaign.name,
+	effectiveStatus: campaign.effectiveStatus,
+	deletedAt: campaign.deletedAt,
+}
+const adSetNodeFields = {
+	id: adSet.id,
+	campaignId: adSet.campaignId,
+	name: adSet.name,
+	effectiveStatus: adSet.effectiveStatus,
+	deletedAt: adSet.deletedAt,
+}
+const adNodeFields = {
+	id: ad.id,
+	adSetId: ad.adSetId,
+	name: ad.name,
+	effectiveStatus: ad.effectiveStatus,
+	deletedAt: ad.deletedAt,
 }
 
 export async function readFleetBoardRoot(
@@ -108,42 +132,61 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	const accountRanges = new Map(
 		accountRows.map(({ account }) => [account.id, dateRangeForAccount(range, account.timezoneName ?? 'UTC', now)]),
 	)
-	const starts = [...accountRanges.values()].map(value => value.start)
-	const ends = [...accountRanges.values()].map(value => value.end)
 	const accountIds = [...accountsById.keys()]
-	const campaignRows = await db.select({ campaign }).from(campaign).where(inArray(campaign.adAccountId, accountIds))
-	const adSetRows = await db
-		.select({ adSet, campaign })
-		.from(adSet)
-		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-		.where(inArray(campaign.adAccountId, accountIds))
-	const hierarchyRows = await db
-		.select({ ad, adSet, campaign })
-		.from(ad)
-		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
-		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-		.where(inArray(campaign.adAccountId, accountIds))
-	const creativeRows = await db
-		.select({ adId: adCreative.adId, creativeId: adCreative.id, hasVideo: adCreative.hasVideo })
-		.from(adCreative)
-		.innerJoin(ad, eq(adCreative.adId, ad.id))
-		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
-		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-		.where(inArray(campaign.adAccountId, accountIds))
-	const creativeByAd = new Map(creativeRows.map(row => [row.adId, row]))
-	const insightRows = await db
-		.select({ insight: adInsight, ad, adSet, campaign })
-		.from(adInsight)
-		.innerJoin(ad, eq(adInsight.adId, ad.id))
-		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
-		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-		.where(
-			and(
-				inArray(campaign.adAccountId, accountIds),
-				gte(adInsight.date, starts.sort()[0]!),
-				lte(adInsight.date, ends.sort().at(-1)!),
+	// Widest account-local window; each row is still re-checked against its own account's range below.
+	const rangeStart = [...accountRanges.values()].map(value => value.start).sort()[0]!
+	const rangeEnd = [...accountRanges.values()]
+		.map(value => value.end)
+		.sort()
+		.at(-1)!
+	// Independent given `accountIds`: this is the only board read, so pay one round-trip, not five.
+	const [campaignRows, adSetRows, hierarchyRows, creativeRows, insightRows] = await Promise.all([
+		db.select({ campaign: campaignNodeFields }).from(campaign).where(inArray(campaign.adAccountId, accountIds)),
+		db
+			.select({
+				adSet: adSetNodeFields,
+				campaign: { adAccountId: campaign.adAccountId, deletedAt: campaign.deletedAt },
+			})
+			.from(adSet)
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(inArray(campaign.adAccountId, accountIds)),
+		db
+			.select({
+				ad: adNodeFields,
+				adSet: { id: adSet.id, deletedAt: adSet.deletedAt },
+				campaign: { id: campaign.id, adAccountId: campaign.adAccountId, deletedAt: campaign.deletedAt },
+			})
+			.from(ad)
+			.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(inArray(campaign.adAccountId, accountIds)),
+		db
+			.select({ adId: adCreative.adId, creativeId: adCreative.id, hasVideo: adCreative.hasVideo })
+			.from(adCreative)
+			.innerJoin(ad, eq(adCreative.adId, ad.id))
+			.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(inArray(campaign.adAccountId, accountIds)),
+		db
+			.select({
+				insight: adInsight,
+				ad: { id: ad.id, effectiveStatus: ad.effectiveStatus, deletedAt: ad.deletedAt },
+				adSet: { resultActionType: adSet.resultActionType },
+				campaign: { adAccountId: campaign.adAccountId },
+			})
+			.from(adInsight)
+			.innerJoin(ad, eq(adInsight.adId, ad.id))
+			.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(
+				and(
+					inArray(campaign.adAccountId, accountIds),
+					gte(adInsight.date, rangeStart),
+					lte(adInsight.date, rangeEnd),
+				),
 			),
-		)
+	])
+	const creativeByAd = new Map(creativeRows.map(row => [row.adId, row]))
 
 	const contributionsByAd = new Map<string, Contribution[]>()
 	for (const row of hierarchyRows) {
@@ -164,29 +207,34 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		)
 	}
 
-	const allContributionsFor = (predicate: (row: (typeof hierarchyRows)[number]) => boolean) =>
-		hierarchyRows.filter(predicate).flatMap(row => contributionsByAd.get(row.ad.id) ?? [])
+	// One walk over the Ads fills every ancestor bucket. Scanning per Ad Set / Campaign / Ad Account
+	// instead makes the rollup quadratic in fleet size, which the single-shot snapshot cannot absorb.
+	const contributionsByAdSet = new Map<string, Contribution[]>()
+	const contributionsByCampaign = new Map<string, Contribution[]>()
+	const contributionsByAccount = new Map<string, Contribution[]>()
+	for (const row of hierarchyRows) {
+		const contributions = contributionsByAd.get(row.ad.id) ?? []
+		appendContributions(contributionsByAdSet, row.adSet.id, contributions)
+		appendContributions(contributionsByCampaign, row.campaign.id, contributions)
+		appendContributions(contributionsByAccount, row.campaign.adAccountId, contributions)
+	}
+
 	const kpisForAd = new Map(
 		hierarchyRows.map(row => [row.ad.id, toApiKpis(rollupKpis(contributionsByAd.get(row.ad.id) ?? []))]),
 	)
+	// Ad Sets and Campaigns with no live Ads keep an entry so their nodes still carry zeroed KPIs.
 	const kpisForAdSet = new Map(
-		adSetRows.map(row => [
-			row.adSet.id,
-			toApiKpis(rollupKpis(allContributionsFor(candidate => candidate.adSet.id === row.adSet.id))),
-		]),
+		adSetRows.map(row => [row.adSet.id, toApiKpis(rollupKpis(contributionsByAdSet.get(row.adSet.id) ?? []))]),
 	)
 	const kpisForCampaign = new Map(
 		campaignRows.map(row => [
 			row.campaign.id,
-			toApiKpis(rollupKpis(allContributionsFor(candidate => candidate.campaign.id === row.campaign.id))),
+			toApiKpis(rollupKpis(contributionsByCampaign.get(row.campaign.id) ?? [])),
 		]),
-	)
-	const accountContributions = new Map(
-		accountIds.map(id => [id, allContributionsFor(row => row.campaign.adAccountId === id)]),
 	)
 
 	const accounts = accountRows.map(({ account, client: accountClient }) =>
-		accountView(account, accountClient, accountContributions.get(account.id) ?? [], now),
+		accountView(account, accountClient, contributionsByAccount.get(account.id) ?? [], now),
 	)
 	const clients = [...new Map(accountRows.map(row => [row.client.id, row.client])).values()].map(client => ({
 		id: client.id,
@@ -293,7 +341,13 @@ function accountView(
 	}
 }
 
-function zeroContribution(adRow: AdRow): Contribution {
+function appendContributions(target: Map<string, Contribution[]>, key: string, contributions: Contribution[]) {
+	const existing = target.get(key)
+	if (existing) existing.push(...contributions)
+	else target.set(key, [...contributions])
+}
+
+function zeroContribution(adRow: { deletedAt: Date | null; effectiveStatus: string }): Contribution {
 	return {
 		spend: '0',
 		impressions: 0,

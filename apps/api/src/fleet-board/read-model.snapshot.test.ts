@@ -205,6 +205,63 @@ describe('Fleet Board complete snapshot read model', () => {
 		expect(dbSelect).toHaveBeenCalledTimes(6)
 	})
 
+	it('accumulates an ancestor rollup across every descendant branch, not just the last one', async () => {
+		const firstAdSet = adSetRow()
+		const secondAdSet = adSetRow({ id: 'adset_2', name: 'Ad Set 2' })
+		const firstAd = adRow()
+		const secondAd = adRow({ id: 'ad_2', adSetId: secondAdSet.id })
+
+		dbSelect
+			.mockReturnValueOnce(chain([{ account: accountRow(), client: clientRow('client_1', 'agency_1', 'Client 1') }]))
+			.mockReturnValueOnce(chain([{ campaign: campaignRow() }]))
+			.mockReturnValueOnce(
+				chain([
+					{ adSet: firstAdSet, campaign: campaignRow() },
+					{ adSet: secondAdSet, campaign: campaignRow() },
+				]),
+			)
+			.mockReturnValueOnce(
+				chain([
+					{ ad: firstAd, adSet: firstAdSet, campaign: campaignRow() },
+					{ ad: secondAd, adSet: secondAdSet, campaign: campaignRow() },
+				]),
+			)
+			.mockReturnValueOnce(chain([]))
+			.mockReturnValueOnce(
+				chain([
+					{
+						insight: insightRow(firstAd.id, '2026-01-01', '10'),
+						ad: firstAd,
+						adSet: firstAdSet,
+						campaign: campaignRow(),
+					},
+					{
+						insight: insightRow(secondAd.id, '2026-01-01', '7'),
+						ad: secondAd,
+						adSet: secondAdSet,
+						campaign: campaignRow(),
+					},
+				]),
+			)
+
+		const response = await readFleetBoardRoot(
+			'agency_1',
+			{
+				range: { start: '2026-01-01', end: '2026-01-02' },
+				search: '',
+				needsAttention: false,
+				sort: 'name',
+				direction: 'asc',
+			},
+			new Date('2026-01-03T00:00:00.000Z'),
+		)
+
+		expect(response.nodes.find(node => node.id === 'adset_1')?.kpis.spend).toBe('10')
+		expect(response.nodes.find(node => node.id === 'adset_2')?.kpis.spend).toBe('7')
+		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('17')
+		expect(response.accounts[0]?.kpis.spend).toBe('17')
+	})
+
 	it('emits a response the root schema accepts, since production serves it without re-parsing', async () => {
 		dbSelect
 			.mockReturnValueOnce(chain([{ account: accountRow(), client: clientRow('client_1', 'agency_1', 'Client 1') }]))

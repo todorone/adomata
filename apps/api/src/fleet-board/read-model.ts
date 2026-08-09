@@ -47,9 +47,6 @@ type FleetBoardModel = {
 	nodes: ModelNode[]
 }
 
-// Column subsets rather than whole rows. The joined parents repeat once per child row, and
-// `insightRows` repeats them once per Ad per day, so selecting full rows there is what actually
-// sizes the snapshot read.
 const campaignNodeFields = {
 	id: campaign.id,
 	adAccountId: campaign.adAccountId,
@@ -133,7 +130,6 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		accountRows.map(({ account }) => [account.id, dateRangeForAccount(range, account.timezoneName ?? 'UTC', now)]),
 	)
 	const accountIds = [...accountsById.keys()]
-	// Widest account-local window; each row is still re-checked against its own account's range below.
 	const rangeStart = [...accountRanges.values()].map(value => value.start).sort()[0]!
 	const rangeEnd = [...accountRanges.values()]
 		.map(value => value.end)
@@ -207,8 +203,6 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		)
 	}
 
-	// One walk over the Ads fills every ancestor bucket. Scanning per Ad Set / Campaign / Ad Account
-	// instead makes the rollup quadratic in fleet size, which the single-shot snapshot cannot absorb.
 	const contributionsByAdSet = new Map<string, Contribution[]>()
 	const contributionsByCampaign = new Map<string, Contribution[]>()
 	const contributionsByAccount = new Map<string, Contribution[]>()
@@ -222,7 +216,6 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	const kpisForAd = new Map(
 		hierarchyRows.map(row => [row.ad.id, toApiKpis(rollupKpis(contributionsByAd.get(row.ad.id) ?? []))]),
 	)
-	// Ad Sets and Campaigns with no live Ads keep an entry so their nodes still carry zeroed KPIs.
 	const kpisForAdSet = new Map(
 		adSetRows.map(row => [row.adSet.id, toApiKpis(rollupKpis(contributionsByAdSet.get(row.adSet.id) ?? []))]),
 	)

@@ -4,8 +4,6 @@ import { and, eq } from 'drizzle-orm'
 import {
 	fleetBoardAdPreviewResponseSchema,
 	fleetBoardCreativeResponseSchema,
-	fleetBoardHierarchyQuerySchema,
-	fleetBoardHierarchyResponseSchema,
 	fleetBoardRootQuerySchema,
 	fleetBoardRootResponseSchema,
 } from '../client/fleet-board'
@@ -19,7 +17,6 @@ import {
 	normalizeCreative,
 	needsCreativePreview,
 	readCreative,
-	readFleetBoardChildren,
 	readFleetBoardRoot,
 	mediaUrlForKey,
 	needsCreativeMediaRefresh,
@@ -36,19 +33,6 @@ const rootRoute = createRoute({
 			description: 'Fleet Board roots',
 			content: { 'application/json': { schema: fleetBoardRootResponseSchema } },
 		},
-	},
-})
-
-const hierarchyRoute = createRoute({
-	method: 'get',
-	path: '/hierarchy',
-	request: { query: fleetBoardHierarchyQuerySchema },
-	responses: {
-		200: {
-			description: 'Fleet Board hierarchy nodes',
-			content: { 'application/json': { schema: fleetBoardHierarchyResponseSchema } },
-		},
-		404: { description: 'A parent is not visible in the active Agency' },
 	},
 })
 
@@ -90,6 +74,8 @@ const mediaRoute = createRoute({
 	responses: { 200: { description: 'Creative media stream' }, 404: { description: 'Media unavailable' } },
 })
 
+const isProduction = process.env.NODE_ENV === 'production'
+
 const fleetBoardBase = new OpenAPIHono()
 fleetBoardBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
@@ -97,13 +83,7 @@ export const fleetBoardRoutes = fleetBoardBase
 	.openapi(rootRoute, async c => {
 		triggerBackgroundSync()
 		const result = await readFleetBoardRoot(c.get('orgId'), c.req.valid('query'))
-		return c.json(fleetBoardRootResponseSchema.parse(result), 200)
-	})
-	.openapi(hierarchyRoute, async c => {
-		const query = c.req.valid('query')
-		const result = await readFleetBoardChildren(c.get('orgId'), query.range, query.parents)
-		if (!result) return apiError(c, 'NOT_FOUND')
-		return c.json(fleetBoardHierarchyResponseSchema.parse(result), 200)
+		return c.json(isProduction ? result : fleetBoardRootResponseSchema.parse(result), 200)
 	})
 	.openapi(creativeRoute, async c => {
 		let record = await readCreative(c.get('orgId'), c.req.valid('param').adId)

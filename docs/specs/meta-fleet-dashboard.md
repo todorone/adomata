@@ -166,10 +166,12 @@ Consequences:
   Account level only — deep links to a selected Campaign / Ad Set / Ad are follow-up work (§11).
 
 All three views remain continuous rather than root-paginated. Virtualized rendering bounds mounted UI,
-and descendants are loaded from Adomata's database only when View Depth or local detail needs them. The
-initial response contains Client metadata for filtering and all visible Ad Account roots, not the entire
-hidden tree. Newly opened parents are batched per hierarchy level; Creative payload and media load only
-when an Ad's detail opens.
+and one complete Fleet Board snapshot returns the visible Ad Account roots plus every live Campaign, Ad Set,
+and Ad beneath them as a flat `nodes` collection. Each node carries only its immediate `parentId`; the
+client builds the parent index once per response, so View Depth, row expansion, view switching, and refresh
+never issue hierarchy requests. The snapshot is scoped by the existing root search, Client, Needs Attention,
+and sort state. Creative payload and media remain separate on-demand reads; an Ad node carries only its
+Creative ID and a lightweight video-presence flag.
 
 ---
 
@@ -359,6 +361,17 @@ inside a 5–15 minute floor — so no cost pressure pushes back toward live rea
 
 **Nothing on the board is fetched live.** The whole tree syncs, including on-expand levels: expanding a
 Campaign reads already-synced Ad Sets, it does not call Meta.
+
+### Complete Fleet Board snapshot
+
+`GET /fleet-board` is the single board read for a Time Range and root-query state. Its response contains
+Client metadata, sorted Ad Account roots, header/per-account freshness, and all live descendants below the
+returned roots in one flat `nodes` collection. Campaign, Ad Set, and Ad nodes use the same presentation-neutral
+fields and immediate `parentId`; their KPI values are materialized by the same read-model pass as the roots.
+Soft-deleted structure is omitted from `nodes`, while its stored Insights remain available to the historical
+rollups. The larger first payload is intentional: it replaces repeated parent-list reads that rebuilt the same
+model. If continuous fleet volume later makes this response too large, pagination or streaming is a separate
+decision. Creative payloads, media, and Meta-hosted previews stay lazy.
 
 ### What syncs, and at what grain
 

@@ -16,8 +16,7 @@ export const fleetBoardRangePresetSchema = z.enum([
 	'custom',
 ])
 
-// Shared by the root and hierarchy query schemas: a 'custom' preset carries its own from/to
-// instead of resolving relative to `now`, so it needs the same validation in both places.
+// A 'custom' preset carries its own from/to instead of resolving relative to `now`.
 function resolveRange(
 	input: { range: z.infer<typeof fleetBoardRangePresetSchema>; from?: string; to?: string },
 	context: z.RefinementCtx,
@@ -99,7 +98,7 @@ export const fleetBoardAccountSchema = z.object({
 	freshness: z.object({ accountTier: freshnessSchema, insightsTier: freshnessSchema }),
 })
 
-export const fleetBoardHierarchyNodeSchema = z.object({
+export const fleetBoardNodeSchema = z.object({
 	id: z.string(),
 	type: z.enum(['campaign', 'adset', 'ad']),
 	parentId: z.string(),
@@ -139,6 +138,7 @@ export const fleetBoardRootQuerySchema = z
 export const fleetBoardRootResponseSchema = z.object({
 	clients: z.array(fleetBoardClientSchema),
 	accounts: z.array(fleetBoardAccountSchema),
+	nodes: z.array(fleetBoardNodeSchema),
 	header: z.object({
 		accountTierRefreshedAt: nullableIsoDateTimeSchema,
 		insightsTierRefreshedAt: nullableIsoDateTimeSchema,
@@ -151,48 +151,6 @@ export const fleetBoardRootResponseSchema = z.object({
 		provisional: z.boolean(),
 	}),
 })
-
-export const fleetBoardHierarchyQuerySchema = z
-	.object({
-		range: fleetBoardRangePresetSchema.optional().default('today'),
-		from: isoDateSchema.optional(),
-		to: isoDateSchema.optional(),
-		parents: z
-			.string()
-			.max(10_000)
-			.transform((value, context) => {
-				try {
-					return JSON.parse(value) as unknown
-				} catch {
-					context.addIssue({ code: 'custom', message: 'parents must be JSON' })
-					return z.NEVER
-				}
-			})
-			.pipe(
-				z
-					.array(z.object({ type: z.enum(['account', 'campaign', 'adset']), id: z.string().min(1).max(200) }))
-					.min(1)
-					.max(50)
-					.superRefine((parents, context) => {
-						const duplicate = parents.find(
-							(parent, index) =>
-								parents.findIndex(candidate => candidate.type === parent.type && candidate.id === parent.id) !==
-								index,
-						)
-						if (duplicate)
-							context.addIssue({
-								code: 'custom',
-								message: `Duplicate parent: ${duplicate.type}/${duplicate.id}`,
-							})
-					}),
-			),
-	})
-	.transform(({ from, to, ...rest }, context) => ({
-		...rest,
-		range: resolveRange({ range: rest.range, from, to }, context),
-	}))
-
-export const fleetBoardHierarchyResponseSchema = z.object({ nodes: z.array(fleetBoardHierarchyNodeSchema) })
 
 export const fleetBoardCreativeAssetSchema = z.object({
 	key: z.string(),
@@ -231,6 +189,6 @@ export type FleetBoardCustomRange = { start: string; end: string }
 export type FleetBoardRange = Exclude<FleetBoardRangePreset, 'custom'> | FleetBoardCustomRange
 export type FleetBoardRootQuery = z.infer<typeof fleetBoardRootQuerySchema>
 export type FleetBoardRootResponse = z.infer<typeof fleetBoardRootResponseSchema>
-export type FleetBoardHierarchyResponse = z.infer<typeof fleetBoardHierarchyResponseSchema>
+export type FleetBoardNode = z.infer<typeof fleetBoardNodeSchema>
 export type FleetBoardCreativeResponse = z.infer<typeof fleetBoardCreativeResponseSchema>
 export type FleetBoardAdPreviewResponse = z.infer<typeof fleetBoardAdPreviewResponseSchema>

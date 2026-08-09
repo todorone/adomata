@@ -16,7 +16,7 @@ import {
 
 import { DateRangePicker } from '@/components/date-range-picker'
 import { Lightbox } from '@/components/lightbox'
-import { fleetBoardQueries, type FleetBoardRoot } from '@/data/fleet-board'
+import { fleetBoardParentKey, fleetBoardQueries, type FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
 import { Button } from '@/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
@@ -38,11 +38,10 @@ import {
 	mediaUrl,
 	metaAdsManagerUrl,
 	nextMetrics,
-	parentKey,
 	syncNote,
 	type Account,
 	type Client,
-	type HierarchyNode,
+	type NodeIndex,
 	type Node,
 	type SortKey,
 	type TreeRow,
@@ -70,7 +69,7 @@ export type ViewProps = {
 	accounts: Account[]
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
-	loadedNodes: Record<string, HierarchyNode[]>
+	nodeIndex: NodeIndex
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
@@ -281,8 +280,8 @@ function CompactSelect<Value extends string>({
 	)
 }
 
-export function TreeView({ accounts, search, setSearch, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
-	const rows = flattenRows(accounts, search, loadedNodes, expanded)
+export function TreeView({ accounts, search, setSearch, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
+	const rows = flattenRows(accounts, search, nodeIndex, expanded)
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -393,7 +392,7 @@ function ColumnHeader({
 	)
 }
 
-export function ControlRoom({ accounts, search, setSearch, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
+export function ControlRoom({ accounts, search, setSearch, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
 	const railItems = accounts
 	const railRef = useRef<HTMLDivElement>(null)
@@ -454,7 +453,7 @@ export function ControlRoom({ accounts, search, setSearch, loadedNodes, expanded
 					accounts={[selected]}
 					search={search}
 					setSearch={setSearch}
-					loadedNodes={loadedNodes}
+					nodeIndex={nodeIndex}
 					expanded={expanded}
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
@@ -464,7 +463,7 @@ export function ControlRoom({ accounts, search, setSearch, loadedNodes, expanded
 	)
 }
 
-export function SignalsView({ accounts, search, loadedNodes, expanded, creativeAdId, onToggle }: ViewProps) {
+export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
 	return (
 		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
@@ -473,7 +472,7 @@ export function SignalsView({ accounts, search, loadedNodes, expanded, creativeA
 					lane={lane}
 					items={accounts.filter(account => account.signalsLane === lane)}
 					search={search}
-					loadedNodes={loadedNodes}
+					nodeIndex={nodeIndex}
 					expanded={expanded}
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
@@ -487,7 +486,7 @@ function SignalLane({
 	lane,
 	items,
 	search,
-	loadedNodes,
+	nodeIndex,
 	expanded,
 	creativeAdId,
 	onToggle,
@@ -495,7 +494,7 @@ function SignalLane({
 	lane: keyof typeof laneLabels
 	items: Account[]
 	search: FleetBoardSearch
-	loadedNodes: Record<string, HierarchyNode[]>
+	nodeIndex: NodeIndex
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
@@ -511,7 +510,7 @@ function SignalLane({
 			{items.length === 0 ? null : (
 				<div className="mt-2 flex flex-col gap-2">
 					{items.map(account => {
-						const isOpen = expanded.has(parentKey('account', account.id))
+						const isOpen = expanded.has(fleetBoardParentKey('account', account.id))
 						const sync = syncNote(account)
 						return (
 							<article key={account.id} className="rounded-lg border bg-background p-2">
@@ -543,7 +542,7 @@ function SignalLane({
 								<KpiStrip kpis={account.kpis} metrics={search.metrics} currency={account.currency} />
 								{isOpen ? (
 									<div className="mt-2 border-t pt-1">
-										{flattenAccount(account, 0, search, loadedNodes, expanded).map(row => (
+										{flattenAccount(account, 0, search, nodeIndex, expanded).map(row => (
 											<NodeRow
 												key={`${row.node.type}:${row.node.id}`}
 												row={row}
@@ -580,7 +579,8 @@ function NodeRow({
 	const { node } = row
 	const isAccount = node.type === 'account'
 	const isExpandable = node.type !== 'ad'
-	const isExpanded = node.type === 'ad' ? creativeAdId === node.id : expanded.has(parentKey(node.type, node.id))
+	const isExpanded =
+		node.type === 'ad' ? creativeAdId === node.id : expanded.has(fleetBoardParentKey(node.type, node.id))
 	return (
 		<div className="border-b px-2" role="presentation">
 			<div

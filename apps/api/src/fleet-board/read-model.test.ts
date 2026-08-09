@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+import {
+	creativeHasVideo,
+	mediaUrlForKey,
+	needsCreativeMediaRefresh,
+	needsCreativePreview,
+	normalizeCreative,
+} from './creative'
 
 describe('Fleet Board creative normalization', () => {
 	it('exposes video presence without embedding creative payloads', () => {
@@ -80,7 +86,55 @@ describe('Fleet Board creative normalization', () => {
 			},
 		})
 
-		expect(creative.assets[0]).toMatchObject({ kind: 'video', label: 'Відео 1', mediaKey: 'm0' })
+		expect(creative.assets).toEqual([{ key: 'm0', kind: 'video', label: 'Відео 1', value: null, mediaKey: 'm0' }])
+	})
+
+	it('keeps a video Meta refused to serve visible as an asset with no media', () => {
+		const creative = normalizeCreative({
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Video creative',
+			payload: { video_id: 'video-1', thumbnail_url: 'https://media.example.test/video-1.jpg' },
+		})
+
+		expect(creative.assets).toEqual([
+			{ key: 'video', kind: 'video', label: 'Відео', value: 'video-1', mediaKey: null },
+		])
+		expect(creative.mediaUnavailable).toBe(true)
+	})
+
+	it('flags a Creative as video from a direct video, a resolved video URL, or an asset-feed video', () => {
+		expect(creativeHasVideo({ video_id: 'video-1' })).toBe(true)
+		expect(creativeHasVideo({ video_url: 'https://media.example.test/video-1.mp4' })).toBe(true)
+		expect(creativeHasVideo({ asset_feed_spec: { videos: [{ video_id: 'video-1' }] } })).toBe(true)
+		expect(creativeHasVideo({ image_url: 'https://media.example.test/image-1.jpg' })).toBe(false)
+		expect(creativeHasVideo({ asset_feed_spec: { videos: [] } })).toBe(false)
+		expect(creativeHasVideo(null)).toBe(false)
+	})
+
+	it('only needs a hosted preview for stored video creatives with unavailable video media', () => {
+		const creative = {
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Video creative',
+			payload: { video_id: 'video-1' },
+		}
+		expect(needsCreativePreview({ ...creative, hasVideo: false })).toBe(false)
+		expect(
+			needsCreativePreview({
+				...creative,
+				hasVideo: true,
+				payload: { image_url: 'https://media.example.test/image.jpg' },
+			}),
+		).toBe(false)
+		expect(needsCreativePreview({ ...creative, hasVideo: true })).toBe(true)
+		expect(
+			needsCreativePreview({
+				...creative,
+				hasVideo: true,
+				payload: { video_id: 'video-1', video_url: 'https://media.example.test/video.mp4' },
+			}),
+		).toBe(false)
 	})
 
 	it('uses resolved asset-feed image URLs and excludes the ad thumbnail from expanded media', () => {

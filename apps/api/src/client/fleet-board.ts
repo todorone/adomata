@@ -174,6 +174,16 @@ export const fleetBoardCreativeResponseSchema = z.object({
 	mediaUnavailable: z.boolean(),
 })
 
+export const fleetBoardAdPreviewResponseSchema = z.object({
+	preview: z
+		.object({
+			url: z.string().url(),
+			width: z.number().int().positive().nullable(),
+			height: z.number().int().positive().nullable(),
+		})
+		.nullable(),
+})
+
 export type FleetBoardRangePreset = z.infer<typeof fleetBoardRangePresetSchema>
 export type FleetBoardCustomRange = { start: string; end: string }
 export type FleetBoardRange = Exclude<FleetBoardRangePreset, 'custom'> | FleetBoardCustomRange
@@ -181,3 +191,4 @@ export type FleetBoardRootQuery = z.infer<typeof fleetBoardRootQuerySchema>
 export type FleetBoardRootResponse = z.infer<typeof fleetBoardRootResponseSchema>
 export type FleetBoardNode = z.infer<typeof fleetBoardNodeSchema>
 export type FleetBoardCreativeResponse = z.infer<typeof fleetBoardCreativeResponseSchema>
+export type FleetBoardAdPreviewResponse = z.infer<typeof fleetBoardAdPreviewResponseSchema>

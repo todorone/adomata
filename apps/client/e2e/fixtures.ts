@@ -9,7 +9,7 @@ export const API_URL = process.env['VITE_API_URL'] ?? 'http://localhost:4000'
 export const SUPERADMIN = {
 	name: 'Super E2E',
 	email: process.env['E2E_SUPERADMIN_EMAIL'] ?? 'super@adomata.com',
-	password: process.env['E2E_SUPERADMIN_PASSWORD'] ?? 'e2e-ci-superadmin-password',
+	password: process.env['E2E_SUPERADMIN_PASSWORD'] ?? process.env['SUPERADMIN_PASSWORD'] ?? 'smartdrv0',
 }
 
 type Credentials = { name: string; email: string; password: string }

@@ -140,6 +140,7 @@ describe('Fleet Board complete snapshot read model', () => {
 					{
 						adId: liveAd.id,
 						creativeId: 'creative_1',
+						hasVideo: true,
 						payload: { asset_feed_spec: { videos: [{ video_id: 'video_1' }] } },
 					},
 				]),

@@ -111,7 +111,7 @@ const snapshotNodes: BoardNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '200', cpa: '17.5', running: true }),
 		creativeId: 'creative-1',
-		creativeHasVideo: false,
+		creativeHasVideo: true,
 	},
 	{
 		id: 'ad-disapproved',
@@ -121,7 +121,7 @@ const snapshotNodes: BoardNode[] = [
 		effectiveStatus: 'DISAPPROVED',
 		kpis: kpis({ spend: '100', cpa: '11.25', running: false }),
 		creativeId: null,
-		creativeHasVideo: true,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'ad-future-status',
@@ -222,6 +222,12 @@ vi.mock('@/data/fleet-board', () => ({
 								mediaUnavailable: false,
 							},
 			}),
+		adPreview: (adId: string, enabled: boolean) =>
+			queryOptions({
+				queryKey: ['fleet-board', 'ad-preview', adId] as const,
+				queryFn: async () => ({ preview: null }),
+				enabled,
+			}),
 	},
 }))
 
@@ -284,6 +290,8 @@ describe('Fleet Board', () => {
 
 	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {
 		await renderToAdDepth()
+
+		expect(within(row('Оголошення що працює')).getByText('Відеооголошення')).toBeTruthy()
 
 		const thumbnail = row('Оголошення що працює').querySelector('img')
 		expect(thumbnail?.getAttribute('src')).toBe('http://localhost:3000/fleet-board/creatives/creative-1/media/thumb')

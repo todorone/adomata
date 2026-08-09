@@ -20,9 +20,14 @@ import {
 	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
-import { creativeHasVideo } from './creative'
 
-export { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+export {
+	creativeHasVideo,
+	mediaUrlForKey,
+	needsCreativeMediaRefresh,
+	needsCreativePreview,
+	normalizeCreative,
+} from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 2 * 60 * 60 * 1000
@@ -119,15 +124,13 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
 	const creativeRows = await db
-		.select({ adId: adCreative.adId, creativeId: adCreative.id, payload: adCreative.payload })
+		.select({ adId: adCreative.adId, creativeId: adCreative.id, hasVideo: adCreative.hasVideo })
 		.from(adCreative)
 		.innerJoin(ad, eq(adCreative.adId, ad.id))
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
-	const creativeByAd = new Map(
-		creativeRows.map(row => [row.adId, { id: row.creativeId, hasVideo: creativeHasVideo(row.payload) }]),
-	)
+	const creativeByAd = new Map(creativeRows.map(row => [row.adId, row]))
 	const insightRows = await db
 		.select({ insight: adInsight, ad, adSet, campaign })
 		.from(adInsight)
@@ -236,7 +239,7 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 							name: row.ad.name,
 							effectiveStatus: row.ad.effectiveStatus,
 							kpis: kpisForAd.get(row.ad.id)!,
-							creativeId: creative?.id ?? null,
+							creativeId: creative?.creativeId ?? null,
 							creativeHasVideo: creative?.hasVideo ?? false,
 						},
 					}

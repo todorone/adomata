@@ -17,7 +17,8 @@ const apiURL = process.env['VITE_API_URL'] ?? 'http://localhost:4000'
 const clientPort = new URL(baseURL).port || '5173'
 const apiPort = new URL(apiURL).port || '3000'
 const e2eSuperadminEmail = process.env['E2E_SUPERADMIN_EMAIL'] ?? process.env['SUPERADMIN_EMAIL'] ?? 'super@adomata.com'
-const e2eSuperadminPassword = process.env['E2E_SUPERADMIN_PASSWORD'] ?? 'e2e-ci-superadmin-password'
+const e2eSuperadminPassword =
+	process.env['E2E_SUPERADMIN_PASSWORD'] ?? process.env['SUPERADMIN_PASSWORD'] ?? 'smartdrv0'
 
 // Keep local E2E runs aligned with the API process that Playwright starts below.
 // CI can override these values through the workflow environment.

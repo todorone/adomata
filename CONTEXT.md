@@ -37,6 +37,10 @@ _Avoid_: inventing Adomata synonyms for these terms
 A property of an Ad, not a tree level below it — an Ad has exactly one Creative, opened as that Ad's detail rather than listed as siblings. A carousel or Advantage+ asset-feed Ad carries several assets (images, videos, copy, links), but those are internal structure of that one Creative, not multiple Creatives under the Ad. Each Fleet Board view presents the same Creative content in its native detail surface: inline beneath the Ad row in Tree, in the selected-Ad detail panel in Control Room, and in expanded card detail in Signals. Multi-asset Ads show every asset with results explicitly attributed to the whole Ad, never split between assets ([ADR 0027](docs/adr/0027-creative-presentation-is-native-to-each-fleet-board-view.md)).
 _Avoid_: Creative level, Creatives (as a list of children under an Ad)
 
+**Ad Preview**:
+Meta's own hosted rendering of a whole Ad, embedded in the Creative surface as a stand-in for media Adomata cannot serve itself. In practice that means video: Meta grants no third-party access to the raw video file, so an Ad Preview is the only way a video Ad becomes watchable on the board. It sits beside real assets as one more variant, never replacing images Adomata can render, and it is the single Fleet Board read that reaches Meta live rather than a synced snapshot ([ADR 0031](docs/adr/0031-video-ads-fall-back-to-metas-hosted-ad-preview.md)).
+_Avoid_: Ad preview iframe (that's the mechanism), Video player (it renders the whole Ad, not just the file)
+
 **User**:
 A person who logs into an Agency. Currently sees all of that Agency's Clients and Ad Accounts — no per-Client visibility scoping. The primary persona today is the agency director, monitoring KPIs across every Client.
 _Avoid_: Member, Account

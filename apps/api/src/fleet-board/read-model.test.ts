@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+import {
+	creativeHasVideo,
+	mediaUrlForKey,
+	needsCreativeMediaRefresh,
+	needsCreativePreview,
+	normalizeCreative,
+} from './creative'
 
 describe('Fleet Board creative normalization', () => {
 	it('keeps every asset-feed variant and existing-post fallback visible', () => {
@@ -98,6 +104,31 @@ describe('Fleet Board creative normalization', () => {
 		expect(creativeHasVideo({ image_url: 'https://media.example.test/image-1.jpg' })).toBe(false)
 		expect(creativeHasVideo({ asset_feed_spec: { videos: [] } })).toBe(false)
 		expect(creativeHasVideo(null)).toBe(false)
+	})
+
+	it('only needs a hosted preview for stored video creatives with unavailable video media', () => {
+		const creative = {
+			id: 'creative-1',
+			adId: 'ad-1',
+			name: 'Video creative',
+			payload: { video_id: 'video-1' },
+		}
+		expect(needsCreativePreview({ ...creative, hasVideo: false })).toBe(false)
+		expect(
+			needsCreativePreview({
+				...creative,
+				hasVideo: true,
+				payload: { image_url: 'https://media.example.test/image.jpg' },
+			}),
+		).toBe(false)
+		expect(needsCreativePreview({ ...creative, hasVideo: true })).toBe(true)
+		expect(
+			needsCreativePreview({
+				...creative,
+				hasVideo: true,
+				payload: { video_id: 'video-1', video_url: 'https://media.example.test/video.mp4' },
+			}),
+		).toBe(false)
 	})
 
 	it('uses resolved asset-feed image URLs and excludes the ad thumbnail from expanded media', () => {

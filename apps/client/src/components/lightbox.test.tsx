@@ -166,4 +166,33 @@ describe('Lightbox', () => {
 		expect(within(dialog).getByText('Завантажуємо перегляд від Meta…')).toBeTruthy()
 		expect(within(dialog).queryByText('Медіафайл тимчасово недоступний')).toBeNull()
 	})
+
+	it('keeps an unavailable video variant visible beside playable media', () => {
+		render(
+			<Lightbox
+				open
+				onOpenChange={() => undefined}
+				assets={[
+					{ key: 'image-1', kind: 'image', label: 'Зображення', mediaKey: 'image-1' },
+					{ key: 'video-1', kind: 'unavailable', label: 'Відео' },
+				]}
+				selectedAssetKey="video-1"
+				onSelectedAssetChange={() => undefined}
+				mediaUnavailable={false}
+				previewPending={false}
+				mediaUrl={key => `/media/${key}`}
+				metadata={{
+					title: 'Відеооголошення',
+					body: null,
+					description: null,
+					callToAction: null,
+					destination: null,
+				}}
+				hasMultipleAssets
+			/>,
+		)
+
+		const dialog = screen.getByRole('dialog')
+		expect(within(dialog).getByText('Медіафайл «Відео» тимчасово недоступний.')).toBeTruthy()
+	})
 })

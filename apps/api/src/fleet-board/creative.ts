@@ -62,6 +62,11 @@ export function creativeHasVideo(payload: unknown) {
 	return arrayPayload(objectPayload(record.asset_feed_spec).videos).length > 0
 }
 
+export function needsCreativePreview(creative: CreativeRecord & { hasVideo: boolean }) {
+	if (!creative.hasVideo) return false
+	return normalizeCreative(creative).assets.some(asset => asset.kind === 'video' && asset.mediaKey === null)
+}
+
 export function needsCreativeMediaRefresh(creative: Pick<CreativeRecord, 'payload'>) {
 	const payload = objectPayload(creative.payload)
 	const images = arrayPayload(objectPayload(payload.asset_feed_spec).images)

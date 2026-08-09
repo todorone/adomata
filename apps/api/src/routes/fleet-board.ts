@@ -17,6 +17,7 @@ import { requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import {
 	creativeHasVideo,
 	normalizeCreative,
+	needsCreativePreview,
 	readCreative,
 	readFleetBoardChildren,
 	readFleetBoardRoot,
@@ -118,8 +119,10 @@ export const fleetBoardRoutes = fleetBoardBase
 		const agencyId = c.get('orgId')
 		const record = await readCreative(agencyId, c.req.valid('param').adId)
 		if (!record) return apiError(c, 'NOT_FOUND')
-		const preview = await loadAdPreview(agencyId, record.ad.id)
 		c.header('Cache-Control', 'private, max-age=300')
+		if (!needsCreativePreview(record.creative))
+			return c.json(fleetBoardAdPreviewResponseSchema.parse({ preview: null }), 200)
+		const preview = await loadAdPreview(agencyId, record.ad.id)
 		return c.json(fleetBoardAdPreviewResponseSchema.parse({ preview }), 200)
 	})
 	.openapi(mediaRoute, async c => {

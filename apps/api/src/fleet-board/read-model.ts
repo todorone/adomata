@@ -21,7 +21,13 @@ import {
 } from './domain'
 import { logger } from '../core/logger'
 
-export { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+export {
+	creativeHasVideo,
+	mediaUrlForKey,
+	needsCreativeMediaRefresh,
+	needsCreativePreview,
+	normalizeCreative,
+} from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 2 * 60 * 60 * 1000

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 export type LightboxAsset =
 	| { key: string; kind: 'image' | 'video'; label: string; mediaKey: string }
+	| { key: string; kind: 'unavailable'; label: string }
 	| { key: string; kind: 'preview'; label: string; url: string; width: number | null; height: number | null }
 
 export type LightboxMetadata = {
@@ -101,6 +102,7 @@ export function Lightbox({
 				/>
 			)
 		}
+		if (asset.kind === 'unavailable') return mediaFallback(asset)
 		if (mediaUnavailable || failedMediaKeys.has(asset.key)) return mediaFallback(asset)
 		if (asset.kind === 'video') {
 			return (

@@ -708,7 +708,16 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 	const previewAsset = preview.data?.preview
 		? [{ key: 'meta-preview', kind: 'preview' as const, label: 'Перегляд від Meta', ...preview.data.preview }]
 		: []
-	const assets = [...mediaAssets, ...previewAsset]
+	const previewPending = needsPreview && preview.isPending
+	const unavailableVideoAssets = previewPending
+		? []
+		: data.assets
+				.filter(
+					(asset): asset is typeof asset & { kind: 'video'; mediaKey: null } =>
+						asset.kind === 'video' && asset.mediaKey === null,
+				)
+				.map(asset => ({ key: asset.key, kind: 'unavailable' as const, label: asset.label }))
+	const assets = [...mediaAssets, ...previewAsset, ...unavailableVideoAssets]
 	const nonMediaAssets = data.assets.filter(asset => !asset.mediaKey && asset.kind !== 'video')
 	const selectedAsset = assets.find(asset => asset.key === selectedAssetKey) ?? assets[0]
 	return (
@@ -721,7 +730,7 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 			selectedAssetKey={selectedAsset?.key ?? null}
 			onSelectedAssetChange={setSelectedAssetKey}
 			mediaUnavailable={data.mediaUnavailable}
-			previewPending={needsPreview && preview.isPending}
+			previewPending={previewPending}
 			mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
 			metadata={{
 				title: creativeTitle(data),

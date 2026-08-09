@@ -171,7 +171,7 @@ describe('Account Tier heartbeat integration', () => {
 				(select count(*) from ad_creative where jsonb_typeof(payload) <> 'object') as bad_payloads,
 				(select count(*) from ad_insight where jsonb_typeof(actions) <> 'array') as bad_actions,
 				(select count(*) from ad_insight where jsonb_typeof(action_values) <> 'array') as bad_action_values,
-				(select count(*) from ad_creative where payload ? 'video_id') as payloads_sql_can_query
+				(select count(*) from ad_creative where payload ? 'asset_feed_spec') as payloads_sql_can_query
 		`
 		expect(Number(shapes.bad_payloads)).toBe(0)
 		expect(Number(shapes.bad_actions)).toBe(0)

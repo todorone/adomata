@@ -22,8 +22,9 @@ import {
 	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
+import { creativeHasVideo } from './creative'
 
-export { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+export { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 2 * 60 * 60 * 1000
@@ -47,7 +48,7 @@ type FleetBoardModel = {
 	childNodes: {
 		campaigns: Array<{ row: CampaignRow; kpis: AccountView['kpis'] }>
 		adSets: Array<{ row: AdSetRow; kpis: AccountView['kpis'] }>
-		ads: Array<{ row: AdRow; kpis: AccountView['kpis']; creativeId: string | null }>
+		ads: Array<{ row: AdRow; kpis: AccountView['kpis']; creativeId: string | null; creativeHasVideo: boolean }>
 	}
 }
 
@@ -118,6 +119,7 @@ export async function readFleetBoardChildren(
 						effectiveStatus: node.row.effectiveStatus,
 						kpis: node.kpis,
 						creativeId: null,
+						creativeHasVideo: false,
 					})),
 			)
 			continue
@@ -134,6 +136,7 @@ export async function readFleetBoardChildren(
 						effectiveStatus: node.row.effectiveStatus,
 						kpis: node.kpis,
 						creativeId: null,
+						creativeHasVideo: false,
 					})),
 			)
 			continue
@@ -149,6 +152,7 @@ export async function readFleetBoardChildren(
 					effectiveStatus: node.row.effectiveStatus,
 					kpis: node.kpis,
 					creativeId: node.creativeId,
+					creativeHasVideo: node.creativeHasVideo,
 				})),
 		)
 	}
@@ -200,13 +204,14 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
 	const creativeRows = await db
-		.select({ adId: adCreative.adId, creativeId: adCreative.id })
+		.select({ adId: adCreative.adId, creativeId: adCreative.id, payload: adCreative.payload })
 		.from(adCreative)
 		.innerJoin(ad, eq(adCreative.adId, ad.id))
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
 	const creativeIdByAd = new Map(creativeRows.map(row => [row.adId, row.creativeId]))
+	const creativeHasVideoByAd = new Map(creativeRows.map(row => [row.adId, creativeHasVideo({ payload: row.payload })]))
 	const insightRows = await db
 		.select({ insight: adInsight, ad, adSet, campaign })
 		.from(adInsight)
@@ -283,6 +288,7 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 				row: row.ad,
 				kpis: kpisForAd.get(row.ad.id)!,
 				creativeId: creativeIdByAd.get(row.ad.id) ?? null,
+				creativeHasVideo: creativeHasVideoByAd.get(row.ad.id) ?? false,
 			})),
 		},
 	}

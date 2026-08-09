@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+import { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 describe('Fleet Board creative normalization', () => {
 	it('keeps every asset-feed variant and existing-post fallback visible', () => {
@@ -100,6 +100,14 @@ describe('Fleet Board creative normalization', () => {
 		])
 		expect(creative.assets.some(asset => asset.label === 'Ескіз відео')).toBe(false)
 		expect(mediaUrlForKey({ payload }, 'a-images-1')).toBe('https://media.example.test/image-2.jpg')
+	})
+
+	it('flags a Creative as video from a direct video, a resolved video URL, or an asset-feed video — but not from an image alone', () => {
+		expect(creativeHasVideo({ payload: { video_id: 'video-1' } })).toBe(true)
+		expect(creativeHasVideo({ payload: { video_url: 'https://media.example.test/video-1.mp4' } })).toBe(true)
+		expect(creativeHasVideo({ payload: { asset_feed_spec: { videos: [{ video_id: 'video-1' }] } } })).toBe(true)
+		expect(creativeHasVideo({ payload: { image_url: 'https://media.example.test/image-1.jpg' } })).toBe(false)
+		expect(creativeHasVideo({ payload: {} })).toBe(false)
 	})
 
 	it('marks hash-only asset-feed images for refresh', () => {

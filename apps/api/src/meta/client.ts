@@ -84,6 +84,9 @@ const creativeResponseSchema = z.object({
 	object_url: z.string().url().optional(),
 })
 const videoResponseSchema = z.object({ source: z.string().url().optional() })
+// The field holding the iframe markup isn't consistently documented (seen as both `body` and
+// `preview`), so this stays a loose record and extractIframeSrc scans every string value.
+const adPreviewResponseSchema = z.object({ data: z.array(z.record(z.string(), z.unknown())) })
 const adImagesResponseSchema = z.object({
 	data: z.array(z.object({ hash: z.string(), url: z.string().url().optional() })),
 })
@@ -328,6 +331,21 @@ export class MetaClient {
 		}
 	}
 
+	// Meta doesn't grant raw video-file access to third-party apps at any access tier, so a video
+	// whose source can't be resolved (see getVideoSource) falls back to Meta's own hosted preview
+	// iframe instead of our media proxy.
+	async getAdPreview(adId: string, adFormat: string): Promise<string | null> {
+		try {
+			const url = this.graphUrl(`/${encodeURIComponent(adId)}/previews`)
+			url.searchParams.set('ad_format', adFormat)
+			const { payload } = await this.request(url)
+			const preview = adPreviewResponseSchema.parse(payload).data[0]
+			return preview ? extractIframeSrc(preview) : null
+		} catch {
+			return null
+		}
+	}
+
 	async listDailyInsights(
 		adAccountId: string,
 		range: { start: string; end: string },
@@ -517,6 +535,24 @@ function addAssetFeedImageSources(assetFeed: unknown, imageUrls: Map<string, str
 
 function metaVideoId(value: unknown) {
 	return typeof value === 'string' && /^\d{1,30}$/.test(value) ? value : null
+}
+
+const iframeSrcPattern = /<iframe[^>]*\ssrc="([^"]*)"/i
+const htmlEntities: Record<string, string> = { amp: '&', quot: '"', '#039': "'", lt: '<', gt: '>' }
+
+function extractIframeSrc(preview: Record<string, unknown>) {
+	for (const value of Object.values(preview)) {
+		if (typeof value !== 'string') continue
+		const match = iframeSrcPattern.exec(value)
+		if (!match?.[1]) continue
+		const decoded = match[1].replace(/&(amp|quot|#039|lt|gt);/g, (_, entity: string) => htmlEntities[entity]!)
+		try {
+			return new URL(decoded).toString()
+		} catch {
+			return null
+		}
+	}
+	return null
 }
 
 function resolveResultActionType(optimizationGoal: string | null, promotedObject: Record<string, unknown> | null) {

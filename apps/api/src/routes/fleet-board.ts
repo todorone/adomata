@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { and, eq } from 'drizzle-orm'
 
 import {
+	fleetBoardAdPreviewResponseSchema,
 	fleetBoardCreativeResponseSchema,
 	fleetBoardHierarchyQuerySchema,
 	fleetBoardHierarchyResponseSchema,
@@ -62,6 +63,23 @@ const creativeRoute = createRoute({
 	},
 })
 
+// Meta doesn't grant raw video-file access to third parties (see MetaClient.getAdPreview), so
+// video-only creatives fall back to Meta's own hosted preview iframe at this fixed placement.
+const videoAdPreviewFormat = 'MOBILE_FEED_STANDARD'
+
+const previewRoute = createRoute({
+	method: 'get',
+	path: '/ads/{adId}/preview',
+	request: { params: z.object({ adId: z.string().min(1).max(200) }) },
+	responses: {
+		200: {
+			description: "Meta's hosted ad preview iframe URL for an Ad, when reachable",
+			content: { 'application/json': { schema: fleetBoardAdPreviewResponseSchema } },
+		},
+		404: { description: 'Ad not visible in the active Agency' },
+	},
+})
+
 const mediaRoute = createRoute({
 	method: 'get',
 	path: '/creatives/{creativeId}/media/{key}',
@@ -98,6 +116,14 @@ export const fleetBoardRoutes = fleetBoardBase
 			if (!record) return apiError(c, 'NOT_FOUND')
 		}
 		return c.json(fleetBoardCreativeResponseSchema.parse(normalizeCreative(record.creative)), 200)
+	})
+	.openapi(previewRoute, async c => {
+		const agencyId = c.get('orgId')
+		const record = await readCreative(agencyId, c.req.valid('param').adId)
+		if (!record) return apiError(c, 'NOT_FOUND')
+		const metaClient = await resolveMetaClient(agencyId)
+		const previewUrl = metaClient ? await metaClient.getAdPreview(record.ad.id, videoAdPreviewFormat) : null
+		return c.json(fleetBoardAdPreviewResponseSchema.parse({ previewUrl }), 200)
 	})
 	.openapi(mediaRoute, async c => {
 		const params = c.req.valid('param')

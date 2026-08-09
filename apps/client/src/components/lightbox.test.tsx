@@ -21,6 +21,7 @@ function TestLightbox() {
 			selectedAssetKey={selectedAssetKey}
 			onSelectedAssetChange={setSelectedAssetKey}
 			mediaUnavailable={false}
+			adPreviewUrl={null}
 			mediaUrl={key => `/media/${key}`}
 			metadata={{
 				title: 'Тестовий креатив',
@@ -80,6 +81,7 @@ describe('Lightbox', () => {
 					selectedAssetKey={null}
 					onSelectedAssetChange={() => undefined}
 					mediaUnavailable={false}
+					adPreviewUrl={null}
 					mediaUrl={key => `/media/${key}`}
 					metadata={{
 						title: 'Текстовий креатив',
@@ -97,5 +99,37 @@ describe('Lightbox', () => {
 		const dialog = screen.getByRole('dialog')
 		expect(within(dialog).getByRole('heading', { name: 'Текстовий креатив' })).toBeTruthy()
 		expect(within(dialog).queryByRole('region', { name: 'Перегляд медіафайлу' })).toBeNull()
+	})
+
+	it("falls back to Meta's hosted preview iframe for a video-only Creative with no streamable file", () => {
+		function AdPreviewFallbackLightbox() {
+			return (
+				<Lightbox
+					open
+					onOpenChange={() => undefined}
+					assets={[]}
+					selectedAssetKey={null}
+					onSelectedAssetChange={() => undefined}
+					mediaUnavailable
+					adPreviewUrl="https://www.facebook.com/ads/api/preview_iframe.php?id=video-ad-1"
+					mediaUrl={key => `/media/${key}`}
+					metadata={{
+						title: 'Відеооголошення',
+						body: null,
+						description: null,
+						callToAction: null,
+						destination: null,
+					}}
+					hasMultipleAssets={false}
+				/>
+			)
+		}
+		render(<AdPreviewFallbackLightbox />)
+
+		const dialog = screen.getByRole('dialog')
+		const frame = within(dialog).getByTitle('Попередній перегляд від Meta')
+		expect(frame).toBeInstanceOf(HTMLIFrameElement)
+		expect(frame.getAttribute('src')).toBe('https://www.facebook.com/ads/api/preview_iframe.php?id=video-ad-1')
+		expect(within(dialog).queryByText('Медіафайл тимчасово недоступне')).toBeNull()
 	})
 })

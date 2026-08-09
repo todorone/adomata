@@ -414,6 +414,45 @@ describe('MetaClient', () => {
 		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
+	it('extracts and decodes the hosted preview iframe src, from whichever field holds the markup', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					data: [
+						{
+							body: '<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?id=ad-1&amp;t=1" width="320" height="600"></iframe>',
+						},
+					],
+				}),
+				{ status: 200 },
+			),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getAdPreview('ad-1', 'MOBILE_FEED_STANDARD')).resolves.toBe(
+			'https://www.facebook.com/ads/api/preview_iframe.php?id=ad-1&t=1',
+		)
+
+		const [url] = fetch.mock.calls[0] as [string]
+		const request = new URL(url)
+		expect(request.pathname).toBe('/v25.0/ad-1/previews')
+		expect(request.searchParams.get('ad_format')).toBe('MOBILE_FEED_STANDARD')
+	})
+
+	it('returns null instead of throwing when the hosted preview is unavailable', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({ error: { message: 'Unsupported ad_format', type: 'OAuthException', code: 100 } }),
+					{ status: 400 },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getAdPreview('ad-1', 'MOBILE_FEED_STANDARD')).resolves.toBeNull()
+	})
+
 	it('retries a Meta rate limit exactly twice with exponential delays and retains usage headers', async () => {
 		const fetch = vi.fn().mockImplementation(() =>
 			Promise.resolve(

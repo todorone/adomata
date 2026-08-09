@@ -11,6 +11,7 @@ import {
 	RefreshCw,
 	Search,
 	SlidersHorizontal,
+	Video,
 } from 'lucide-react'
 
 import { DateRangePicker } from '@/components/date-range-picker'
@@ -718,7 +719,7 @@ function NodeRow({
 								}
 							/>
 						) : (
-							<AdThumbnail creativeId={node.creativeId} />
+							<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
 						)}
 						{row.mergedClient ? (
 							<span className="min-w-0 truncate">
@@ -754,24 +755,37 @@ function NodeRow({
 	)
 }
 
-function AdThumbnail({ creativeId }: { creativeId: string | null }) {
+function AdThumbnail({ creativeId, hasVideo }: { creativeId: string | null; hasVideo: boolean }) {
 	const [failed, setFailed] = useState(false)
 	if (!creativeId || failed) {
 		return <ImageIcon size={14} className="mr-2 shrink-0 text-muted-foreground" aria-hidden />
 	}
 	return (
-		<img
-			src={mediaUrl(creativeId, 'thumb')}
-			alt=""
-			className="my-0.5 mr-2 h-8 w-8 shrink-0 rounded object-cover"
-			onError={() => setFailed(true)}
-		/>
+		<span className="relative mr-2 inline-flex shrink-0">
+			<img
+				src={mediaUrl(creativeId, 'thumb')}
+				alt=""
+				className="my-0.5 h-8 w-8 rounded object-cover"
+				onError={() => setFailed(true)}
+			/>
+			{hasVideo ? (
+				<Video
+					size={10}
+					className="absolute bottom-0.5 right-0.5 rounded-full bg-black/70 p-0.5 text-white"
+					aria-hidden="true"
+				/>
+			) : null}
+		</span>
 	)
 }
 
 function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }) {
 	const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null)
 	const creative = useQuery(fleetBoardQueries.creative(adId))
+	// Only a video-only Creative without a streamable file benefits from Meta's hosted preview —
+	// fetching it is a live Meta API call, so it stays off for every other Creative.
+	const needsAdPreview = creative.data?.kind === 'video' && creative.data.mediaUnavailable
+	const adPreview = useQuery(fleetBoardQueries.adPreview(adId, needsAdPreview))
 	if (creative.isPending)
 		return (
 			<p className="py-2 text-sm text-muted-foreground" aria-live="polite">
@@ -801,6 +815,7 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 			selectedAssetKey={selectedAsset?.key ?? null}
 			onSelectedAssetChange={setSelectedAssetKey}
 			mediaUnavailable={data.mediaUnavailable}
+			adPreviewUrl={needsAdPreview ? (adPreview.data?.previewUrl ?? null) : null}
 			mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
 			metadata={{
 				title: creativeTitle(data),

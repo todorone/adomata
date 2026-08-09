@@ -174,6 +174,20 @@ export const fakeMetaHandlers = [
 			data: hashes.flatMap(hash => (imageUrls[hash] ? [{ hash, url: imageUrls[hash] }] : [])),
 		})
 	}),
+	http.get(`${graph}/:adId/previews`, ({ params, request }) => {
+		if (!requireToken(request)) return graphContractError('Missing access token')
+		const id = String(params.adId)
+		if (!fakeMetaAds.some(ad => ad.id === id)) return graphContractError(`Unknown fake Meta ad: ${id}`)
+		if (new URL(request.url).searchParams.get('ad_format') !== 'MOBILE_FEED_STANDARD')
+			return graphContractError('Unsupported ad_format requested')
+		return HttpResponse.json({
+			data: [
+				{
+					body: `<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?id=${id}&amp;access_token=fake" width="320" height="600" scrolling="no" frameborder="0"></iframe>`,
+				},
+			],
+		})
+	}),
 	http.get(`${graph}/:adId`, ({ params, request }) => {
 		const id = String(params.adId)
 		const url = new URL(request.url)

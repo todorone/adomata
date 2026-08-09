@@ -112,6 +112,7 @@ export const fleetBoardHierarchyNodeSchema = z.object({
 	effectiveStatus: z.string(),
 	kpis: fleetBoardKpisSchema,
 	creativeId: z.string().nullable(),
+	creativeHasVideo: z.boolean(),
 })
 
 export const fleetBoardClientSchema = z.object({
@@ -234,6 +235,8 @@ export const fleetBoardCreativeResponseSchema = z.object({
 	mediaUnavailable: z.boolean(),
 })
 
+export const fleetBoardAdPreviewResponseSchema = z.object({ previewUrl: z.string().url().nullable() })
+
 export type FleetBoardRangePreset = z.infer<typeof fleetBoardRangePresetSchema>
 export type FleetBoardCustomRange = { start: string; end: string }
 export type FleetBoardRange = Exclude<FleetBoardRangePreset, 'custom'> | FleetBoardCustomRange
@@ -241,3 +244,4 @@ export type FleetBoardRootQuery = z.infer<typeof fleetBoardRootQuerySchema>
 export type FleetBoardRootResponse = z.infer<typeof fleetBoardRootResponseSchema>
 export type FleetBoardHierarchyResponse = z.infer<typeof fleetBoardHierarchyResponseSchema>
 export type FleetBoardCreativeResponse = z.infer<typeof fleetBoardCreativeResponseSchema>
+export type FleetBoardAdPreviewResponse = z.infer<typeof fleetBoardAdPreviewResponseSchema>

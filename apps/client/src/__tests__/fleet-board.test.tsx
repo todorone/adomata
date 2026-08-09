@@ -107,6 +107,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'adset-1',
@@ -116,6 +117,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'ad-running',
@@ -125,6 +127,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '200', cpa: '17.5', running: true }),
 		creativeId: 'creative-1',
+		creativeHasVideo: true,
 	},
 	{
 		id: 'ad-disapproved',
@@ -134,6 +137,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'DISAPPROVED',
 		kpis: kpis({ spend: '100', cpa: '11.25', running: false }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'ad-future-status',
@@ -143,6 +147,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'SOME_STATUS_META_ADDED_LATER',
 		kpis: kpis({ spend: '0', running: false }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 ]
 
@@ -232,6 +237,12 @@ vi.mock('@/data/fleet-board', () => ({
 								mediaUnavailable: false,
 							},
 			}),
+		adPreview: (adId: string) =>
+			queryOptions({
+				queryKey: ['fleet-board', 'ad-preview', adId] as const,
+				queryFn: async () => ({ previewUrl: null }),
+				enabled: false,
+			}),
 	},
 }))
 
@@ -300,6 +311,8 @@ describe('Fleet Board', () => {
 
 		const thumbnail = row('Оголошення що працює').querySelector('img')
 		expect(thumbnail?.getAttribute('src')).toBe('http://localhost:3000/fleet-board/creatives/creative-1/media/thumb')
+		// Video Ads carry a small badge over their thumbnail so they're recognizable before opening the Lightbox.
+		expect(row('Оголошення що працює').querySelector('svg')).toBeTruthy()
 
 		expect(row('Оголошення відхилене').querySelector('img')).toBeNull()
 		expect(row('Оголошення відхилене').querySelector('svg')).toBeTruthy()

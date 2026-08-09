@@ -47,6 +47,12 @@ export function normalizeCreative(creative: CreativeRecord) {
 	}
 }
 
+export function creativeHasVideo(creative: Pick<CreativeRecord, 'payload'>) {
+	const payload = objectPayload(creative.payload)
+	if (typeof payload.video_id === 'string' || typeof payload.video_url === 'string') return true
+	return arrayPayload(objectPayload(payload.asset_feed_spec).videos).length > 0
+}
+
 export function needsCreativeMediaRefresh(creative: Pick<CreativeRecord, 'payload'>) {
 	const payload = objectPayload(creative.payload)
 	const images = arrayPayload(objectPayload(payload.asset_feed_spec).images)

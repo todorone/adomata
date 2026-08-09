@@ -25,6 +25,9 @@ type LightboxProps = {
 	selectedAssetKey: string | null
 	onSelectedAssetChange: (assetKey: string) => void
 	mediaUnavailable: boolean
+	// Meta doesn't grant raw video-file access to third-party apps, so a video-only Creative
+	// whose file can't be streamed falls back to Meta's own hosted preview iframe here instead.
+	adPreviewUrl: string | null
 	mediaUrl: (mediaKey: string) => string
 	metadata: LightboxMetadata
 	hasMultipleAssets: boolean
@@ -38,6 +41,7 @@ export function Lightbox({
 	selectedAssetKey,
 	onSelectedAssetChange,
 	mediaUnavailable,
+	adPreviewUrl,
 	mediaUrl,
 	metadata,
 	hasMultipleAssets,
@@ -47,6 +51,9 @@ export function Lightbox({
 	const touchStartX = useRef<number | null>(null)
 	const selectedAsset = assets.find(asset => asset.key === selectedAssetKey) ?? assets[0]
 	const hasMedia = selectedAsset !== undefined
+	// No streamable asset at all, but Meta's hosted preview stands in for one.
+	const showAdPreview = !hasMedia && adPreviewUrl !== null
+	const showMediaPanel = hasMedia || showAdPreview
 
 	const selectedIndex = hasMedia ? assets.findIndex(asset => asset.key === selectedAsset.key) : -1
 	const previousAsset = assets[selectedIndex - 1]
@@ -123,15 +130,19 @@ export function Lightbox({
 						<DialogDescription>
 							Варіант {selectedIndex + 1} з {assets.length}: {selectedAsset.label}
 						</DialogDescription>
+					) : showAdPreview ? (
+						<DialogDescription>Попередній перегляд від Meta</DialogDescription>
 					) : (
 						<DialogDescription className="sr-only">Деталі креативу</DialogDescription>
 					)}
 				</DialogHeader>
 
 				<div
-					className={hasMedia ? 'grid min-h-0 flex-1 sm:grid-cols-[minmax(0,1fr)_20rem]' : 'grid min-h-0 flex-1'}
+					className={
+						showMediaPanel ? 'grid min-h-0 flex-1 sm:grid-cols-[minmax(0,1fr)_20rem]' : 'grid min-h-0 flex-1'
+					}
 				>
-					{hasMedia ? (
+					{showMediaPanel ? (
 						<section
 							className="flex min-h-0 min-w-0 flex-col bg-black/90 px-3 sm:px-5"
 							aria-label="Перегляд медіафайлу"
@@ -152,7 +163,18 @@ export function Lightbox({
 									</button>
 								) : null}
 								<div className="flex h-full min-h-0 min-w-0 items-center justify-center">
-									{renderDialogMedia(selectedAsset)}
+									{showAdPreview ? (
+										<iframe
+											key="ad-preview"
+											src={adPreviewUrl!}
+											title="Попередній перегляд від Meta"
+											className="h-[640px] max-h-full w-[360px] max-w-full border-0"
+											sandbox="allow-scripts allow-same-origin"
+											allow="autoplay; encrypted-media"
+										/>
+									) : (
+										renderDialogMedia(selectedAsset!)
+									)}
 								</div>
 								{nextAsset ? (
 									<button
@@ -202,7 +224,7 @@ export function Lightbox({
 
 					<aside
 						className={
-							hasMedia
+							showMediaPanel
 								? 'min-h-0 overflow-y-auto border-t bg-background p-4 sm:border-t-0 sm:border-l sm:p-5'
 								: 'min-h-0 overflow-y-auto bg-background p-4 sm:p-5'
 						}
@@ -231,7 +253,7 @@ export function Lightbox({
 									Результати належать оголошенню цілком
 								</p>
 							) : null}
-							{mediaUnavailable ? (
+							{mediaUnavailable && !showAdPreview ? (
 								<p className="flex items-center gap-2 text-xs text-muted-foreground">
 									<ImageOff size={15} aria-hidden="true" />
 									Медіафайл тимчасово недоступне

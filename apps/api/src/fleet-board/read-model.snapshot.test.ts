@@ -1,6 +1,7 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { fleetBoardRootResponseSchema } from '../client/fleet-board'
 import { ad, adAccount, adInsight, adSet, campaign, client } from '../db/schema'
 
 type QueryChain = PromiseLike<unknown> & {
@@ -202,5 +203,38 @@ describe('Fleet Board complete snapshot read model', () => {
 		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('15')
 		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual(['agency_1'])
 		expect(dbSelect).toHaveBeenCalledTimes(6)
+	})
+
+	it('emits a response the root schema accepts, since production serves it without re-parsing', async () => {
+		dbSelect
+			.mockReturnValueOnce(chain([{ account: accountRow(), client: clientRow('client_1', 'agency_1', 'Client 1') }]))
+			.mockReturnValueOnce(chain([{ campaign: campaignRow() }]))
+			.mockReturnValueOnce(chain([{ adSet: adSetRow(), campaign: campaignRow() }]))
+			.mockReturnValueOnce(chain([{ ad: adRow(), adSet: adSetRow(), campaign: campaignRow() }]))
+			.mockReturnValueOnce(chain([]))
+			.mockReturnValueOnce(
+				chain([
+					{
+						insight: insightRow('ad_1', '2026-01-01', '10'),
+						ad: adRow(),
+						adSet: adSetRow(),
+						campaign: campaignRow(),
+					},
+				]),
+			)
+
+		const response = await readFleetBoardRoot(
+			'agency_1',
+			{
+				range: { start: '2026-01-01', end: '2026-01-02' },
+				search: '',
+				needsAttention: false,
+				sort: 'name',
+				direction: 'asc',
+			},
+			new Date('2026-01-03T00:00:00.000Z'),
+		)
+
+		expect(fleetBoardRootResponseSchema.parse(response)).toEqual(response)
 	})
 })

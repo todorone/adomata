@@ -74,6 +74,8 @@ const mediaRoute = createRoute({
 	responses: { 200: { description: 'Creative media stream' }, 404: { description: 'Media unavailable' } },
 })
 
+const isProduction = process.env.NODE_ENV === 'production'
+
 const fleetBoardBase = new OpenAPIHono()
 fleetBoardBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
@@ -81,7 +83,7 @@ export const fleetBoardRoutes = fleetBoardBase
 	.openapi(rootRoute, async c => {
 		triggerBackgroundSync()
 		const result = await readFleetBoardRoot(c.get('orgId'), c.req.valid('query'))
-		return c.json(fleetBoardRootResponseSchema.parse(result), 200)
+		return c.json(isProduction ? result : fleetBoardRootResponseSchema.parse(result), 200)
 	})
 	.openapi(creativeRoute, async c => {
 		let record = await readCreative(c.get('orgId'), c.req.valid('param').adId)

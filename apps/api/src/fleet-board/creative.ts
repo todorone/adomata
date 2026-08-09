@@ -15,6 +15,15 @@ export function normalizeCreative(creative: CreativeRecord) {
 		value: null,
 		mediaKey: `m${index}`,
 	}))
+	if (stringValue(payload.video_id) && !urlValue(payload.video_url)) {
+		assets.push({
+			key: 'video',
+			kind: 'video',
+			label: 'Відео',
+			value: stringValue(payload.video_id),
+			mediaKey: null,
+		})
+	}
 	assets.push(...assetFeedEntries(assetFeed))
 	const kind =
 		childAttachments.length > 0
@@ -45,6 +54,17 @@ export function normalizeCreative(creative: CreativeRecord) {
 		assets,
 		mediaUnavailable: assets.every(asset => asset.mediaKey === null),
 	}
+}
+
+export function creativeHasVideo(payload: unknown) {
+	const record = objectPayload(payload)
+	if (stringValue(record.video_id) || stringValue(record.video_url)) return true
+	return arrayPayload(objectPayload(record.asset_feed_spec).videos).length > 0
+}
+
+export function needsCreativePreview(creative: CreativeRecord & { hasVideo: boolean }) {
+	if (!creative.hasVideo) return false
+	return normalizeCreative(creative).assets.some(asset => asset.kind === 'video' && asset.mediaKey === null)
 }
 
 export function needsCreativeMediaRefresh(creative: Pick<CreativeRecord, 'payload'>) {
@@ -125,7 +145,17 @@ function assetFeedEntries(assetFeed: Record<string, unknown>): CreativeAsset[] {
 		}
 	}
 	add('images', 'image', 'Зображення', ['hash', 'url'])
-	add('videos', 'video', 'Відео', ['video_id'])
+	for (const [index, video] of arrayPayload(assetFeed.videos).entries()) {
+		const record = objectPayload(video)
+		if (urlValue(record.video_url)) continue
+		entries.push({
+			key: `a-videos-${index}`,
+			kind: 'video',
+			label: `Відео ${index + 1}`,
+			value: stringValue(record.video_id),
+			mediaKey: null,
+		})
+	}
 	add('bodies', 'text', 'Основний текст', ['text'])
 	add('titles', 'text', 'Заголовок', ['text'])
 	add('descriptions', 'text', 'Опис', ['text'])

@@ -11,6 +11,7 @@ import {
 	RefreshCw,
 	Search,
 	SlidersHorizontal,
+	Video,
 } from 'lucide-react'
 
 import { DateRangePicker } from '@/components/date-range-picker'
@@ -618,7 +619,7 @@ function NodeRow({
 								}
 							/>
 						) : (
-							<AdThumbnail creativeId={node.creativeId} />
+							<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
 						)}
 						{isAccount ? (
 							<span className="min-w-0 truncate">
@@ -654,24 +655,39 @@ function NodeRow({
 	)
 }
 
-function AdThumbnail({ creativeId }: { creativeId: string | null }) {
+function AdThumbnail({ creativeId, hasVideo }: { creativeId: string | null; hasVideo: boolean }) {
 	const [failed, setFailed] = useState(false)
+	const FallbackIcon = hasVideo ? Video : ImageIcon
 	if (!creativeId || failed) {
-		return <ImageIcon size={14} className="mr-2 shrink-0 text-muted-foreground" aria-hidden />
+		return <FallbackIcon size={14} className="mr-2 shrink-0 text-muted-foreground" aria-hidden />
 	}
 	return (
-		<img
-			src={mediaUrl(creativeId, 'thumb')}
-			alt=""
-			className="my-0.5 mr-2 h-8 w-8 shrink-0 rounded object-cover"
-			onError={() => setFailed(true)}
-		/>
+		<span className="relative my-0.5 mr-2 inline-flex h-8 w-8 shrink-0">
+			<img
+				src={mediaUrl(creativeId, 'thumb')}
+				alt=""
+				className="h-8 w-8 rounded object-cover"
+				onError={() => setFailed(true)}
+			/>
+			{hasVideo ? (
+				<>
+					<Video
+						size={12}
+						className="absolute right-0 bottom-0 rounded-full bg-black/70 p-[1px] text-white"
+						aria-hidden="true"
+					/>
+					<span className="sr-only">Відеооголошення</span>
+				</>
+			) : null}
+		</span>
 	)
 }
 
 function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }) {
 	const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null)
 	const creative = useQuery(fleetBoardQueries.creative(adId))
+	const needsPreview = (creative.data?.assets ?? []).some(asset => asset.kind === 'video' && asset.mediaKey === null)
+	const preview = useQuery(fleetBoardQueries.adPreview(adId, needsPreview))
 	if (creative.isPending)
 		return (
 			<p className="py-2 text-sm text-muted-foreground" aria-live="polite">
@@ -689,18 +705,32 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 		(asset): asset is typeof asset & { kind: 'image' | 'video'; mediaKey: string } =>
 			asset.mediaKey !== null && (asset.kind === 'image' || asset.kind === 'video'),
 	)
-	const nonMediaAssets = data.assets.filter(asset => !asset.mediaKey)
-	const selectedAsset = mediaAssets.find(asset => asset.key === selectedAssetKey) ?? mediaAssets[0]
+	const previewAsset = preview.data?.preview
+		? [{ key: 'meta-preview', kind: 'preview' as const, label: 'Перегляд від Meta', ...preview.data.preview }]
+		: []
+	const previewPending = needsPreview && preview.isPending
+	const unavailableVideoAssets = previewPending
+		? []
+		: data.assets
+				.filter(
+					(asset): asset is typeof asset & { kind: 'video'; mediaKey: null } =>
+						asset.kind === 'video' && asset.mediaKey === null,
+				)
+				.map(asset => ({ key: asset.key, kind: 'unavailable' as const, label: asset.label }))
+	const assets = [...mediaAssets, ...previewAsset, ...unavailableVideoAssets]
+	const nonMediaAssets = data.assets.filter(asset => !asset.mediaKey && asset.kind !== 'video')
+	const selectedAsset = assets.find(asset => asset.key === selectedAssetKey) ?? assets[0]
 	return (
 		<Lightbox
 			open
 			onOpenChange={nextOpen => {
 				if (!nextOpen) onClose()
 			}}
-			assets={mediaAssets}
+			assets={assets}
 			selectedAssetKey={selectedAsset?.key ?? null}
 			onSelectedAssetChange={setSelectedAssetKey}
 			mediaUnavailable={data.mediaUnavailable}
+			previewPending={previewPending}
 			mediaUrl={mediaKey => mediaUrl(data.id, mediaKey)}
 			metadata={{
 				title: creativeTitle(data),

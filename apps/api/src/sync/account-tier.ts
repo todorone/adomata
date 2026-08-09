@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, isNotNull, isNull, lte, or, sql, type SQL } from
 
 import { db } from '../db'
 import { ad, adAccount, adCreative, adInsight, adSet, campaign, client, organizationSettings } from '../db/schema'
+import { creativeHasVideo } from '../fleet-board/creative'
 import { firstConnectStart, reconciliationWindow } from '../fleet-board/domain'
 import { logger } from '../core/logger'
 import { MetaApiError } from '../meta/client'
@@ -375,11 +376,18 @@ async function syncInsightsTierAccount(metaClient: MetaClient, account: typeof a
 					adId: creative.adId,
 					name: creative.name,
 					payload: creative.payload,
+					hasVideo: creativeHasVideo(creative.payload),
 					updatedAt: now,
 				})
 				.onConflictDoUpdate({
 					target: adCreative.id,
-					set: { adId: creative.adId, name: creative.name, payload: creative.payload, updatedAt: now },
+					set: {
+						adId: creative.adId,
+						name: creative.name,
+						payload: creative.payload,
+						hasVideo: creativeHasVideo(creative.payload),
+						updatedAt: now,
+					},
 				})
 		}
 		await transaction

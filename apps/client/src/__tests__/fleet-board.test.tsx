@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FleetBoardHierarchyResponse, FleetBoardRootResponse } from '@adomata/api/client'
+import type { FleetBoardNode } from '@adomata/api/client'
 
+import type { FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardSearchSchema, type FleetBoardSearch } from '@/data/fleet-board-search'
 
-type Account = FleetBoardRootResponse['accounts'][number]
-type Client = FleetBoardRootResponse['clients'][number]
-type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
+type Account = FleetBoardRoot['accounts'][number]
+type Client = FleetBoardRoot['clients'][number]
+type BoardNode = FleetBoardNode
 type Kpis = Account['kpis']
 
 function kpis(overrides: Partial<Kpis> = {}): Kpis {
@@ -81,7 +82,7 @@ const duoClient: Client = {
 	name: 'Northstar',
 }
 
-const hierarchyNodes: HierarchyNode[] = [
+const snapshotNodes: BoardNode[] = [
 	{
 		id: 'campaign-1',
 		type: 'campaign',
@@ -90,6 +91,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'adset-1',
@@ -99,6 +101,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '300', cpa: '15' }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 	{
 		id: 'ad-running',
@@ -108,6 +111,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'ACTIVE',
 		kpis: kpis({ spend: '200', cpa: '17.5', running: true }),
 		creativeId: 'creative-1',
+		creativeHasVideo: false,
 	},
 	{
 		id: 'ad-disapproved',
@@ -117,6 +121,7 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'DISAPPROVED',
 		kpis: kpis({ spend: '100', cpa: '11.25', running: false }),
 		creativeId: null,
+		creativeHasVideo: true,
 	},
 	{
 		id: 'ad-future-status',
@@ -126,12 +131,23 @@ const hierarchyNodes: HierarchyNode[] = [
 		effectiveStatus: 'SOME_STATUS_META_ADDED_LATER',
 		kpis: kpis({ spend: '0', running: false }),
 		creativeId: null,
+		creativeHasVideo: false,
 	},
 ]
 
-const rootResponse: FleetBoardRootResponse = {
+const snapshotNodeIndex = {
+	'account:act_100000000000001': [snapshotNodes[0]!],
+	'campaign:campaign-1': [snapshotNodes[1]!],
+	'adset:adset-1': snapshotNodes.slice(2),
+}
+
+const { refetchSpy } = vi.hoisted(() => ({ refetchSpy: vi.fn(() => Promise.resolve()) }))
+
+const rootResponse: FleetBoardRoot = {
 	clients: [soloClient, duoClient],
 	accounts: [soloAccount, duoFirst, duoSecond],
+	nodes: snapshotNodes,
+	nodeIndex: snapshotNodeIndex,
 	header: {
 		accountTierRefreshedAt: '2026-07-30T08:00:00.000Z',
 		insightsTierRefreshedAt: '2026-07-30T08:00:00.000Z',
@@ -161,24 +177,15 @@ vi.mock('@tanstack/react-virtual', () => {
 	return { useVirtualizer: stub, useWindowVirtualizer: stub }
 })
 
-const { childrenSpy } = vi.hoisted(() => ({ childrenSpy: vi.fn<(parents: Array<{ id: string }>) => void>() }))
-
 vi.mock('@/data/fleet-board', () => ({
+	fleetBoardParentKey: (type: string, id: string) => `${type}:${id}`,
 	useFleetBoardRoot: () => ({
 		data: rootResponse,
 		isPending: false,
 		isError: false,
-		refetch: () => Promise.resolve(),
+		refetch: refetchSpy,
 	}),
 	fleetBoardQueries: {
-		children: (range: string, parents: Array<{ type: string; id: string }>) =>
-			queryOptions({
-				queryKey: ['fleet-board', 'children', range, parents] as const,
-				queryFn: async () => {
-					childrenSpy(parents)
-					return { nodes: hierarchyNodes.filter(node => parents.some(parent => parent.id === node.parentId)) }
-				},
-			}),
 		creative: (adId: string) =>
 			queryOptions({
 				queryKey: ['fleet-board', 'creative', adId] as const,
@@ -244,14 +251,14 @@ function row(name: string) {
 
 async function renderToAdDepth(overrides: Record<string, unknown> = {}) {
 	renderBoard({ depth: 'ad', metrics: 'spend,cpa,roas', ...overrides })
-	// The one Ad that survives every rendering toggle, so this waits on hierarchy loading only.
+	// The one Ad that survives every rendering toggle.
 	await waitFor(() => expect(screen.getByText('Оголошення що працює')).toBeTruthy())
 }
 
 describe('Fleet Board', () => {
 	afterEach(() => {
 		cleanup()
-		childrenSpy.mockReset()
+		refetchSpy.mockClear()
 	})
 
 	it('renders Spend and CPA below Ad Account level in the ancestor Ad Account currency', async () => {
@@ -265,17 +272,14 @@ describe('Fleet Board', () => {
 	})
 
 	it('settles at Ad depth even when some Ad Accounts have no campaigns at all', async () => {
-		const childRequests: Array<Array<{ id: string }>> = []
-		childrenSpy.mockImplementation(parents => childRequests.push(parents))
-
 		await renderToAdDepth()
-		await new Promise(resolve => setTimeout(resolve, 50))
-
-		// The two Northstar accounts have no children. Until their empty result was recorded they
-		// read as "not loaded yet" forever, so the depth loader re-requested them without end.
 		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
-		const emptyAccountRequests = childRequests.filter(parents => parents.some(parent => parent.id === duoFirst.id))
-		expect(emptyAccountRequests).toHaveLength(1)
+	})
+
+	it('refreshes the complete snapshot with one root refetch', async () => {
+		renderBoard({ depth: 'ad' })
+		fireEvent.click(screen.getByRole('button', { name: 'Оновити дані' }))
+		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))
 	})
 
 	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {

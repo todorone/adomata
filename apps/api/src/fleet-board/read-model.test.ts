@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+import { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 describe('Fleet Board creative normalization', () => {
+	it('exposes video presence without embedding creative payloads', () => {
+		expect(creativeHasVideo({ video_id: 'video-1' })).toBe(true)
+		expect(creativeHasVideo({ asset_feed_spec: { videos: [{ video_id: 'video-1' }] } })).toBe(true)
+		expect(creativeHasVideo({ image_url: 'https://media.example.test/image.jpg' })).toBe(false)
+	})
+
 	it('keeps every asset-feed variant and existing-post fallback visible', () => {
 		const creative = normalizeCreative({
 			id: 'creative-1',

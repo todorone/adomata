@@ -1,7 +1,6 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import {
 	fleetBoardCreativeResponseSchema,
-	fleetBoardHierarchyResponseSchema,
 	fleetBoardRootResponseSchema,
 	type FleetBoardRange,
 	type FleetBoardRootResponse,
@@ -10,7 +9,6 @@ import {
 import { api } from './core/apiClient'
 import { parseResponse } from './core/apiFetch'
 
-export type FleetBoardParent = { type: 'account' | 'campaign' | 'adset'; id: string }
 type RootInput = {
 	range: FleetBoardRange
 	search: string
@@ -20,11 +18,32 @@ type RootInput = {
 	direction: 'asc' | 'desc'
 }
 
+export type FleetBoardNode = FleetBoardRootResponse['nodes'][number]
+export type FleetBoardNodeIndex = Record<string, FleetBoardNode[]>
+
+export function fleetBoardParentKey(type: 'account' | 'campaign' | 'adset', id: string) {
+	return `${type}:${id}`
+}
+
+export function indexFleetBoardNodes(nodes: FleetBoardNode[]): FleetBoardNodeIndex {
+	const byParent = new Map<string, Map<string, FleetBoardNode>>()
+	for (const node of nodes) {
+		const parentType = node.type === 'campaign' ? 'account' : node.type === 'adset' ? 'campaign' : 'adset'
+		const key = fleetBoardParentKey(parentType, node.parentId)
+		const siblings = byParent.get(key) ?? new Map<string, FleetBoardNode>()
+		siblings.set(node.id, node)
+		byParent.set(key, siblings)
+	}
+	return Object.fromEntries([...byParent].map(([key, siblings]) => [key, [...siblings.values()]]))
+}
+
+function selectFleetBoardSnapshot(response: FleetBoardRootResponse) {
+	return { ...response, nodeIndex: indexFleetBoardNodes(response.nodes) }
+}
+
 export const fleetBoardKeys = {
 	all: ['fleet-board'] as const,
 	root: (input: RootInput) => ['fleet-board', 'root', input] as const,
-	children: (range: FleetBoardRange, parents: FleetBoardParent[]) =>
-		['fleet-board', 'children', range, parents] as const,
 	creative: (adId: string) => ['fleet-board', 'creative', adId] as const,
 }
 
@@ -53,19 +72,8 @@ export const fleetBoardQueries = {
 					fleetBoardRootResponseSchema,
 					'GET /fleet-board',
 				),
+			select: selectFleetBoardSnapshot,
 			placeholderData: previous => previous,
-		}),
-	children: (range: FleetBoardRange, parents: FleetBoardParent[]) =>
-		queryOptions({
-			queryKey: fleetBoardKeys.children(range, parents),
-			queryFn: async () =>
-				parseResponse(
-					await api['fleet-board'].hierarchy.$get({
-						query: { ...rangeQuery(range), parents: JSON.stringify(parents) },
-					}),
-					fleetBoardHierarchyResponseSchema,
-					'GET /fleet-board/hierarchy',
-				),
 		}),
 	creative: (adId: string) =>
 		queryOptions({
@@ -84,4 +92,4 @@ export function useFleetBoardRoot(input: RootInput) {
 	return useQuery(fleetBoardQueries.root(input))
 }
 
-export type FleetBoardRoot = FleetBoardRootResponse
+export type FleetBoardRoot = ReturnType<typeof selectFleetBoardSnapshot>

@@ -50,7 +50,7 @@ flowchart LR
   Meta["Meta Marketing API"] --> Sync["Account + Insights tier sync"]
   Sync --> DB["Postgres synced snapshots"]
   DB --> Read["Fleet Board read model"]
-  Read --> API["Root, hierarchy, Creative, media APIs"]
+  Read --> API["Complete snapshot, Creative, media APIs"]
   API --> Model["Shared client query + normalized view model"]
   Model --> Tree["Tree view"]
   Model --> Control["Control Room view"]
@@ -64,7 +64,7 @@ The seams are deliberate:
 3. The read model is the only implementation of Health, Needs Attention, Signals Lane, Running, Time
    Range, KPI, mixed-currency/timezone, and rollup rules.
 4. API schemas expose presentation-neutral data.
-5. The client normalized model owns URL state, lazy hierarchy loading, local expansion/selection, and
+5. The client normalized model owns URL state, complete-snapshot indexing, local expansion/selection, and
    formatting inputs.
 6. Each view owns layout and interaction only; it must not recalculate domain values.
 
@@ -296,15 +296,13 @@ Return:
 Return all six KPI values because the pool is fixed and small; Metric Selection controls presentation,
 not repeated API reads. Never return raw Meta access tokens, signed media URLs, or raw poll errors.
 
-### 8.2 Lazy hierarchy endpoint
+### 8.2 Complete snapshot endpoint
 
-Use one bounded batch endpoint for immediate children, accepting parent `{type, id}` pairs plus Time
-Range. Return normalized Campaign, Ad Set, or Ad nodes with the same presentation-neutral fields and KPI
-shape. Reject duplicate/oversized parent lists and mixed-Agency access. The client iterates one batched
-request per newly requested hierarchy level when View Depth rises.
-
-Keep stable query keys by Agency, Time Range, filters, and parent IDs. A local row expansion reuses cached
-children; it never invokes Meta.
+Return Client metadata, filtered/sorted Ad Account roots, freshness, and every live Campaign, Ad Set, and Ad
+below the returned roots from one read-model pass. Keep hierarchy nodes flat with immediate `parentId`; the
+client indexes the collection once and treats View Depth, local expansion, view switching, and refresh as
+rendering or single-snapshot operations. Omit soft-deleted nodes while retaining their Insights in rollups.
+Creative payload and media remain separate lazy reads.
 
 ### 8.3 Creative and media
 
@@ -322,7 +320,7 @@ Use native fetch/streaming and existing Hono primitives; add no object storage o
 ### 8.4 Shared schemas
 
 Define Zod request/response schemas beside the API client exports, parse responses on the SPA boundary
-with the existing `parseResponse`, and use discriminated unions for hierarchy node type, Creative shape,
+with the existing `parseResponse`, and use discriminated unions for snapshot node type, Creative shape,
 Health reason, CPA reason, and error/unsupported states. Dates cross the API as ISO strings or
 `YYYY-MM-DD`; decimal money crosses as strings.
 
@@ -350,8 +348,8 @@ sort to Needs Attention. Tree/Signals expansion sets remain component state and 
 
 Create one query layer and normalized node store consumed by all views. It owns:
 
-- Root and hierarchy query keys/loading/error states.
-- Batched child loading for View Depth and local expansion.
+- One complete snapshot query key/loading/error state.
+- A deterministic parent-to-children index for View Depth and local expansion.
 - Flattening visible nodes for virtualizers.
 - Stable selection fallback for Control Room.
 - Formatting inputs, not localized domain calculation.
@@ -369,14 +367,14 @@ each lane. Preserve focus when rows leave the mounted window.
 
 ## 10. Three complete views
 
-Build these only after the shared toolbar, URL state, root response, lazy hierarchy, and Creative detail
+Build these only after the shared toolbar, URL state, complete snapshot, and Creative detail
 are working. Each view consumes the same model and shared leaf components.
 
 ### 10.1 Tree
 
 - Render a semantic treegrid/table with aligned fixed KPI columns and sticky identity column.
 - Render Ad Account rows directly; Client remains metadata and a root filter.
-- View Depth opens all loaded branches to the requested level; local chevrons are additive.
+- View Depth reveals the already-indexed branches to the requested level; local chevrons are additive.
 - Parent aggregates remain visible when opened.
 - Ad expansion renders full-width Creative detail.
 - Narrow screens keep the sticky identity column and scroll KPI columns horizontally.
@@ -384,7 +382,7 @@ are working. Each view consumes the same model and shared leaf components.
 ### 10.2 Control Room
 
 - Render the filtered/sorted fleet as a virtualized Ad Account rail.
-- Render one selected account's hierarchy/detail beside it using the same View Depth and lazy loaders.
+- Render one selected account's hierarchy/detail beside it using the same indexed snapshot and View Depth.
 - Encode selected account and Ad in the URL; stale/unauthorized IDs fall back without rewriting.
 - Creative uses the dedicated selected-Ad panel with identical content and Metric Selection.
 - Narrow screens turn the rail into a full-width selector above detail; no data or controls disappear.
@@ -422,8 +420,8 @@ Each slice is mergeable and leaves its smallest meaningful check behind.
    Creative metadata, throttling, idempotency, and integration tests.
 5. **Root read vertical slice.** Add authenticated root endpoint and a minimal Ukrainian root list at `/`.
    This proves Agency isolation, Time Range, rollups, URL parsing, freshness, and heartbeat side effect.
-6. **Lazy hierarchy vertical slice.** Add batch child endpoint and traverse Account → Campaign → Ad Set →
-   Ad in the minimal Tree. Prove View Depth and local expansion against database snapshots.
+6. **Complete snapshot vertical slice.** Return Account → Campaign → Ad Set → Ad in one flat read-model
+   response. Prove View Depth and local expansion against database snapshots without child requests.
 7. **Creative vertical slice.** Add normalized Creative endpoint, media proxy, every fixture shape, and Tree
    detail with failure isolation.
 8. **Shared production shell + virtualization.** Finish toolbar, filters/sorts, normalized model,
@@ -474,13 +472,13 @@ contract; otherwise they will accidentally fork business behavior.
 - Authentication, active Agency membership, cross-Agency denial on every endpoint/media path.
 - Request limits/schema failures and response-schema parsing.
 - Root filters/sorts, mixed flags, worst-visible freshness, generic error safety.
-- Batched hierarchy queries and Creative/media unavailable behavior.
+- Complete snapshot nodes, root scoping, and Creative/media unavailable behavior.
 
 **Client tests**
 
 - One shared mocked API fixture rendered in all three views yields the same values/counts.
 - View/Time Range/Metric/depth/filter/sort URL controls.
-- Lazy child loading is batched and cache-reused.
+- View Depth and row expansion reuse the one snapshot without child requests.
 - Keyboard expansion/selection/switching, text alternatives, focus retention under virtualization.
 - Narrow-screen structures for each view.
 
@@ -509,11 +507,11 @@ No view passes by omitting a task or displaying a differently calculated value.
 
 Use the generated 50-Client / 150-Ad-Account fixture with thousands of descendants:
 
-- Initial root response does not contain hidden hierarchy or Creative payloads.
-- Root interaction remains usable while descendant queries are in flight.
+- The complete snapshot is scoped to visible roots and contains no Creative payloads.
+- Root interaction remains usable while the single snapshot is in flight.
 - Mounted row/card count stays bounded by virtualizer viewport + overscan.
-- Raising View Depth batches parents by level and respects the endpoint limit.
-- Query counts have no per-row N+1 pattern; capture `EXPLAIN` for root and hierarchy aggregation.
+- Raising View Depth and expanding rows issue no additional hierarchy requests.
+- Query counts have no per-row N+1 pattern; capture `EXPLAIN` for snapshot aggregation.
 - Media bytes load only for opened Creative detail.
 
 Record concrete timings and DOM/query counts during implementation; do not invent thresholds before the
@@ -569,7 +567,7 @@ The development effort is done when:
 - Shared URLs reproduce semantic view state; only incidental expansions remain ephemeral.
 - Sync/read paths implement account-local ranges, 28-day reconciliation, exact KPI/Health rules, partial
   failure isolation, and Agency authorization.
-- Continuous virtualized rendering and lazy hierarchy/Creative loading pass the scale fixture.
+- Continuous virtualized rendering, complete-snapshot indexing, and lazy Creative loading pass the scale fixture.
 - All rendered application text is Ukrainian and accessibility/narrow-screen contracts pass.
 - Prototype runtime code is removed after parity, while historical docs/ADRs remain.
 - Required external validations are either passed or visibly tracked as release blockers.

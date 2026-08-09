@@ -1,12 +1,11 @@
-import type { FleetBoardHierarchyResponse } from '@adomata/api/client'
-
-import type { FleetBoardParent, FleetBoardRoot } from '@/data/fleet-board'
+import { fleetBoardParentKey, type FleetBoardNodeIndex, type FleetBoardRoot } from '@/data/fleet-board'
 import type { FleetBoardMetricKey, FleetBoardSearch } from '@/data/fleet-board-search'
 
 export type Account = FleetBoardRoot['accounts'][number]
 export type Client = FleetBoardRoot['clients'][number]
-export type HierarchyNode = FleetBoardHierarchyResponse['nodes'][number]
-export type Node = Account | HierarchyNode
+export type FleetBoardNode = FleetBoardRoot['nodes'][number]
+export type Node = Account | FleetBoardNode
+export type NodeIndex = FleetBoardNodeIndex
 export type TreeRow = { node: Node; level: number; currency: string | null }
 export type BoardRow = TreeRow & { key: string }
 export type SortKey = FleetBoardSearch['sort']
@@ -17,11 +16,11 @@ export const noData = '—'
 export function flattenRows(
 	accounts: Account[],
 	search: FleetBoardSearch,
-	children: Record<string, HierarchyNode[]>,
+	nodeIndex: NodeIndex,
 	expanded: Set<string>,
 ): BoardRow[] {
 	return accounts.flatMap(account =>
-		flattenAccount(account, 0, search, children, expanded).map(row => ({ ...row, key: rowKey(row) })),
+		flattenAccount(account, 0, search, nodeIndex, expanded).map(row => ({ ...row, key: rowKey(row) })),
 	)
 }
 
@@ -29,10 +28,10 @@ export function flattenAccount(
 	account: Account,
 	baseLevel: number,
 	search: FleetBoardSearch,
-	children: Record<string, HierarchyNode[]>,
+	nodeIndex: NodeIndex,
 	expanded: Set<string>,
 ) {
-	return flattenNode(account, baseLevel, account.currency, search, children, expanded)
+	return flattenNode(account, baseLevel, account.currency, search, nodeIndex, expanded)
 }
 
 function flattenNode(
@@ -40,67 +39,21 @@ function flattenNode(
 	level: number,
 	currency: string | null,
 	search: FleetBoardSearch,
-	children: Record<string, HierarchyNode[]>,
+	nodeIndex: NodeIndex,
 	expanded: Set<string>,
 ): TreeRow[] {
 	const rows: TreeRow[] = [{ node, level, currency }]
 	if (node.type === 'ad') return rows
 	const typeDepth = depthValues.indexOf(node.type)
-	if (depthValues.indexOf(search.depth) <= typeDepth && !expanded.has(parentKey(node.type, node.id))) return rows
-	for (const child of children[parentKey(node.type, node.id)] ?? []) {
+	if (depthValues.indexOf(search.depth) <= typeDepth && !expanded.has(fleetBoardParentKey(node.type, node.id)))
+		return rows
+	for (const child of nodeIndex[fleetBoardParentKey(node.type, node.id)] ?? []) {
 		// A rendering toggle, not a filter: hiding a non-Running interior row changes nothing
 		// about any parent's numbers, which are rollups computed server-side.
 		if (search.hidePaused && !child.kpis.running) continue
-		rows.push(...flattenNode(child, level + 1, currency, search, children, expanded))
+		rows.push(...flattenNode(child, level + 1, currency, search, nodeIndex, expanded))
 	}
 	return rows
-}
-
-export function parentsNeededForDepth(
-	accounts: Account[],
-	children: Record<string, HierarchyNode[]>,
-	depth: FleetBoardSearch['depth'],
-) {
-	const target = depthValues.indexOf(depth)
-	let parents: FleetBoardParent[] = accounts.map(account => ({ type: 'account', id: account.id }))
-	for (let level = 0; level < target; level += 1) {
-		const missing = parents.filter(parent => children[parentKey(parent.type, parent.id)] === undefined)
-		if (missing.length > 0) return missing.slice(0, 50)
-		parents = parents.flatMap(parent =>
-			(children[parentKey(parent.type, parent.id)] ?? [])
-				.filter(node => node.type !== 'ad')
-				.map(node => ({ type: node.type, id: node.id }) as FleetBoardParent),
-		)
-	}
-	return []
-}
-
-export function mergeChildren(
-	current: Record<string, HierarchyNode[]>,
-	requested: FleetBoardParent[],
-	nodes: HierarchyNode[],
-) {
-	const next = { ...current }
-
-	for (const parent of requested) next[parentKey(parent.type, parent.id)] ??= []
-	for (const node of nodes)
-		next[parentKey(parentTypeForChild(node.type), node.parentId)] = [
-			...(next[parentKey(parentTypeForChild(node.type), node.parentId)] ?? []),
-			node,
-		]
-	return Object.fromEntries(Object.entries(next).map(([key, value]) => [key, uniqueNodes(value)]))
-}
-
-function uniqueNodes(nodes: HierarchyNode[]) {
-	return [...new Map(nodes.map(node => [node.id, node])).values()]
-}
-
-function parentTypeForChild(type: HierarchyNode['type']): FleetBoardParent['type'] {
-	return type === 'campaign' ? 'account' : type === 'adset' ? 'campaign' : 'adset'
-}
-
-export function parentKey(type: FleetBoardParent['type'] | 'account', id: string) {
-	return `${type}:${id}`
 }
 
 function rowKey(row: TreeRow) {

@@ -2,6 +2,13 @@ type CreativeRecord = { id: string; adId: string; name: string | null; payload: 
 type AssetKind = 'image' | 'video' | 'text' | 'link' | 'cta' | 'placement'
 type CreativeAsset = { key: string; kind: AssetKind; label: string; value: string | null; mediaKey: string | null }
 
+export function creativeHasVideo(payloadValue: unknown) {
+	const payload = objectPayload(payloadValue)
+	if (payload.video_id || payload.video_url) return true
+	const videos = arrayPayload(objectPayload(payload.asset_feed_spec).videos)
+	return videos.length > 0
+}
+
 export function normalizeCreative(creative: CreativeRecord) {
 	const payload = objectPayload(creative.payload)
 	const story = objectPayload(payload.object_story_spec)

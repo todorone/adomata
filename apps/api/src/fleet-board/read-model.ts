@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { ad, adAccount, adCreative, adInsight, adSet, campaign, client } from '../db/schema'
 import type {
-	FleetBoardHierarchyResponse,
+	FleetBoardNode,
 	FleetBoardRange,
 	FleetBoardRootQuery,
 	FleetBoardRootResponse,
@@ -20,8 +20,9 @@ import {
 	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
+import { creativeHasVideo } from './creative'
 
-export { mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
+export { creativeHasVideo, mediaUrlForKey, needsCreativeMediaRefresh, normalizeCreative } from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 2 * 60 * 60 * 1000
@@ -30,21 +31,16 @@ const purchaseActionTypes = new Set(['purchase', 'omni_purchase', 'offsite_conve
 
 type AccountRow = typeof adAccount.$inferSelect
 type ClientRow = typeof client.$inferSelect
-type CampaignRow = typeof campaign.$inferSelect
-type AdSetRow = typeof adSet.$inferSelect
 type AdRow = typeof ad.$inferSelect
 type Contribution = Parameters<typeof rollupKpis>[0][number]
 type AccountView = FleetBoardRootResponse['accounts'][number]
 type ClientView = FleetBoardRootResponse['clients'][number]
+type ModelNode = { accountId: string; node: FleetBoardNode }
 
 type FleetBoardModel = {
 	accounts: AccountView[]
 	clients: ClientView[]
-	childNodes: {
-		campaigns: Array<{ row: CampaignRow; kpis: AccountView['kpis'] }>
-		adSets: Array<{ row: AdSetRow; kpis: AccountView['kpis'] }>
-		ads: Array<{ row: AdRow; kpis: AccountView['kpis']; creativeId: string | null }>
-	}
+	nodes: ModelNode[]
 }
 
 export async function readFleetBoardRoot(
@@ -65,83 +61,13 @@ export async function readFleetBoardRoot(
 	const sortedAccounts = [...visibleAccounts].sort((left, right) =>
 		compareRootRows(left, right, query.sort, query.direction),
 	)
+	const visibleAccountIds = new Set(sortedAccounts.map(account => account.id))
 	return {
 		clients: visibleClients,
 		accounts: sortedAccounts,
+		nodes: model.nodes.filter(node => visibleAccountIds.has(node.accountId)).map(node => node.node),
 		header: headerFreshness(sortedAccounts, query.range, now),
 	}
-}
-
-export async function readFleetBoardChildren(
-	agencyId: string,
-	range: FleetBoardRange,
-	parents: Array<{ type: 'account' | 'campaign' | 'adset'; id: string }>,
-	now = new Date(),
-): Promise<FleetBoardHierarchyResponse | null> {
-	const model = await loadFleetBoardModel(agencyId, range, now)
-	const accountIds = new Set(model.accounts.map(account => account.id))
-	const campaignIds = new Set(model.childNodes.campaigns.map(node => node.row.id))
-	const adSetIds = new Set(model.childNodes.adSets.map(node => node.row.id))
-	if (
-		parents.some(parent =>
-			parent.type === 'account'
-				? !accountIds.has(parent.id)
-				: parent.type === 'campaign'
-					? !campaignIds.has(parent.id)
-					: !adSetIds.has(parent.id),
-		)
-	) {
-		return null
-	}
-	const nodes: FleetBoardHierarchyResponse['nodes'] = []
-	for (const parent of parents) {
-		if (parent.type === 'account') {
-			nodes.push(
-				...model.childNodes.campaigns
-					.filter(node => node.row.adAccountId === parent.id && node.row.deletedAt === null)
-					.map(node => ({
-						id: node.row.id,
-						type: 'campaign' as const,
-						parentId: parent.id,
-						name: node.row.name,
-						effectiveStatus: node.row.effectiveStatus,
-						kpis: node.kpis,
-						creativeId: null,
-					})),
-			)
-			continue
-		}
-		if (parent.type === 'campaign') {
-			nodes.push(
-				...model.childNodes.adSets
-					.filter(node => node.row.campaignId === parent.id && node.row.deletedAt === null)
-					.map(node => ({
-						id: node.row.id,
-						type: 'adset' as const,
-						parentId: parent.id,
-						name: node.row.name,
-						effectiveStatus: node.row.effectiveStatus,
-						kpis: node.kpis,
-						creativeId: null,
-					})),
-			)
-			continue
-		}
-		nodes.push(
-			...model.childNodes.ads
-				.filter(node => node.row.adSetId === parent.id && node.row.deletedAt === null)
-				.map(node => ({
-					id: node.row.id,
-					type: 'ad' as const,
-					parentId: parent.id,
-					name: node.row.name,
-					effectiveStatus: node.row.effectiveStatus,
-					kpis: node.kpis,
-					creativeId: node.creativeId,
-				})),
-		)
-	}
-	return { nodes }
 }
 
 export async function readCreative(agencyId: string, adId: string) {
@@ -169,7 +95,7 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		return {
 			accounts: [],
 			clients: [],
-			childNodes: { campaigns: [], adSets: [], ads: [] },
+			nodes: [],
 		}
 	}
 
@@ -180,6 +106,12 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	const starts = [...accountRanges.values()].map(value => value.start)
 	const ends = [...accountRanges.values()].map(value => value.end)
 	const accountIds = [...accountsById.keys()]
+	const campaignRows = await db.select({ campaign }).from(campaign).where(inArray(campaign.adAccountId, accountIds))
+	const adSetRows = await db
+		.select({ adSet, campaign })
+		.from(adSet)
+		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+		.where(inArray(campaign.adAccountId, accountIds))
 	const hierarchyRows = await db
 		.select({ ad, adSet, campaign })
 		.from(ad)
@@ -187,13 +119,15 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
 	const creativeRows = await db
-		.select({ adId: adCreative.adId, creativeId: adCreative.id })
+		.select({ adId: adCreative.adId, creativeId: adCreative.id, payload: adCreative.payload })
 		.from(adCreative)
 		.innerJoin(ad, eq(adCreative.adId, ad.id))
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 		.where(inArray(campaign.adAccountId, accountIds))
-	const creativeIdByAd = new Map(creativeRows.map(row => [row.adId, row.creativeId]))
+	const creativeByAd = new Map(
+		creativeRows.map(row => [row.adId, { id: row.creativeId, hasVideo: creativeHasVideo(row.payload) }]),
+	)
 	const insightRows = await db
 		.select({ insight: adInsight, ad, adSet, campaign })
 		.from(adInsight)
@@ -233,13 +167,13 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		hierarchyRows.map(row => [row.ad.id, toApiKpis(rollupKpis(contributionsByAd.get(row.ad.id) ?? []))]),
 	)
 	const kpisForAdSet = new Map(
-		hierarchyRows.map(row => [
+		adSetRows.map(row => [
 			row.adSet.id,
 			toApiKpis(rollupKpis(allContributionsFor(candidate => candidate.adSet.id === row.adSet.id))),
 		]),
 	)
 	const kpisForCampaign = new Map(
-		hierarchyRows.map(row => [
+		campaignRows.map(row => [
 			row.campaign.id,
 			toApiKpis(rollupKpis(allContributionsFor(candidate => candidate.campaign.id === row.campaign.id))),
 		]),
@@ -258,17 +192,56 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	return {
 		accounts,
 		clients,
-		childNodes: {
-			campaigns: uniqueRows(
-				hierarchyRows.map(row => ({ row: row.campaign, kpis: kpisForCampaign.get(row.campaign.id)! })),
-			),
-			adSets: uniqueRows(hierarchyRows.map(row => ({ row: row.adSet, kpis: kpisForAdSet.get(row.adSet.id)! }))),
-			ads: hierarchyRows.map(row => ({
-				row: row.ad,
-				kpis: kpisForAd.get(row.ad.id)!,
-				creativeId: creativeIdByAd.get(row.ad.id) ?? null,
-			})),
-		},
+		nodes: [
+			...campaignRows
+				.filter(row => row.campaign.deletedAt === null)
+				.map(row => ({
+					accountId: row.campaign.adAccountId,
+					node: {
+						id: row.campaign.id,
+						type: 'campaign' as const,
+						parentId: row.campaign.adAccountId,
+						name: row.campaign.name,
+						effectiveStatus: row.campaign.effectiveStatus,
+						kpis: kpisForCampaign.get(row.campaign.id)!,
+						creativeId: null,
+						creativeHasVideo: false,
+					},
+				})),
+			...adSetRows
+				.filter(row => row.campaign.deletedAt === null && row.adSet.deletedAt === null)
+				.map(row => ({
+					accountId: row.campaign.adAccountId,
+					node: {
+						id: row.adSet.id,
+						type: 'adset' as const,
+						parentId: row.adSet.campaignId,
+						name: row.adSet.name,
+						effectiveStatus: row.adSet.effectiveStatus,
+						kpis: kpisForAdSet.get(row.adSet.id)!,
+						creativeId: null,
+						creativeHasVideo: false,
+					},
+				})),
+			...hierarchyRows
+				.filter(row => row.campaign.deletedAt === null && row.adSet.deletedAt === null && row.ad.deletedAt === null)
+				.map(row => {
+					const creative = creativeByAd.get(row.ad.id)
+					return {
+						accountId: row.campaign.adAccountId,
+						node: {
+							id: row.ad.id,
+							type: 'ad' as const,
+							parentId: row.ad.adSetId,
+							name: row.ad.name,
+							effectiveStatus: row.ad.effectiveStatus,
+							kpis: kpisForAd.get(row.ad.id)!,
+							creativeId: creative?.id ?? null,
+							creativeHasVideo: creative?.hasVideo ?? false,
+						},
+					}
+				}),
+		],
 	}
 }
 
@@ -403,8 +376,4 @@ function rootSortValue(row: AccountView, sort: FleetBoardRootQuery['sort']) {
 	if (sort === 'owed') return row.amountOwed === null ? -Infinity : Number(row.amountOwed)
 	const value = row.kpis[sort]
 	return value === null ? -Infinity : Number(value)
-}
-
-function uniqueRows<T extends { row: { id: string } }>(rows: T[]) {
-	return [...new Map(rows.map(row => [row.row.id, row])).values()]
 }

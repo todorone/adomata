@@ -14,7 +14,14 @@ import {
 const jsonb = customType<{ data: unknown; driverData: unknown }>({
 	dataType: () => 'jsonb',
 	toDriver: value => value,
-	fromDriver: value => (typeof value === 'string' ? JSON.parse(value) : value),
+	fromDriver: value => {
+		if (typeof value !== 'string' || !/^[[{]/.test(value)) return value
+		try {
+			return JSON.parse(value)
+		} catch {
+			return value
+		}
+	},
 })
 
 // Better Auth: core user accounts

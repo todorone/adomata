@@ -469,6 +469,23 @@ describe('MetaClient', () => {
 		await expect(new MetaClient({ accessToken: 'token', fetch: rejected }).getAdPreview('ad-1')).resolves.toBeNull()
 	})
 
+	it('aborts the preview probe on a throttle instead of spending every placement on it', async () => {
+		const fetch = vi
+			.fn()
+			.mockImplementation(() =>
+				Promise.resolve(
+					new Response(JSON.stringify({ error: { message: 'Too many calls', code: 4 } }), { status: 400 }),
+				),
+			)
+		const sleep = vi.fn().mockResolvedValue(undefined)
+
+		await expect(new MetaClient({ accessToken: 'token', fetch, sleep }).getAdPreview('ad-1')).rejects.toMatchObject({
+			code: 4,
+		})
+		// Three retries of the first placement, not three of each of the four.
+		expect(fetch).toHaveBeenCalledTimes(3)
+	})
+
 	it('retries a Meta rate limit exactly twice with exponential delays and retains usage headers', async () => {
 		const fetch = vi.fn().mockImplementation(() =>
 			Promise.resolve(

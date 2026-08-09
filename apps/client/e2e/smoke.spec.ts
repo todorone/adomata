@@ -55,7 +55,7 @@ test('a user can log out from a Fleet Board URL', async ({ page }) => {
 		'/?view=tree&range=today&metrics=%5B%22spend%22%2C%22roas%22%5D&depth=account&search=&needsAttention=false&sort=attention&direction=desc',
 	)
 	await expect(page.getByRole('heading', { name: 'Огляд рекламних кабінетів' })).toBeVisible()
-	await page.getByRole('button', { name: `${SUPERADMIN.name} ${SUPERADMIN.email}` }).click()
+	await page.getByRole('button', { name: SUPERADMIN.email, exact: false }).click()
 	await page.getByRole('menuitem', { name: 'Вийти' }).click()
 
 	await expect(page).toHaveURL(/\/login$/)

@@ -180,7 +180,10 @@ export const fakeMetaHandlers = [
 		if (!fakeMetaAds.some(ad => ad.id === id)) return graphContractError(`Unknown fake Meta ad: ${id}`)
 		const adFormat = new URL(request.url).searchParams.get('ad_format')
 		if (adFormat !== (id === 'ad-003' ? 'INSTAGRAM_STANDARD' : 'MOBILE_FEED_STANDARD'))
-			return graphContractError(`Unsupported ad_format for ${id}: ${adFormat}`)
+			return HttpResponse.json(
+				{ error: { message: `Unsupported ad_format: ${adFormat}`, type: 'OAuthException', code: 100 } },
+				{ status: 400 },
+			)
 		return HttpResponse.json({
 			data: [
 				{

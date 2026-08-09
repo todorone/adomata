@@ -118,8 +118,7 @@ export const fleetBoardRoutes = fleetBoardBase
 		const agencyId = c.get('orgId')
 		const record = await readCreative(agencyId, c.req.valid('param').adId)
 		if (!record) return apiError(c, 'NOT_FOUND')
-		const metaClient = await resolveMetaClient(agencyId)
-		const preview = metaClient ? await metaClient.getAdPreview(record.ad.id) : null
+		const preview = await loadAdPreview(agencyId, record.ad.id)
 		c.header('Cache-Control', 'private, max-age=300')
 		return c.json(fleetBoardAdPreviewResponseSchema.parse({ preview }), 200)
 	})
@@ -183,6 +182,19 @@ async function refreshCreative(
 			creativeId: record.creative.id,
 			category: errorCategory(error),
 		})
+	}
+}
+
+// getAdPreview aborts its format probe on a throttle or a token error rather than reporting "no
+// preview" — that distinction is worth a log line, but the surface degrades to media-unavailable
+// either way, so it never fails the request.
+async function loadAdPreview(agencyId: string, adId: string) {
+	try {
+		const metaClient = await resolveMetaClient(agencyId)
+		return metaClient ? await metaClient.getAdPreview(adId) : null
+	} catch (error) {
+		logger.warn('Fleet Board ad preview failed', { adId, category: errorCategory(error) })
+		return null
 	}
 }
 

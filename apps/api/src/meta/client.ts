@@ -30,6 +30,7 @@ const hierarchyEffectiveStatuses = [
 	'WITH_ISSUES',
 ]
 const maxCreativeVideoSources = 25
+const metaInvalidParameterCode = 100
 const adPreviewFormats = [
 	'MOBILE_FEED_STANDARD',
 	'INSTAGRAM_STANDARD',
@@ -349,10 +350,11 @@ export class MetaClient {
 			const url = this.graphUrl(`/${encodeURIComponent(adId)}/previews`)
 			url.searchParams.set('ad_format', adFormat)
 			const { payload } = await this.request(url)
-			const body = adPreviewResponseSchema.parse(payload).data[0]?.body
+			const parsed = adPreviewResponseSchema.safeParse(payload)
+			const body = parsed.success ? parsed.data.data[0]?.body : undefined
 			return body ? parseAdPreview(body) : null
 		} catch (error) {
-			if (error instanceof MetaApiError) return null
+			if (error instanceof MetaApiError && error.code === metaInvalidParameterCode) return null
 			throw error
 		}
 	}

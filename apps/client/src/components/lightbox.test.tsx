@@ -21,6 +21,7 @@ function TestLightbox() {
 			selectedAssetKey={selectedAssetKey}
 			onSelectedAssetChange={setSelectedAssetKey}
 			mediaUnavailable={false}
+			previewPending={false}
 			mediaUrl={key => `/media/${key}`}
 			metadata={{
 				title: 'Тестовий креатив',
@@ -80,6 +81,7 @@ describe('Lightbox', () => {
 					selectedAssetKey={null}
 					onSelectedAssetChange={() => undefined}
 					mediaUnavailable={false}
+					previewPending={false}
 					mediaUrl={key => `/media/${key}`}
 					metadata={{
 						title: 'Текстовий креатив',
@@ -97,5 +99,71 @@ describe('Lightbox', () => {
 		const dialog = screen.getByRole('dialog')
 		expect(within(dialog).getByRole('heading', { name: 'Текстовий креатив' })).toBeTruthy()
 		expect(within(dialog).queryByRole('region', { name: 'Перегляд медіафайлу' })).toBeNull()
+	})
+
+	it("renders Meta's hosted preview at Meta's own size instead of calling the Creative unavailable", () => {
+		render(
+			<Lightbox
+				open
+				onOpenChange={() => undefined}
+				assets={[
+					{
+						key: 'meta-preview',
+						kind: 'preview',
+						label: 'Перегляд від Meta',
+						url: 'https://www.facebook.com/ads/api/preview_iframe.php?d=ad-1',
+						width: 320,
+						height: 600,
+					},
+				]}
+				selectedAssetKey={null}
+				onSelectedAssetChange={() => undefined}
+				mediaUnavailable
+				previewPending={false}
+				mediaUrl={key => `/media/${key}`}
+				metadata={{
+					title: 'Відеооголошення',
+					body: null,
+					description: null,
+					callToAction: null,
+					destination: null,
+				}}
+				hasMultipleAssets={false}
+			/>,
+		)
+
+		const dialog = screen.getByRole('dialog')
+		const frame = within(dialog).getByTitle('Перегляд від Meta')
+		expect(frame).toBeInstanceOf(HTMLIFrameElement)
+		expect(frame.getAttribute('src')).toBe('https://www.facebook.com/ads/api/preview_iframe.php?d=ad-1')
+		expect(frame.getAttribute('style')).toContain('320px')
+		expect(within(dialog).queryByText('Медіафайл тимчасово недоступний')).toBeNull()
+	})
+
+	it('holds the media panel while the hosted preview is still being fetched', () => {
+		render(
+			<Lightbox
+				open
+				onOpenChange={() => undefined}
+				assets={[]}
+				selectedAssetKey={null}
+				onSelectedAssetChange={() => undefined}
+				mediaUnavailable
+				previewPending
+				mediaUrl={key => `/media/${key}`}
+				metadata={{
+					title: 'Відеооголошення',
+					body: null,
+					description: null,
+					callToAction: null,
+					destination: null,
+				}}
+				hasMultipleAssets={false}
+			/>,
+		)
+
+		const dialog = screen.getByRole('dialog')
+		expect(within(dialog).getByText('Завантажуємо перегляд від Meta…')).toBeTruthy()
+		expect(within(dialog).queryByText('Медіафайл тимчасово недоступний')).toBeNull()
 	})
 })

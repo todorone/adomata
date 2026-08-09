@@ -152,6 +152,33 @@ describe('Account Tier heartbeat integration', () => {
 		})
 	})
 
+	it('stores jsonb as objects and arrays SQL can read into, not as encoded strings', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'pending', accountTierRefreshedAt: null, insightsTierRefreshedAt: null })
+			.where(
+				inArray(
+					adAccount.id,
+					fakeMetaAccounts.map(account => account.id),
+				),
+			)
+
+		await runHeartbeat({ metaMode: 'fake', buildMetaClient: buildMetaClientWithAttemptCounter({ count: 0 }), now })
+
+		const [shapes] = await sql`
+			select
+				(select count(*) from ad_creative where jsonb_typeof(payload) <> 'object') as bad_payloads,
+				(select count(*) from ad_insight where jsonb_typeof(actions) <> 'array') as bad_actions,
+				(select count(*) from ad_insight where jsonb_typeof(action_values) <> 'array') as bad_action_values,
+				(select count(*) from ad_creative where payload ? 'video_id') as payloads_sql_can_query
+		`
+		expect(Number(shapes.bad_payloads)).toBe(0)
+		expect(Number(shapes.bad_actions)).toBe(0)
+		expect(Number(shapes.bad_action_values)).toBe(0)
+		expect(Number(shapes.payloads_sql_can_query)).toBeGreaterThan(0)
+	})
+
 	it('skips due accounts in live mode when the Agency has no organizationSettings token', async () => {
 		const now = new Date('2026-07-29T08:00:00.000Z')
 		await db

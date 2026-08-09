@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { and, eq } from 'drizzle-orm'
 
 import {
+	fleetBoardAdPreviewResponseSchema,
 	fleetBoardCreativeResponseSchema,
 	fleetBoardHierarchyQuerySchema,
 	fleetBoardHierarchyResponseSchema,
@@ -14,6 +15,7 @@ import { ad, adAccount, adCreative, adSet, campaign, client, organizationSetting
 import { apiError } from '../logic/apiError'
 import { requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import {
+	creativeHasVideo,
 	normalizeCreative,
 	readCreative,
 	readFleetBoardChildren,
@@ -62,6 +64,19 @@ const creativeRoute = createRoute({
 	},
 })
 
+const previewRoute = createRoute({
+	method: 'get',
+	path: '/ads/{adId}/preview',
+	request: { params: z.object({ adId: z.string().min(1).max(200) }) },
+	responses: {
+		200: {
+			description: "Meta's hosted preview of an Ad, when Meta renders one",
+			content: { 'application/json': { schema: fleetBoardAdPreviewResponseSchema } },
+		},
+		404: { description: 'Ad not visible in the active Agency' },
+	},
+})
+
 const mediaRoute = createRoute({
 	method: 'get',
 	path: '/creatives/{creativeId}/media/{key}',
@@ -98,6 +113,15 @@ export const fleetBoardRoutes = fleetBoardBase
 			if (!record) return apiError(c, 'NOT_FOUND')
 		}
 		return c.json(fleetBoardCreativeResponseSchema.parse(normalizeCreative(record.creative)), 200)
+	})
+	.openapi(previewRoute, async c => {
+		const agencyId = c.get('orgId')
+		const record = await readCreative(agencyId, c.req.valid('param').adId)
+		if (!record) return apiError(c, 'NOT_FOUND')
+		const metaClient = await resolveMetaClient(agencyId)
+		const preview = metaClient ? await metaClient.getAdPreview(record.ad.id) : null
+		c.header('Cache-Control', 'private, max-age=300')
+		return c.json(fleetBoardAdPreviewResponseSchema.parse({ preview }), 200)
 	})
 	.openapi(mediaRoute, async c => {
 		const params = c.req.valid('param')
@@ -147,7 +171,12 @@ async function refreshCreative(
 		if (!refreshed || refreshed.id !== record.creative.id) return
 		await db
 			.update(adCreative)
-			.set({ name: refreshed.name, payload: refreshed.payload, updatedAt: new Date() })
+			.set({
+				name: refreshed.name,
+				payload: refreshed.payload,
+				hasVideo: creativeHasVideo(refreshed.payload),
+				updatedAt: new Date(),
+			})
 			.where(eq(adCreative.id, record.creative.id))
 	} catch (error) {
 		logger.warn('Fleet Board creative media refresh failed', {

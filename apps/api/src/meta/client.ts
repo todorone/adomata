@@ -30,6 +30,12 @@ const hierarchyEffectiveStatuses = [
 	'WITH_ISSUES',
 ]
 const maxCreativeVideoSources = 25
+const adPreviewFormats = [
+	'MOBILE_FEED_STANDARD',
+	'INSTAGRAM_STANDARD',
+	'INSTAGRAM_REELS',
+	'FACEBOOK_STORY_MOBILE',
+] as const
 
 const meSchema = z.object({ id: z.string(), name: z.string() })
 const actionItemSchema = z.object({ action_type: z.string().min(1), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) })
@@ -84,6 +90,7 @@ const creativeResponseSchema = z.object({
 	object_url: z.string().url().optional(),
 })
 const videoResponseSchema = z.object({ source: z.string().url().optional() })
+const adPreviewResponseSchema = z.object({ data: z.array(z.object({ body: z.string() })) })
 const adImagesResponseSchema = z.object({
 	data: z.array(z.object({ hash: z.string(), url: z.string().url().optional() })),
 })
@@ -141,6 +148,7 @@ export type MetaAdSet = {
 export type MetaAd = { id: string; adSetId: string; name: string; effectiveStatus: string }
 export type MetaAdAccount = { id: string; name: string; currency: string; timezoneName: string | null }
 export type MetaCreative = { id: string; adId: string; name: string | null; payload: Record<string, unknown> }
+export type MetaAdPreview = { url: string; width: number | null; height: number | null }
 export type MetaAction = z.infer<typeof actionItemSchema>
 export type MetaDailyInsight = {
 	adId: string
@@ -325,6 +333,27 @@ export class MetaClient {
 				...(videoUrl ? { video_url: videoUrl } : {}),
 				...(assetFeedWithImages ? { asset_feed_spec: assetFeedWithImages } : {}),
 			},
+		}
+	}
+
+	async getAdPreview(adId: string): Promise<MetaAdPreview | null> {
+		for (const adFormat of adPreviewFormats) {
+			const preview = await this.getAdPreviewIn(adId, adFormat)
+			if (preview) return preview
+		}
+		return null
+	}
+
+	private async getAdPreviewIn(adId: string, adFormat: string) {
+		try {
+			const url = this.graphUrl(`/${encodeURIComponent(adId)}/previews`)
+			url.searchParams.set('ad_format', adFormat)
+			const { payload } = await this.request(url)
+			const body = adPreviewResponseSchema.parse(payload).data[0]?.body
+			return body ? parseAdPreview(body) : null
+		} catch (error) {
+			if (error instanceof MetaApiError) return null
+			throw error
 		}
 	}
 
@@ -517,6 +546,30 @@ function addAssetFeedImageSources(assetFeed: unknown, imageUrls: Map<string, str
 
 function metaVideoId(value: unknown) {
 	return typeof value === 'string' && /^\d{1,30}$/.test(value) ? value : null
+}
+
+function iframeAttribute(markup: string, name: string) {
+	return new RegExp(`<iframe[^>]*\\s${name}="([^"]*)"`, 'i').exec(markup)?.[1] ?? null
+}
+
+function iframeDimension(markup: string, name: string) {
+	const value = Number(iframeAttribute(markup, name))
+	return Number.isInteger(value) && value > 0 ? value : null
+}
+
+function parseAdPreview(markup: string): MetaAdPreview | null {
+	const src = iframeAttribute(markup, 'src')?.replaceAll('&amp;', '&')
+	if (!src) return null
+	let url: URL
+	try {
+		url = new URL(src)
+	} catch {
+		return null
+	}
+	if (url.protocol !== 'https:' || (url.hostname !== 'facebook.com' && !url.hostname.endsWith('.facebook.com'))) {
+		return null
+	}
+	return { url: url.toString(), width: iframeDimension(markup, 'width'), height: iframeDimension(markup, 'height') }
 }
 
 function resolveResultActionType(optimizationGoal: string | null, promotedObject: Record<string, unknown> | null) {

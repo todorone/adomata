@@ -1,15 +1,21 @@
 import {
 	boolean,
+	customType,
 	date,
 	index,
 	integer,
-	jsonb,
 	pgTable,
 	primaryKey,
 	text,
 	timestamp,
 	uniqueIndex,
 } from 'drizzle-orm/pg-core'
+
+const jsonb = customType<{ data: unknown; driverData: unknown }>({
+	dataType: () => 'jsonb',
+	toDriver: value => value,
+	fromDriver: value => (typeof value === 'string' ? JSON.parse(value) : value),
+})
 
 // Better Auth: core user accounts
 export const users = pgTable(
@@ -308,6 +314,7 @@ export const adCreative = pgTable(
 			.references(() => ad.id, { onDelete: 'cascade' }),
 		name: text(),
 		payload: jsonb().notNull(),
+		hasVideo: boolean().notNull().default(false),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},

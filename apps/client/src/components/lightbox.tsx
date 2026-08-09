@@ -3,12 +3,9 @@ import { ChevronLeft, ChevronRight, ImageOff, Video } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/ui/dialog'
 
-export type LightboxAsset = {
-	key: string
-	kind: 'image' | 'video'
-	label: string
-	mediaKey: string
-}
+export type LightboxAsset =
+	| { key: string; kind: 'image' | 'video'; label: string; mediaKey: string }
+	| { key: string; kind: 'preview'; label: string; url: string; width: number | null; height: number | null }
 
 export type LightboxMetadata = {
 	title: string
@@ -25,6 +22,7 @@ type LightboxProps = {
 	selectedAssetKey: string | null
 	onSelectedAssetChange: (assetKey: string) => void
 	mediaUnavailable: boolean
+	previewPending: boolean
 	mediaUrl: (mediaKey: string) => string
 	metadata: LightboxMetadata
 	hasMultipleAssets: boolean
@@ -38,6 +36,7 @@ export function Lightbox({
 	selectedAssetKey,
 	onSelectedAssetChange,
 	mediaUnavailable,
+	previewPending,
 	mediaUrl,
 	metadata,
 	hasMultipleAssets,
@@ -47,6 +46,7 @@ export function Lightbox({
 	const touchStartX = useRef<number | null>(null)
 	const selectedAsset = assets.find(asset => asset.key === selectedAssetKey) ?? assets[0]
 	const hasMedia = selectedAsset !== undefined
+	const showMediaPanel = hasMedia || previewPending
 
 	const selectedIndex = hasMedia ? assets.findIndex(asset => asset.key === selectedAsset.key) : -1
 	const previousAsset = assets[selectedIndex - 1]
@@ -87,6 +87,20 @@ export function Lightbox({
 	}
 
 	function renderDialogMedia(asset: LightboxAsset) {
+		if (asset.kind === 'preview') {
+			return (
+				<iframe
+					key={asset.key}
+					src={asset.url}
+					title={asset.label}
+					className="max-w-full self-stretch border-0 bg-white"
+					style={{ width: asset.width ?? '100%', height: '100%', minHeight: asset.height ?? undefined }}
+					sandbox="allow-scripts allow-same-origin allow-popups"
+					allow="autoplay; encrypted-media; fullscreen"
+					referrerPolicy="no-referrer"
+				/>
+			)
+		}
 		if (mediaUnavailable || failedMediaKeys.has(asset.key)) return mediaFallback(asset)
 		if (asset.kind === 'video') {
 			return (
@@ -129,9 +143,11 @@ export function Lightbox({
 				</DialogHeader>
 
 				<div
-					className={hasMedia ? 'grid min-h-0 flex-1 sm:grid-cols-[minmax(0,1fr)_20rem]' : 'grid min-h-0 flex-1'}
+					className={
+						showMediaPanel ? 'grid min-h-0 flex-1 sm:grid-cols-[minmax(0,1fr)_20rem]' : 'grid min-h-0 flex-1'
+					}
 				>
-					{hasMedia ? (
+					{showMediaPanel ? (
 						<section
 							className="flex min-h-0 min-w-0 flex-col bg-black/90 px-3 sm:px-5"
 							aria-label="Перегляд медіафайлу"
@@ -141,7 +157,7 @@ export function Lightbox({
 								onTouchStart={handleTouchStart}
 								onTouchEnd={handleTouchEnd}
 							>
-								{previousAsset ? (
+								{hasMedia && previousAsset ? (
 									<button
 										type="button"
 										className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white outline-offset-2 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white sm:left-4"
@@ -151,10 +167,16 @@ export function Lightbox({
 										<ChevronLeft size={28} aria-hidden="true" />
 									</button>
 								) : null}
-								<div className="flex h-full min-h-0 min-w-0 items-center justify-center">
-									{renderDialogMedia(selectedAsset)}
+								<div className="flex h-full min-h-0 min-w-0 items-center justify-center overflow-auto">
+									{hasMedia ? (
+										renderDialogMedia(selectedAsset)
+									) : (
+										<p className="text-sm text-white/70" aria-live="polite">
+											Завантажуємо перегляд від Meta…
+										</p>
+									)}
 								</div>
-								{nextAsset ? (
+								{hasMedia && nextAsset ? (
 									<button
 										type="button"
 										className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/50 p-3 text-white outline-offset-2 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white sm:right-4"
@@ -178,9 +200,9 @@ export function Lightbox({
 											className="w-20 shrink-0 overflow-hidden rounded-md border border-white/30 bg-white/10 text-left text-white outline-offset-2 focus-visible:outline-2 focus-visible:outline-white aria-pressed:border-white"
 											onClick={() => selectAsset(asset)}
 											aria-label={`Показати варіант «${asset.label}»`}
-											aria-pressed={selectedAsset.key === asset.key}
+											aria-pressed={selectedAsset?.key === asset.key}
 										>
-											{asset.kind === 'video' ? (
+											{asset.kind !== 'image' ? (
 												<div className="flex aspect-square items-center justify-center bg-white/10 text-white/70">
 													<Video size={20} aria-hidden="true" />
 												</div>
@@ -202,7 +224,7 @@ export function Lightbox({
 
 					<aside
 						className={
-							hasMedia
+							showMediaPanel
 								? 'min-h-0 overflow-y-auto border-t bg-background p-4 sm:border-t-0 sm:border-l sm:p-5'
 								: 'min-h-0 overflow-y-auto bg-background p-4 sm:p-5'
 						}
@@ -231,10 +253,10 @@ export function Lightbox({
 									Результати належать оголошенню цілком
 								</p>
 							) : null}
-							{mediaUnavailable ? (
+							{mediaUnavailable && !showMediaPanel ? (
 								<p className="flex items-center gap-2 text-xs text-muted-foreground">
 									<ImageOff size={15} aria-hidden="true" />
-									Медіафайл тимчасово недоступне
+									Медіафайл тимчасово недоступний
 								</p>
 							) : null}
 							{children}

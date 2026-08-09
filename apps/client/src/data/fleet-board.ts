@@ -1,5 +1,6 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import {
+	fleetBoardAdPreviewResponseSchema,
 	fleetBoardCreativeResponseSchema,
 	fleetBoardHierarchyResponseSchema,
 	fleetBoardRootResponseSchema,
@@ -26,6 +27,7 @@ export const fleetBoardKeys = {
 	children: (range: FleetBoardRange, parents: FleetBoardParent[]) =>
 		['fleet-board', 'children', range, parents] as const,
 	creative: (adId: string) => ['fleet-board', 'creative', adId] as const,
+	adPreview: (adId: string) => ['fleet-board', 'ad-preview', adId] as const,
 }
 
 // A custom range has no preset name to send: it goes over the wire as range=custom plus its
@@ -77,6 +79,18 @@ export const fleetBoardQueries = {
 					'GET /fleet-board/ads/:adId/creative',
 				),
 			enabled: Boolean(adId),
+		}),
+	adPreview: (adId: string, enabled: boolean) =>
+		queryOptions({
+			queryKey: fleetBoardKeys.adPreview(adId),
+			queryFn: async () =>
+				parseResponse(
+					await api['fleet-board'].ads[':adId'].preview.$get({ param: { adId } }),
+					fleetBoardAdPreviewResponseSchema,
+					'GET /fleet-board/ads/:adId/preview',
+				),
+			enabled: enabled && Boolean(adId),
+			staleTime: 5 * 60 * 1000,
 		}),
 }
 

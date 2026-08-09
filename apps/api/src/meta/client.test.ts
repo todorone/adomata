@@ -414,6 +414,61 @@ describe('MetaClient', () => {
 		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
+	it("walks past placements the Ad cannot render and returns the hosted preview at Meta's own size", async () => {
+		const fetch = vi.fn().mockImplementation((url: string) =>
+			Promise.resolve(
+				new URL(url).searchParams.get('ad_format') === 'INSTAGRAM_STANDARD'
+					? new Response(
+							JSON.stringify({
+								data: [
+									{
+										body: '<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?d=ad-1&amp;t=token" width="320" height="600"></iframe>',
+									},
+								],
+							}),
+							{ status: 200 },
+						)
+					: new Response(JSON.stringify({ error: { message: 'Unsupported ad_format', code: 100 } }), {
+							status: 400,
+						}),
+			),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getAdPreview('ad-1')).resolves.toEqual({
+			url: 'https://www.facebook.com/ads/api/preview_iframe.php?d=ad-1&t=token',
+			width: 320,
+			height: 600,
+		})
+
+		const formats = fetch.mock.calls.map(call => new URL(call[0] as string).searchParams.get('ad_format'))
+		expect(formats).toEqual(['MOBILE_FEED_STANDARD', 'INSTAGRAM_STANDARD'])
+		expect(new URL(fetch.mock.calls[0]![0] as string).pathname).toBe('/v25.0/ad-1/previews')
+	})
+
+	it('refuses a preview iframe that does not point at Meta, and reports no preview when no placement renders', async () => {
+		const offSite = vi.fn().mockImplementation(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						data: [{ body: '<iframe src="https://evil.test/preview_iframe.php" width="320"></iframe>' }],
+					}),
+					{ status: 200 },
+				),
+			),
+		)
+		await expect(new MetaClient({ accessToken: 'token', fetch: offSite }).getAdPreview('ad-1')).resolves.toBeNull()
+
+		const rejected = vi
+			.fn()
+			.mockImplementation(() =>
+				Promise.resolve(
+					new Response(JSON.stringify({ error: { message: 'Unsupported', code: 100 } }), { status: 400 }),
+				),
+			)
+		await expect(new MetaClient({ accessToken: 'token', fetch: rejected }).getAdPreview('ad-1')).resolves.toBeNull()
+	})
+
 	it('retries a Meta rate limit exactly twice with exponential delays and retains usage headers', async () => {
 		const fetch = vi.fn().mockImplementation(() =>
 			Promise.resolve(

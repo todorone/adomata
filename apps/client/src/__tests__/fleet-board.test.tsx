@@ -94,6 +94,16 @@ const snapshotNodes: BoardNode[] = [
 		creativeHasVideo: false,
 	},
 	{
+		id: 'campaign-paused',
+		type: 'campaign',
+		parentId: soloAccount.id,
+		name: 'Кампанія призупинена',
+		effectiveStatus: 'PAUSED',
+		kpis: kpis({ running: false }),
+		creativeId: null,
+		creativeHasVideo: false,
+	},
+	{
 		id: 'adset-1',
 		type: 'adset',
 		parentId: 'campaign-1',
@@ -136,9 +146,9 @@ const snapshotNodes: BoardNode[] = [
 ]
 
 const snapshotNodeIndex = {
-	'account:act_100000000000001': [snapshotNodes[0]!],
-	'campaign:campaign-1': [snapshotNodes[1]!],
-	'adset:adset-1': snapshotNodes.slice(2),
+	'account:act_100000000000001': [snapshotNodes[0]!, snapshotNodes[1]!],
+	'campaign:campaign-1': [snapshotNodes[2]!],
+	'adset:adset-1': snapshotNodes.slice(3),
 }
 
 const { refetchSpy } = vi.hoisted(() => ({ refetchSpy: vi.fn(() => Promise.resolve()) }))
@@ -338,7 +348,7 @@ describe('Fleet Board', () => {
 		await waitFor(() => expect(screen.queryByText('Кампанія Ліди')).toBeNull())
 	})
 
-	it('recursively expands a branch through successive single-child ancestors', async () => {
+	it('recursively expands through visible single-child ancestors', async () => {
 		renderBoard({ hidePaused: 'true' })
 
 		fireEvent.click(row('DeviAcademy Ad'))

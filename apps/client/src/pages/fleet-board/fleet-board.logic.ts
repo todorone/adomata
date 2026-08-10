@@ -55,12 +55,12 @@ export function expandSingleChildChain(
 	next.add(fleetBoardParentKey(node.type, node.id))
 	let current = node
 	while (current.type !== 'ad') {
-		const children = childrenOf(current, nodeIndex)
+		const children = visibleChildren(current, search, nodeIndex)
 		if (children.length !== 1) break
 
 		const child = children[0]!
 		if (child.type === 'ad') break
-		if (childrenOf(child, nodeIndex).length === 0) break
+		if (visibleChildren(child, search, nodeIndex).length === 0) break
 		next.add(fleetBoardParentKey(child.type, child.id))
 		current = child
 	}

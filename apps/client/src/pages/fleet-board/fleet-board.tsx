@@ -12,7 +12,7 @@ import {
 	SignalsView,
 	TreeView,
 } from './fleet-board.components'
-import { type Node } from './fleet-board.logic'
+import { expandSingleChildChain, type Node } from './fleet-board.logic'
 
 export function FleetBoard({
 	search,
@@ -56,10 +56,12 @@ export function FleetBoard({
 		}
 		const key = fleetBoardParentKey(node.type, node.id)
 		setExpanded(current => {
-			const next = new Set(current)
-			if (next.has(key)) next.delete(key)
-			else next.add(key)
-			return next
+			if (current.has(key)) {
+				const next = new Set(current)
+				next.delete(key)
+				return next
+			}
+			return expandSingleChildChain(node, search, nodeIndex, current)
 		})
 	}
 

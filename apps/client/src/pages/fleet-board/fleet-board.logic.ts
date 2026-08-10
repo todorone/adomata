@@ -34,6 +34,40 @@ export function flattenAccount(
 	return flattenNode(account, baseLevel, account.currency, search, nodeIndex, expanded)
 }
 
+function visibleChildren(node: Node, search: FleetBoardSearch, nodeIndex: NodeIndex) {
+	return childrenOf(node, nodeIndex).filter(child => !search.hidePaused || child.kpis.running)
+}
+
+function childrenOf(node: Node, nodeIndex: NodeIndex) {
+	if (node.type === 'ad') return []
+	return nodeIndex[fleetBoardParentKey(node.type, node.id)] ?? []
+}
+
+export function expandSingleChildChain(
+	node: Node,
+	search: FleetBoardSearch,
+	nodeIndex: NodeIndex,
+	expanded: Set<string>,
+) {
+	const next = new Set(expanded)
+	if (node.type === 'ad') return next
+
+	next.add(fleetBoardParentKey(node.type, node.id))
+	let current = node
+	while (current.type !== 'ad') {
+		const children = childrenOf(current, nodeIndex)
+		if (children.length !== 1) break
+
+		const child = children[0]!
+		if (child.type === 'ad') break
+		if (childrenOf(child, nodeIndex).length === 0) break
+		next.add(fleetBoardParentKey(child.type, child.id))
+		current = child
+	}
+
+	return next
+}
+
 function flattenNode(
 	node: Node,
 	level: number,
@@ -47,10 +81,9 @@ function flattenNode(
 	const typeDepth = depthValues.indexOf(node.type)
 	if (depthValues.indexOf(search.depth) <= typeDepth && !expanded.has(fleetBoardParentKey(node.type, node.id)))
 		return rows
-	for (const child of nodeIndex[fleetBoardParentKey(node.type, node.id)] ?? []) {
+	for (const child of visibleChildren(node, search, nodeIndex)) {
 		// A rendering toggle, not a filter: hiding a non-Running interior row changes nothing
 		// about any parent's numbers, which are rollups computed server-side.
-		if (search.hidePaused && !child.kpis.running) continue
 		rows.push(...flattenNode(child, level + 1, currency, search, nodeIndex, expanded))
 	}
 	return rows

@@ -338,6 +338,18 @@ describe('Fleet Board', () => {
 		await waitFor(() => expect(screen.queryByText('Кампанія Ліди')).toBeNull())
 	})
 
+	it('recursively expands a branch through successive single-child ancestors', async () => {
+		renderBoard({ hidePaused: 'true' })
+
+		fireEvent.click(row('DeviAcademy Ad'))
+
+		await waitFor(() => {
+			expect(screen.getByText('Кампанія Ліди')).toBeTruthy()
+			expect(screen.getByText('Група Київ')).toBeTruthy()
+			expect(screen.getByText('Оголошення що працює')).toBeTruthy()
+		})
+	})
+
 	it.each(['tree', 'control', 'signals'])('shows Health Color paired with Health Reason in the %s view', view => {
 		renderBoard({ view })
 

@@ -345,13 +345,13 @@ async function syncInsightsTierAccount(metaClient: MetaClient, account: typeof a
 		: firstConnectStart(timezoneName, now)
 	const end = reconciliationWindow(timezoneName, now).end
 	const insights = await metaClient.listDailyInsights(account.id, { start, end })
-	const liveAds = await db
+	const ads = await db
 		.select({ id: ad.id })
 		.from(ad)
 		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
 		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-		.where(and(eq(campaign.adAccountId, account.id), eq(ad.effectiveStatus, 'ACTIVE'), isNull(ad.deletedAt)))
-	const creatives = await Promise.all(liveAds.map(async row => metaClient.getCreative(row.id, account.id)))
+		.where(and(eq(campaign.adAccountId, account.id), isNull(ad.deletedAt)))
+	const creatives = await Promise.all(ads.map(async row => metaClient.getCreative(row.id, account.id)))
 	await db.transaction(async transaction => {
 		for (const insight of insights.items) await upsertInsight(transaction, insight, now)
 		const stored = await transaction

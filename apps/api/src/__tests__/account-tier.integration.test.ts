@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { SQL } from 'bun'
 
 import { db, sql } from '../db'
-import { ad, adAccount, adInsight, adSet, campaign, organization } from '../db/schema'
+import { ad, adAccount, adCreative, adInsight, adSet, campaign, organization } from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
 import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
@@ -150,6 +150,12 @@ describe('Account Tier heartbeat integration', () => {
 			campaignId: 'campaign-002',
 			campaignStatus: 'ARCHIVED',
 		})
+
+		const [archivedCreative] = await db
+			.select({ adId: adCreative.adId, creativeId: adCreative.id })
+			.from(adCreative)
+			.where(eq(adCreative.adId, 'ad-003'))
+		expect(archivedCreative).toEqual({ adId: 'ad-003', creativeId: 'creative-003' })
 	})
 
 	it('stores jsonb as objects and arrays SQL can read into, not as encoded strings', async () => {

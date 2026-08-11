@@ -152,10 +152,24 @@ describe('Account Tier heartbeat integration', () => {
 		})
 
 		const [archivedCreative] = await db
-			.select({ adId: adCreative.adId, creativeId: adCreative.id })
+			.select({
+				adId: adCreative.adId,
+				creativeId: adCreative.id,
+				name: adCreative.name,
+				payload: adCreative.payload,
+			})
 			.from(adCreative)
 			.where(eq(adCreative.adId, 'ad-003'))
-		expect(archivedCreative).toEqual({ adId: 'ad-003', creativeId: 'creative-003' })
+		expect(archivedCreative).toEqual({
+			adId: 'ad-003',
+			creativeId: 'creative-003',
+			name: 'Video creative',
+			payload: {
+				video_id: '3003',
+				thumbnail_url: 'https://media.example.test/video-003.jpg',
+				video_url: 'https://media.example.test/3003.mp4',
+			},
+		})
 	})
 
 	it('stores jsonb as objects and arrays SQL can read into, not as encoded strings', async () => {

@@ -39,7 +39,6 @@ const soloAccount: Account = {
 	name: 'DeviAcademy Ad',
 	currency: 'UAH',
 	timezoneName: 'Europe/Kyiv',
-	amountOwed: '592284.00',
 	connectionStatus: 'connected',
 	health: { color: 'green', reason: { code: 'active' }, needsAttention: false },
 	signalsLane: 'active',
@@ -55,7 +54,6 @@ const duoFirst: Account = {
 	clientName: 'Northstar',
 	name: 'Northstar Prepay',
 	currency: 'USD',
-	amountOwed: '10.00',
 	health: { color: 'red', reason: { code: 'meta_disabled', disableReason: 3 }, needsAttention: true },
 	signalsLane: 'needs_attention',
 	kpis: kpis(),
@@ -65,7 +63,6 @@ const duoSecond: Account = {
 	...duoFirst,
 	id: 'act_200000000000002',
 	name: 'Northstar Postpay',
-	amountOwed: null,
 	health: { color: 'yellow', reason: { code: 'postpay' }, needsAttention: false },
 	signalsLane: 'postpay',
 	// A measured zero, which must still read as a number.
@@ -320,15 +317,6 @@ describe('Fleet Board', () => {
 		expect(screen.getByText('Northstar Postpay')).toBeTruthy()
 		// Both Ad Accounts render directly; there is no extra Client aggregate row.
 		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('Northstar'))).toHaveLength(2)
-	})
-
-	it('puts amount owed on the Ad Account row and leaves interior rows empty', async () => {
-		await renderToAdDepth()
-
-		const owed = money('592284.00', 'UAH')
-		expect(row('DeviAcademy Ad').textContent).toContain(owed)
-		expect(row('Кампанія Ліди').textContent).not.toContain(owed)
-		expect(row('Оголошення що працює').textContent).not.toContain(owed)
 	})
 
 	it('expands and collapses when clicking anywhere on a row', async () => {

@@ -36,7 +36,6 @@ function resolveRange(
 export const fleetBoardSortSchema = z.enum([
 	'attention',
 	'name',
-	'owed',
 	'spend',
 	'impressions',
 	'clicks',
@@ -86,7 +85,6 @@ export const fleetBoardAccountSchema = z.object({
 	name: z.string(),
 	currency: z.string(),
 	timezoneName: z.string(),
-	amountOwed: z.string().nullable(),
 	connectionStatus: z.enum(['pending', 'connected', 'access_lost']),
 	health: z.object({
 		color: fleetBoardHealthColorSchema,

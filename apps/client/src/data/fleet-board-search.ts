@@ -7,7 +7,7 @@ export type FleetBoardMetricKey = (typeof fleetBoardMetricKeys)[number]
 // purchase value, so ROAS as a default column made a working board open as a wall of zeroes.
 const defaultMetrics: FleetBoardMetricKey[] = ['spend', 'clicks', 'cpa', 'results']
 const metricSet = new Set<string>(fleetBoardMetricKeys)
-const nonMetricSorts = new Set(['attention', 'name', 'owed'])
+const nonMetricSorts = new Set(['attention', 'name'])
 
 const rangePresetSchema = z.enum([
 	'today',
@@ -35,9 +35,7 @@ export const fleetBoardSearchSchema = z
 		needsAttention: z.union([z.enum(['true', 'false']), z.boolean()]).optional(),
 		hidePaused: z.union([z.enum(['true', 'false']), z.boolean()]).optional(),
 		clientId: z.string().max(200).optional(),
-		sort: z
-			.enum(['attention', 'name', 'owed', 'spend', 'impressions', 'clicks', 'ctr', 'cpa', 'results', 'roas'])
-			.optional(),
+		sort: z.enum(['attention', 'name', 'spend', 'impressions', 'clicks', 'ctr', 'cpa', 'results', 'roas']).optional(),
 		direction: z.enum(['asc', 'desc']).optional(),
 		account: z.string().max(200).optional(),
 		ad: z.string().max(200).optional(),

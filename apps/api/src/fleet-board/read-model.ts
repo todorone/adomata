@@ -312,7 +312,6 @@ function accountView(
 		name: account.name,
 		currency: account.currency,
 		timezoneName: account.timezoneName ?? 'UTC',
-		amountOwed: account.balance,
 		connectionStatus: account.connectionStatus,
 		health,
 		signalsLane: signalLaneFor(health),
@@ -423,7 +422,6 @@ function compareRootRows(
 function rootSortValue(row: AccountView, sort: FleetBoardRootQuery['sort']) {
 	if (sort === 'attention') return Number(row.health.needsAttention)
 	if (sort === 'name') return row.name
-	if (sort === 'owed') return row.amountOwed === null ? -Infinity : Number(row.amountOwed)
 	const value = row.kpis[sort]
 	return value === null ? -Infinity : Number(value)
 }

@@ -29,7 +29,6 @@ import {
 	flattenAccount,
 	flattenRows,
 	formatKpi,
-	formatMoney,
 	freshnessText,
 	gridMinWidth,
 	gridTemplate,
@@ -386,7 +385,6 @@ function ColumnHeader({
 			{cell('name', 'Структура')}
 			{cell('attention', 'Здоров’я')}
 			{cell(null, 'Стан')}
-			{cell('owed', 'Заборгованість', true)}
 			{search.metrics.map(metric => cell(metric, metricLabels[metric], true))}
 		</div>
 	)
@@ -526,12 +524,6 @@ function SignalLane({
 									<HealthLabel health={account.health} muted={account.signalsLane === lane} />
 								</button>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-									<span>
-										Заборгованість:{' '}
-										<strong className="font-medium text-foreground">
-											{formatMoney(account.amountOwed, account.currency)}
-										</strong>
-									</span>
 									{/* A failed or missing sync is Adomata's reach, not Meta's verdict on the
 									    account — it gets its own wording so it is not escalated as ill health. */}
 									{sync ? (
@@ -640,10 +632,6 @@ function NodeRow({
 						{effectiveStatusText(node.effectiveStatus)}
 					</span>
 				)}
-				{/* Amount owed is an Ad Account property, not a rollup: interior rows leave it empty. */}
-				<span className="text-right tabular-nums">
-					{node.type === 'account' ? formatMoney(node.amountOwed, row.currency) : null}
-				</span>
 				{metrics.map(metric => (
 					<KpiCell key={metric} metric={metric} kpis={node.kpis} currency={row.currency} />
 				))}

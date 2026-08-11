@@ -38,7 +38,9 @@ describe('Fleet Board URL state', () => {
 	})
 
 	it('keeps sorts that are not metric columns regardless of the selection', () => {
-		expect(fleetBoardSearchSchema.parse({ metrics: 'clicks', sort: 'owed' })).toMatchObject({ sort: 'owed' })
+		expect(fleetBoardSearchSchema.parse({ metrics: 'clicks', sort: 'attention' })).toMatchObject({
+			sort: 'attention',
+		})
 		expect(fleetBoardSearchSchema.parse({ metrics: 'clicks', sort: 'name' })).toMatchObject({ sort: 'name' })
 	})
 

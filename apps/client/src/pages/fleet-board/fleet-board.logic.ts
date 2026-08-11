@@ -93,7 +93,7 @@ function rowKey(row: TreeRow) {
 	return `${row.node.type}:${row.node.id}:${row.level}`
 }
 
-const columnWidths = { name: [180, 340], health: [132, 190], running: [84, 110], owed: [96, 130] } as const
+const columnWidths = { name: [180, 340], health: [132, 190], running: [84, 110] } as const
 const metricColumnMin = 88
 const columnGap = 8
 const rowPaddingX = 8

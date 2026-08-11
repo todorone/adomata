@@ -11,6 +11,8 @@ SPA so TanStack Query cannot show cached data from the previous Agency. See
 
 ## React Compiler
 
-The client enables React Compiler through `vite.config.ts`. Its Babel peer
-dependencies are declared explicitly so the compiler build remains reproducible
-without relying on pnpm's automatic peer installation.
+The client enables React Compiler through `vite.config.ts` in project-wide
+`infer` mode so React components and hooks are compiled while ordinary data
+helpers remain untouched. Its Babel peer dependencies are declared explicitly
+so the compiler build remains reproducible without relying on pnpm's automatic
+peer installation.

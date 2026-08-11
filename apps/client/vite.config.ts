@@ -7,7 +7,8 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 
 const reactCompilerPresetForClient = reactCompilerPreset({ compilationMode: 'infer' })
-reactCompilerPresetForClient.rolldown.filter.id = { exclude: ['**/apps/api/**'] }
+const compilerFilter = (reactCompilerPresetForClient.rolldown.filter ??= {})
+compilerFilter.id = { exclude: ['**/apps/api/**'] }
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },

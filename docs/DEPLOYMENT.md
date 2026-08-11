@@ -31,7 +31,8 @@ Read this before touching anything in production.
 ## How deploys happen
 
 Both apps **auto-deploy on push to `main`**. There is no deploy step in CI
-(`.github/workflows/checks.yml` only runs lint / ts / unit tests / e2e).
+(`.github/workflows/checks.yml` runs the client production build, lint / ts /
+unit tests / e2e).
 
 - **API:** Coolify watches `main` (git webhook) and on each push rebuilds the
   Docker image and runs `docker compose up`. The compose includes a one-shot

@@ -6,6 +6,10 @@ import viteReact, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 
+const reactCompilerPresetForClient = reactCompilerPreset({ compilationMode: 'infer' })
+const compilerFilter = (reactCompilerPresetForClient.rolldown.filter ??= {})
+compilerFilter.id = { exclude: ['**/apps/api/**'] }
+
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
@@ -13,7 +17,7 @@ const config = defineConfig({
     devtools(),
     tailwindcss(),
     viteReact(),
-    babel({ presets: [reactCompilerPreset()] }),
+    babel({ presets: [reactCompilerPresetForClient] }),
   ],
   test: {
     // Unit/component tests live in src; e2e/ is Playwright's, not Vitest's.

@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type Row } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
 	ArrowDown,
@@ -21,6 +22,7 @@ import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch }
 import { Button } from '@/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/ui/tooltip'
 import {
 	callToActionText,
@@ -39,6 +41,7 @@ import {
 	nextMetrics,
 	syncNote,
 	type Account,
+	type BoardRow,
 	type Client,
 	type NodeIndex,
 	type Node,
@@ -281,66 +284,49 @@ function CompactSelect<Value extends string>({
 
 export function TreeView({ accounts, search, setSearch, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
 	const rows = flattenRows(accounts, search, nodeIndex, expanded)
-	const scrollRef = useRef<HTMLDivElement>(null)
-	const virtualizer = useVirtualizer({
-		count: rows.length,
-		getScrollElement: () => scrollRef.current,
-		estimateSize: () => 36,
-		overscan: 12,
+	const columns = createFleetColumns({
+		metrics: search.metrics,
+		search,
+		setSearch,
+		onToggle,
+		isExpanded: node =>
+			node.type === 'ad' ? creativeAdId === node.id : expanded.has(fleetBoardParentKey(node.type, node.id)),
 	})
 	return (
 		<section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-			<div className="flex min-h-0 flex-1 flex-col overflow-x-auto">
-				<div
-					className="flex min-h-0 flex-1 flex-col"
-					role="treegrid"
-					aria-label="Дерево рекламних кабінетів"
-					style={{ minWidth: gridMinWidth(search.metrics) }}
-				>
-					<ColumnHeader search={search} setSearch={setSearch} />
-					<div ref={scrollRef} role="rowgroup" className="min-h-0 flex-1 overflow-y-auto">
-						<div style={{ height: virtualizer.getTotalSize(), position: 'relative' }} role="presentation">
-							{virtualizer.getVirtualItems().map(item => {
-								const row = rows[item.index]!
-								return (
-									<div
-										key={row.key}
-										ref={virtualizer.measureElement}
-										data-index={item.index}
-										role="presentation"
-										style={{
-											position: 'absolute',
-											top: 0,
-											left: 0,
-											width: '100%',
-											transform: `translateY(${item.start}px)`,
-										}}
-									>
-										<NodeRow
-											row={row}
-											metrics={search.metrics}
-											expanded={expanded}
-											creativeAdId={creativeAdId}
-											onToggle={onToggle}
-										/>
-									</div>
-								)
-							})}
-						</div>
-					</div>
-				</div>
-			</div>
+			<FleetDataTable
+				rows={rows}
+				columns={columns}
+				metrics={search.metrics}
+				sort={search.sort}
+				direction={search.direction}
+				expanded={expanded}
+				renderExpandedRow={row =>
+					row.node.type === 'ad' && creativeAdId === row.node.id ? (
+						<CreativeDetail adId={row.node.id} onClose={() => onToggle(row.node)} />
+					) : null
+				}
+				onToggle={onToggle}
+			/>
 		</section>
 	)
 }
 
-function ColumnHeader({
-	search,
-	setSearch,
-}: {
+type FleetTableColumnOptions = {
+	metrics: FleetBoardMetricKey[]
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
-}) {
+	onToggle: (node: Node) => void
+	isExpanded: (node: Node) => boolean
+}
+
+function createFleetColumns({
+	metrics,
+	search,
+	setSearch,
+	onToggle,
+	isExpanded,
+}: FleetTableColumnOptions): ColumnDef<BoardRow>[] {
 	function sortBy(sort: SortKey) {
 		setSearch(
 			search.sort === sort
@@ -348,44 +334,234 @@ function ColumnHeader({
 				: { sort, direction: 'desc' },
 		)
 	}
-	const cell = (sort: SortKey | null, label: string, alignRight = false) => (
-		<span
-			key={label}
-			role="columnheader"
-			aria-sort={
-				sort === null || search.sort !== sort ? 'none' : search.direction === 'asc' ? 'ascending' : 'descending'
-			}
-			className={alignRight ? 'text-right' : undefined}
-		>
-			{sort === null ? (
-				label
-			) : (
-				<button
-					type="button"
-					onClick={() => sortBy(sort)}
-					aria-label={`Сортувати за: ${label}`}
-					className="inline-flex items-center gap-1 hover:text-foreground"
-				>
-					{label}
-					{search.sort !== sort ? null : search.direction === 'asc' ? (
-						<ArrowUp size={12} />
-					) : (
-						<ArrowDown size={12} />
-					)}
-				</button>
-			)}
-		</span>
-	)
+
+	return [
+		{
+			id: 'structure',
+			accessorFn: row => row.node.name,
+			header: () => <SortableHeader label="Структура" sort="name" search={search} onSort={sortBy} />,
+			cell: ({ row }) => (
+				<NodeNameCell row={row.original} onToggle={onToggle} isExpanded={isExpanded(row.original.node)} />
+			),
+		},
+		{
+			id: 'health',
+			header: () => <SortableHeader label="Здоров’я" sort="attention" search={search} onSort={sortBy} />,
+			cell: ({ row }) => <NodeHealthCell node={row.original.node} />,
+		},
+		{
+			id: 'status',
+			header: 'Стан',
+			cell: ({ row }) => <NodeStateCell node={row.original.node} />,
+		},
+		...metrics.map<ColumnDef<BoardRow>>(metric => ({
+			id: metric,
+			accessorFn: row => row.node.kpis[metric],
+			header: () => (
+				<SortableHeader label={metricLabels[metric]} sort={metric} search={search} onSort={sortBy} alignRight />
+			),
+			cell: ({ row }) => <KpiCell metric={metric} kpis={row.original.node.kpis} currency={row.original.currency} />,
+		})),
+	]
+}
+
+function SortableHeader({
+	label,
+	sort,
+	search,
+	onSort,
+	alignRight = false,
+}: {
+	label: string
+	sort: SortKey
+	search: FleetBoardSearch
+	onSort: (sort: SortKey) => void
+	alignRight?: boolean
+}) {
+	const active = search.sort === sort
 	return (
-		<div
-			role="row"
-			className="grid shrink-0 items-center gap-2 border-b bg-muted/40 px-2 py-1 text-xs font-semibold text-muted-foreground"
-			style={{ gridTemplateColumns: gridTemplate(search.metrics) }}
+		<Button
+			type="button"
+			variant="ghost"
+			size="xs"
+			className={`h-6 w-full px-1 text-xs text-muted-foreground hover:text-foreground ${alignRight ? 'justify-end' : 'justify-start'}`}
+			onClick={() => onSort(sort)}
+			aria-label={`Сортувати за: ${label}`}
 		>
-			{cell('name', 'Структура')}
-			{cell('attention', 'Здоров’я')}
-			{cell(null, 'Стан')}
-			{search.metrics.map(metric => cell(metric, metricLabels[metric], true))}
+			{label}
+			{active ? search.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : null}
+		</Button>
+	)
+}
+
+type FleetDataTableProps = {
+	rows: BoardRow[]
+	columns: ColumnDef<BoardRow>[]
+	metrics: FleetBoardMetricKey[]
+	sort: SortKey
+	direction: FleetBoardSearch['direction']
+	expanded: Set<string>
+	onToggle: (node: Node) => void
+	renderExpandedRow: (row: BoardRow) => ReactNode
+}
+
+type FleetDisplayRow = { kind: 'data'; row: Row<BoardRow> } | { kind: 'detail'; row: Row<BoardRow>; content: ReactNode }
+
+function FleetDataTable({
+	rows,
+	columns,
+	metrics,
+	sort,
+	direction,
+	expanded,
+	onToggle,
+	renderExpandedRow,
+}: FleetDataTableProps) {
+	const scrollRef = useRef<HTMLDivElement>(null)
+	const table = useReactTable({
+		data: rows,
+		columns,
+		getCoreRowModel: getCoreRowModel(),
+		getRowId: row => row.key,
+	})
+	const displayRows = table.getRowModel().rows.flatMap<FleetDisplayRow>(row => {
+		const content = renderExpandedRow(row.original)
+		return content
+			? [
+					{ kind: 'data' as const, row },
+					{ kind: 'detail' as const, row, content },
+				]
+			: [{ kind: 'data' as const, row }]
+	})
+	const virtualizer = useVirtualizer({
+		count: displayRows.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: index => (displayRows[index]?.kind === 'detail' ? 240 : 36),
+		overscan: 12,
+	})
+	const virtualItems = virtualizer.getVirtualItems()
+	const firstItem = virtualItems[0]
+	const lastItem = virtualItems[virtualItems.length - 1]
+	const columnSort = (columnId: string): SortKey | null => {
+		if (columnId === 'structure') return 'name'
+		if (columnId === 'health') return 'attention'
+		if (metrics.includes(columnId as FleetBoardMetricKey)) return columnId as FleetBoardMetricKey
+		return null
+	}
+	const columnClass = (columnId: string) => {
+		if (columnId === 'structure') return 'min-w-[180px]'
+		if (columnId === 'health') return 'min-w-[132px]'
+		if (columnId === 'status') return 'min-w-[84px]'
+		return 'min-w-[88px] text-right'
+	}
+	const spacer = (height: number, key: string) =>
+		height > 0 ? (
+			<TableRow key={key} aria-hidden className="border-0 hover:bg-transparent">
+				<TableCell colSpan={columns.length} className="p-0" style={{ height }} />
+			</TableRow>
+		) : null
+
+	return (
+		<div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
+			<div style={{ minWidth: gridMinWidth(metrics) }}>
+				<Table
+					role="treegrid"
+					aria-label="Дерево рекламних кабінетів"
+					containerClassName="overflow-visible"
+					className="table-fixed"
+					style={{ minWidth: gridMinWidth(metrics) }}
+				>
+					<colgroup>
+						<col style={{ width: 180 }} />
+						<col style={{ width: 132 }} />
+						<col style={{ width: 84 }} />
+						{metrics.map(metric => (
+							<col key={metric} style={{ width: 88 }} />
+						))}
+					</colgroup>
+					<TableHeader className="sticky top-0 z-10 bg-card">
+						{table.getHeaderGroups().map(headerGroup => (
+							<TableRow key={headerGroup.id} className="bg-muted/40 hover:bg-muted/40">
+								{headerGroup.headers.map(header => {
+									const sortKey = columnSort(header.column.id)
+									return (
+										<TableHead
+											key={header.id}
+											aria-sort={
+												sortKey === null || sort !== sortKey
+													? 'none'
+													: direction === 'asc'
+														? 'ascending'
+														: 'descending'
+											}
+											className={columnClass(header.column.id)}
+										>
+											{header.isPlaceholder
+												? null
+												: flexRender(header.column.columnDef.header, header.getContext())}
+										</TableHead>
+									)
+								})}
+							</TableRow>
+						))}
+					</TableHeader>
+					<TableBody>
+						{spacer(firstItem?.start ?? 0, 'top-spacer')}
+						{virtualItems.map(item => {
+							const displayRow = displayRows[item.index]!
+							if (displayRow.kind === 'detail') {
+								return (
+									<TableRow
+										key={`${displayRow.row.id}-detail`}
+										ref={virtualizer.measureElement}
+										data-index={item.index}
+										className="border-b hover:bg-transparent"
+									>
+										<TableCell colSpan={columns.length} className="p-0">
+											<div className="border-t px-2 py-1">{displayRow.content}</div>
+										</TableCell>
+									</TableRow>
+								)
+							}
+							const row = displayRow.row
+							const node = row.original.node
+							const isExpandable = node.type !== 'ad'
+							const isExpanded =
+								node.type === 'ad'
+									? renderExpandedRow(row.original) !== null
+									: expanded.has(fleetBoardParentKey(node.type, node.id))
+							return (
+								<TableRow
+									key={row.id}
+									ref={virtualizer.measureElement}
+									data-index={item.index}
+									aria-level={row.original.level + 1}
+									aria-expanded={isExpandable ? isExpanded : undefined}
+									tabIndex={0}
+									className="cursor-pointer"
+									onClick={() => onToggle(node)}
+									onKeyDown={event => {
+										if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' '))
+											return
+										event.preventDefault()
+										onToggle(node)
+									}}
+								>
+									{row.getVisibleCells().map(cell => (
+										<TableCell key={cell.id} className={columnClass(cell.column.id)}>
+											{flexRender(cell.column.columnDef.cell, cell.getContext())}
+										</TableCell>
+									))}
+								</TableRow>
+							)
+						})}
+						{spacer(
+							lastItem ? virtualizer.getTotalSize() - lastItem.end : virtualizer.getTotalSize(),
+							'bottom-spacer',
+						)}
+					</TableBody>
+				</Table>
+			</div>
 		</div>
 	)
 }
@@ -569,7 +745,6 @@ function NodeRow({
 	onToggle: (node: Node) => void
 }) {
 	const { node } = row
-	const isAccount = node.type === 'account'
 	const isExpandable = node.type !== 'ad'
 	const isExpanded =
 		node.type === 'ad' ? creativeAdId === node.id : expanded.has(fleetBoardParentKey(node.type, node.id))
@@ -589,49 +764,9 @@ function NodeRow({
 				}}
 				style={{ gridTemplateColumns: gridTemplate(metrics) }}
 			>
-				<span className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: row.level * 14 }}>
-					<button
-						type="button"
-						onClick={event => {
-							event.stopPropagation()
-							onToggle(node)
-						}}
-						className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
-						aria-label={
-							node.type === 'ad'
-								? `Відкрити креатив ${node.name}`
-								: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
-						}
-					>
-						{node.type !== 'ad' ? (
-							<ChevronRight
-								size={14}
-								className={
-									isExpanded ? 'shrink-0 rotate-90 transition-transform' : 'shrink-0 transition-transform'
-								}
-							/>
-						) : (
-							<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
-						)}
-						{isAccount ? (
-							<span className="min-w-0 truncate">
-								<span className="block truncate">{node.name}</span>
-								<small className="block truncate font-normal text-muted-foreground">{node.clientName}</small>
-							</span>
-						) : (
-							<span className="truncate">{node.name}</span>
-						)}
-					</button>
-					{isAccount ? <MetaAdsManagerLink accountId={node.id} /> : null}
-				</span>
-				{'health' in node ? <HealthLabel health={node.health} /> : <span />}
-				{'connectionStatus' in node ? (
-					<RunningCell running={node.kpis.running} />
-				) : (
-					<span className="truncate text-xs text-muted-foreground">
-						{effectiveStatusText(node.effectiveStatus)}
-					</span>
-				)}
+				<NodeNameCell row={row} onToggle={onToggle} isExpanded={isExpanded} />
+				<NodeHealthCell node={node} />
+				<NodeStateCell node={node} />
 				{metrics.map(metric => (
 					<KpiCell key={metric} metric={metric} kpis={node.kpis} currency={row.currency} />
 				))}
@@ -640,6 +775,66 @@ function NodeRow({
 				<CreativeDetail adId={node.id} onClose={() => onToggle(node)} />
 			) : null}
 		</div>
+	)
+}
+
+function NodeNameCell({
+	row,
+	onToggle,
+	isExpanded,
+}: {
+	row: TreeRow
+	onToggle: (node: Node) => void
+	isExpanded: boolean
+}) {
+	const { node } = row
+	const isAccount = node.type === 'account'
+	return (
+		<span className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: row.level * 14 }}>
+			<button
+				type="button"
+				onClick={event => {
+					event.stopPropagation()
+					onToggle(node)
+				}}
+				className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
+				aria-label={
+					node.type === 'ad'
+						? `Відкрити креатив ${node.name}`
+						: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
+				}
+			>
+				{node.type !== 'ad' ? (
+					<ChevronRight
+						size={14}
+						className={isExpanded ? 'shrink-0 rotate-90 transition-transform' : 'shrink-0 transition-transform'}
+					/>
+				) : (
+					<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
+				)}
+				{isAccount ? (
+					<span className="min-w-0 truncate">
+						<span className="block truncate">{node.name}</span>
+						<small className="block truncate font-normal text-muted-foreground">{node.clientName}</small>
+					</span>
+				) : (
+					<span className="truncate">{node.name}</span>
+				)}
+			</button>
+			{isAccount ? <MetaAdsManagerLink accountId={node.id} /> : null}
+		</span>
+	)
+}
+
+function NodeHealthCell({ node }: { node: Node }) {
+	return 'health' in node ? <HealthLabel health={node.health} /> : <span />
+}
+
+function NodeStateCell({ node }: { node: Node }) {
+	return 'connectionStatus' in node ? (
+		<RunningCell running={node.kpis.running} />
+	) : (
+		<span className="truncate text-xs text-muted-foreground">{effectiveStatusText(node.effectiveStatus)}</span>
 	)
 }
 

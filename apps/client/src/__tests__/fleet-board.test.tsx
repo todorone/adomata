@@ -246,11 +246,14 @@ function money(value: string, currency: string) {
 	)
 }
 
-function renderBoard(overrides: Record<string, unknown> = {}) {
+function renderBoard(
+	overrides: Record<string, unknown> = {},
+	setSearch: (changes: Partial<FleetBoardSearch>) => void = () => undefined,
+) {
 	const search = fleetBoardSearchSchema.parse(overrides) as FleetBoardSearch
 	return render(
 		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-			<FleetBoard search={search} setSearch={() => undefined} />
+			<FleetBoard search={search} setSearch={setSearch} />
 		</QueryClientProvider>,
 	)
 }
@@ -317,6 +320,27 @@ describe('Fleet Board', () => {
 		expect(screen.getByText('Northstar Postpay')).toBeTruthy()
 		// Both Ad Accounts render directly; there is no extra Client aggregate row.
 		expect(screen.getAllByRole('row').filter(element => element.textContent?.includes('Northstar'))).toHaveLength(2)
+	})
+
+	it('renders the tree as a semantic DataTable with sortable column headers', () => {
+		renderBoard()
+
+		const table = screen.getByRole('treegrid', { name: 'Дерево рекламних кабінетів' })
+		expect(within(table).getByRole('columnheader', { name: /Структура/ })).toBeTruthy()
+		expect(
+			within(table)
+				.getByRole('columnheader', { name: /Здоров’я/ })
+				.getAttribute('aria-sort'),
+		).toBe('descending')
+		expect(within(table).getByRole('columnheader', { name: /Стан/ })).toBeTruthy()
+	})
+
+	it('keeps root sorting in the table column definition', () => {
+		const setSearch = vi.fn()
+		renderBoard({}, setSearch)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Сортувати за: Структура' }))
+		expect(setSearch).toHaveBeenCalledWith({ sort: 'name', direction: 'desc' })
 	})
 
 	it('expands and collapses when clicking anywhere on a row', async () => {

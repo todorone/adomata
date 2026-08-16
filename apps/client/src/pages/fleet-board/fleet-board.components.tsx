@@ -1,16 +1,33 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEventHandler, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type Row } from '@tanstack/react-table'
+import {
+	flexRender,
+	getCoreRowModel,
+	useReactTable,
+	type Column,
+	type ColumnDef,
+	type Header,
+	type ColumnOrderState,
+	type ColumnSizingState,
+	type Row,
+} from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
 	ArrowDown,
+	ArrowLeft,
+	ArrowRight,
 	ArrowUp,
+	Check,
 	ChevronRight,
 	Columns3,
+	Copy,
 	ExternalLink,
+	GripVertical,
 	Image as ImageIcon,
 	RefreshCw,
+	RotateCcw,
 	Search,
+	Settings2,
 	SlidersHorizontal,
 	Video,
 } from 'lucide-react'
@@ -39,6 +56,8 @@ import {
 	mediaUrl,
 	metaAdsManagerUrl,
 	nextMetrics,
+	reconcileColumnOrder,
+	reorderColumnIds,
 	syncNote,
 	type Account,
 	type BoardRow,
@@ -57,6 +76,11 @@ const metricLabels: Record<FleetBoardMetricKey, string> = {
 	cpa: 'CPA',
 	results: 'Результати',
 	roas: 'ROAS',
+}
+const columnLabels: Record<string, string> = {
+	structure: 'Структура',
+	health: 'Здоров’я',
+	status: 'Стан',
 }
 const depthLabels = { account: 'Кабінети', campaign: 'Кампанії', adset: 'Групи оголошень', ad: 'Оголошення' } as const
 const viewLabels = { tree: 'Дерево', control: 'Пульт', signals: 'Сигнали' } as const
@@ -339,6 +363,9 @@ function createFleetColumns({
 		{
 			id: 'structure',
 			accessorFn: row => row.node.name,
+			size: 220,
+			minSize: 180,
+			maxSize: 480,
 			header: () => <SortableHeader label="Структура" sort="name" search={search} onSort={sortBy} />,
 			cell: ({ row }) => (
 				<NodeNameCell row={row.original} onToggle={onToggle} isExpanded={isExpanded(row.original.node)} />
@@ -346,17 +373,26 @@ function createFleetColumns({
 		},
 		{
 			id: 'health',
+			size: 160,
+			minSize: 132,
+			maxSize: 320,
 			header: () => <SortableHeader label="Здоров’я" sort="attention" search={search} onSort={sortBy} />,
 			cell: ({ row }) => <NodeHealthCell node={row.original.node} />,
 		},
 		{
 			id: 'status',
+			size: 112,
+			minSize: 84,
+			maxSize: 240,
 			header: 'Стан',
 			cell: ({ row }) => <NodeStateCell node={row.original.node} />,
 		},
 		...metrics.map<ColumnDef<BoardRow>>(metric => ({
 			id: metric,
 			accessorFn: row => row.node.kpis[metric],
+			size: 112,
+			minSize: 88,
+			maxSize: 280,
 			header: () => (
 				<SortableHeader label={metricLabels[metric]} sort={metric} search={search} onSort={sortBy} alignRight />
 			),
@@ -407,6 +443,130 @@ type FleetDataTableProps = {
 
 type FleetDisplayRow = { kind: 'data'; row: Row<BoardRow> } | { kind: 'detail'; row: Row<BoardRow>; content: ReactNode }
 
+function columnLabel(id: string) {
+	return columnLabels[id] ?? metricLabels[id as FleetBoardMetricKey] ?? id
+}
+
+function ColumnDragHandle({
+	label,
+	onDragStart,
+	onDragEnd,
+}: {
+	label: string
+	onDragStart: DragEventHandler<HTMLButtonElement>
+	onDragEnd: DragEventHandler<HTMLButtonElement>
+}) {
+	return (
+		<button
+			type="button"
+			draggable
+			aria-label={`Перемістити стовпець «${label}»`}
+			title="Перетягнути стовпець"
+			className="-ml-1 inline-flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground active:cursor-grabbing"
+			onDragStart={onDragStart}
+			onDragEnd={onDragEnd}
+		>
+			<GripVertical size={14} />
+		</button>
+	)
+}
+
+function ColumnResizeHandle({
+	header,
+	label,
+	size,
+	onResizeByKeyboard,
+}: {
+	header: Header<BoardRow, unknown>
+	label: string
+	size: number
+	onResizeByKeyboard: (column: Column<BoardRow>, delta: number) => void
+}) {
+	const min = header.column.columnDef.minSize ?? 20
+	const max = header.column.columnDef.maxSize ?? Number.MAX_SAFE_INTEGER
+	return (
+		<div
+			role="separator"
+			aria-orientation="vertical"
+			aria-label={`Змінити ширину стовпця «${label}»`}
+			aria-valuemin={min}
+			aria-valuemax={max}
+			aria-valuenow={Math.round(size)}
+			tabIndex={0}
+			title="Потягніть, щоб змінити ширину"
+			className="absolute inset-y-0 right-0 z-20 w-2 translate-x-1/2 cursor-col-resize touch-none select-none rounded-full outline-none hover:bg-primary/50 focus-visible:bg-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+			onMouseDown={header.getResizeHandler()}
+			onTouchStart={header.getResizeHandler()}
+			onClick={event => event.stopPropagation()}
+			onKeyDown={event => {
+				if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+				event.preventDefault()
+				onResizeByKeyboard(header.column, event.key === 'ArrowRight' ? 8 : -8)
+			}}
+		/>
+	)
+}
+
+function FleetColumnSettings({
+	columns,
+	onMove,
+	onReset,
+}: {
+	columns: Column<BoardRow>[]
+	onMove: (columnId: string, direction: -1 | 1) => void
+	onReset: () => void
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button type="button" size="sm" variant="outline" aria-label="Налаштувати стовпці">
+					<Settings2 />
+					<span className="hidden sm:inline">Стовпці</span>
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent className="flex flex-col gap-2" aria-label="Налаштування стовпців">
+				<div>
+					<p className="text-sm font-medium">Налаштування стовпців</p>
+					<p className="mt-1 text-xs text-muted-foreground">
+						Перетягніть ручку в заголовку або скористайтеся стрілками. Ширину змінюйте за краєм заголовка.
+					</p>
+				</div>
+				<div className="flex flex-col gap-1" role="list" aria-label="Порядок стовпців">
+					{columns.map((column, index) => (
+						<div key={column.id} role="listitem" className="flex items-center gap-1 rounded-md border px-1 py-1">
+							<span className="min-w-0 flex-1 truncate px-1 text-sm">{columnLabel(column.id)}</span>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								disabled={index === 0}
+								aria-label={`Перемістити «${columnLabel(column.id)}» ліворуч`}
+								onClick={() => onMove(column.id, -1)}
+							>
+								<ArrowLeft />
+							</Button>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								disabled={index === columns.length - 1}
+								aria-label={`Перемістити «${columnLabel(column.id)}» праворуч`}
+								onClick={() => onMove(column.id, 1)}
+							>
+								<ArrowRight />
+							</Button>
+						</div>
+					))}
+				</div>
+				<Button type="button" size="sm" variant="outline" className="w-full" onClick={onReset}>
+					<RotateCcw />
+					Скинути порядок і ширину
+				</Button>
+			</PopoverContent>
+		</Popover>
+	)
+}
+
 function FleetDataTable({
 	rows,
 	columns,
@@ -418,11 +578,31 @@ function FleetDataTable({
 	renderExpandedRow,
 }: FleetDataTableProps) {
 	const scrollRef = useRef<HTMLDivElement>(null)
+	const columnIds = columns.map(column => column.id).filter((id): id is string => Boolean(id))
+	const columnKey = columnIds.join('|')
+	const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => columnIds)
+	const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({})
+	const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
+	const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+	const [columnMessage, setColumnMessage] = useState('')
+	useEffect(() => {
+		const availableIds = columnKey ? columnKey.split('|') : []
+		setColumnOrder(current => reconcileColumnOrder(current, availableIds))
+		setColumnSizing(current => {
+			const next = Object.fromEntries(Object.entries(current).filter(([id]) => availableIds.includes(id)))
+			return Object.keys(next).length === Object.keys(current).length ? current : next
+		})
+	}, [columnKey])
 	const table = useReactTable({
 		data: rows,
 		columns,
 		getCoreRowModel: getCoreRowModel(),
 		getRowId: row => row.key,
+		state: { columnOrder, columnSizing },
+		onColumnOrderChange: setColumnOrder,
+		onColumnSizingChange: setColumnSizing,
+		columnResizeMode: 'onEnd',
+		defaultColumn: { size: 112, minSize: 88, maxSize: 480 },
 	})
 	const displayRows = table.getRowModel().rows.flatMap<FleetDisplayRow>(row => {
 		const content = renderExpandedRow(row.original)
@@ -449,10 +629,29 @@ function FleetDataTable({
 		return null
 	}
 	const columnClass = (columnId: string) => {
-		if (columnId === 'structure') return 'min-w-[180px]'
-		if (columnId === 'health') return 'min-w-[132px]'
-		if (columnId === 'status') return 'min-w-[84px]'
-		return 'min-w-[88px] text-right'
+		return columnId === 'structure' || columnId === 'health' || columnId === 'status' ? '' : 'text-right'
+	}
+	const moveColumn = (columnId: string, direction: -1 | 1) => {
+		const index = columnOrder.indexOf(columnId)
+		const target = columnOrder[index + direction]
+		if (!target) return
+		setColumnOrder(current => {
+			return reorderColumnIds(current, columnId, target)
+		})
+		setColumnMessage(`Стовпець «${columnLabel(columnId)}» переміщено на позицію ${index + direction + 1}.`)
+	}
+	const resetColumns = () => {
+		setColumnOrder(columnIds)
+		setColumnSizing({})
+		setColumnMessage('Порядок і ширину стовпців скинуто.')
+	}
+	const resizeByKeyboard = (column: Column<BoardRow>, delta: number) => {
+		const min = column.columnDef.minSize ?? 20
+		const max = column.columnDef.maxSize ?? Number.MAX_SAFE_INTEGER
+		setColumnSizing(current => ({
+			...current,
+			[column.id]: Math.min(max, Math.max(min, (current[column.id] ?? column.getSize()) + delta)),
+		}))
 	}
 	const spacer = (height: number, key: string) =>
 		height > 0 ? (
@@ -462,105 +661,161 @@ function FleetDataTable({
 		) : null
 
 	return (
-		<div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
-			<div style={{ minWidth: gridMinWidth(metrics) }}>
-				<Table
-					role="treegrid"
-					aria-label="Дерево рекламних кабінетів"
-					containerClassName="overflow-visible"
-					className="table-fixed"
-					style={{ minWidth: gridMinWidth(metrics) }}
-				>
-					<colgroup>
-						<col style={{ width: 180 }} />
-						<col style={{ width: 132 }} />
-						<col style={{ width: 84 }} />
-						{metrics.map(metric => (
-							<col key={metric} style={{ width: 88 }} />
-						))}
-					</colgroup>
-					<TableHeader className="sticky top-0 z-10 bg-card">
-						{table.getHeaderGroups().map(headerGroup => (
-							<TableRow key={headerGroup.id} className="bg-muted/40 hover:bg-muted/40">
-								{headerGroup.headers.map(header => {
-									const sortKey = columnSort(header.column.id)
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<p aria-live="polite" className="sr-only">
+				{columnMessage}
+			</p>
+			<div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-1.5">
+				<p className="min-w-0 truncate text-xs text-muted-foreground">
+					Перетягніть ручку заголовка, щоб змінити порядок. Потягніть край, щоб змінити ширину.
+				</p>
+				<FleetColumnSettings columns={table.getVisibleLeafColumns()} onMove={moveColumn} onReset={resetColumns} />
+			</div>
+			<div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
+				<div style={{ minWidth: Math.max(gridMinWidth(metrics), table.getTotalSize()) }}>
+					<Table
+						role="treegrid"
+						aria-label="Дерево рекламних кабінетів"
+						containerClassName="overflow-visible"
+						className="table-fixed"
+						style={{ minWidth: Math.max(gridMinWidth(metrics), table.getTotalSize()) }}
+					>
+						<colgroup>
+							{table.getVisibleLeafColumns().map(column => (
+								<col key={column.id} style={{ width: column.getSize() }} />
+							))}
+						</colgroup>
+						<TableHeader className="sticky top-0 z-10 bg-card">
+							{table.getHeaderGroups().map(headerGroup => (
+								<TableRow key={headerGroup.id} className="bg-muted/40 hover:bg-muted/40">
+									{headerGroup.headers.map(header => {
+										const sortKey = columnSort(header.column.id)
+										const label = columnLabel(header.column.id)
+										return (
+											<TableHead
+												key={header.id}
+												style={{ width: header.getSize() }}
+												onDragOver={event => {
+													event.preventDefault()
+													if (draggedColumnId !== header.column.id) setDropTargetId(header.column.id)
+												}}
+												onDrop={event => {
+													event.preventDefault()
+													if (draggedColumnId) {
+														setColumnOrder(current =>
+															reorderColumnIds(current, draggedColumnId, header.column.id),
+														)
+														setColumnMessage(
+															`Стовпець «${columnLabel(draggedColumnId)}» переміщено до «${label}».`,
+														)
+													}
+													setDraggedColumnId(null)
+													setDropTargetId(null)
+												}}
+												className={`relative ${columnClass(header.column.id)} ${dropTargetId === header.column.id ? 'border-r-2 border-primary bg-primary/10' : ''}`}
+												aria-sort={
+													sortKey === null || sort !== sortKey
+														? 'none'
+														: direction === 'asc'
+															? 'ascending'
+															: 'descending'
+												}
+											>
+												{header.isPlaceholder ? null : (
+													<div className="flex min-w-0 items-center gap-0.5">
+														<ColumnDragHandle
+															label={label}
+															onDragStart={event => {
+																event.dataTransfer.effectAllowed = 'move'
+																event.dataTransfer.setData('text/plain', header.column.id)
+																setDraggedColumnId(header.column.id)
+															}}
+															onDragEnd={() => {
+																setDraggedColumnId(null)
+																setDropTargetId(null)
+															}}
+														/>
+														<div className="min-w-0 flex-1">
+															{flexRender(header.column.columnDef.header, header.getContext())}
+														</div>
+													</div>
+												)}
+												<ColumnResizeHandle
+													header={header}
+													label={label}
+													size={header.getSize()}
+													onResizeByKeyboard={resizeByKeyboard}
+												/>
+											</TableHead>
+										)
+									})}
+								</TableRow>
+							))}
+						</TableHeader>
+						<TableBody>
+							{spacer(firstItem?.start ?? 0, 'top-spacer')}
+							{virtualItems.map(item => {
+								const displayRow = displayRows[item.index]!
+								if (displayRow.kind === 'detail') {
 									return (
-										<TableHead
-											key={header.id}
-											aria-sort={
-												sortKey === null || sort !== sortKey
-													? 'none'
-													: direction === 'asc'
-														? 'ascending'
-														: 'descending'
-											}
-											className={columnClass(header.column.id)}
+										<TableRow
+											key={`${displayRow.row.id}-detail`}
+											ref={virtualizer.measureElement}
+											data-index={item.index}
+											className="border-b hover:bg-transparent"
 										>
-											{header.isPlaceholder
-												? null
-												: flexRender(header.column.columnDef.header, header.getContext())}
-										</TableHead>
+											<TableCell colSpan={columns.length} className="p-0">
+												<div className="border-t px-2 py-1">{displayRow.content}</div>
+											</TableCell>
+										</TableRow>
 									)
-								})}
-							</TableRow>
-						))}
-					</TableHeader>
-					<TableBody>
-						{spacer(firstItem?.start ?? 0, 'top-spacer')}
-						{virtualItems.map(item => {
-							const displayRow = displayRows[item.index]!
-							if (displayRow.kind === 'detail') {
+								}
+								const row = displayRow.row
+								const node = row.original.node
+								const isExpandable = node.type !== 'ad'
+								const isExpanded =
+									node.type === 'ad'
+										? renderExpandedRow(row.original) !== null
+										: expanded.has(fleetBoardParentKey(node.type, node.id))
 								return (
 									<TableRow
-										key={`${displayRow.row.id}-detail`}
+										key={row.id}
 										ref={virtualizer.measureElement}
 										data-index={item.index}
-										className="border-b hover:bg-transparent"
+										aria-level={row.original.level + 1}
+										aria-expanded={isExpandable ? isExpanded : undefined}
+										tabIndex={0}
+										className="cursor-pointer"
+										onClick={() => onToggle(node)}
+										onKeyDown={event => {
+											if (
+												event.target !== event.currentTarget ||
+												(event.key !== 'Enter' && event.key !== ' ')
+											)
+												return
+											event.preventDefault()
+											onToggle(node)
+										}}
 									>
-										<TableCell colSpan={columns.length} className="p-0">
-											<div className="border-t px-2 py-1">{displayRow.content}</div>
-										</TableCell>
+										{row.getVisibleCells().map(cell => (
+											<TableCell
+												key={cell.id}
+												style={{ width: cell.column.getSize() }}
+												className={columnClass(cell.column.id)}
+											>
+												{flexRender(cell.column.columnDef.cell, cell.getContext())}
+											</TableCell>
+										))}
 									</TableRow>
 								)
-							}
-							const row = displayRow.row
-							const node = row.original.node
-							const isExpandable = node.type !== 'ad'
-							const isExpanded =
-								node.type === 'ad'
-									? renderExpandedRow(row.original) !== null
-									: expanded.has(fleetBoardParentKey(node.type, node.id))
-							return (
-								<TableRow
-									key={row.id}
-									ref={virtualizer.measureElement}
-									data-index={item.index}
-									aria-level={row.original.level + 1}
-									aria-expanded={isExpandable ? isExpanded : undefined}
-									tabIndex={0}
-									className="cursor-pointer"
-									onClick={() => onToggle(node)}
-									onKeyDown={event => {
-										if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' '))
-											return
-										event.preventDefault()
-										onToggle(node)
-									}}
-								>
-									{row.getVisibleCells().map(cell => (
-										<TableCell key={cell.id} className={columnClass(cell.column.id)}>
-											{flexRender(cell.column.columnDef.cell, cell.getContext())}
-										</TableCell>
-									))}
-								</TableRow>
-							)
-						})}
-						{spacer(
-							lastItem ? virtualizer.getTotalSize() - lastItem.end : virtualizer.getTotalSize(),
-							'bottom-spacer',
-						)}
-					</TableBody>
-				</Table>
+							})}
+							{spacer(
+								lastItem ? virtualizer.getTotalSize() - lastItem.end : virtualizer.getTotalSize(),
+								'bottom-spacer',
+							)}
+						</TableBody>
+					</Table>
+				</div>
 			</div>
 		</div>
 	)
@@ -790,38 +1045,41 @@ function NodeNameCell({
 	const { node } = row
 	const isAccount = node.type === 'account'
 	return (
-		<span className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: row.level * 14 }}>
-			<button
-				type="button"
-				onClick={event => {
-					event.stopPropagation()
-					onToggle(node)
-				}}
-				className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
-				aria-label={
-					node.type === 'ad'
-						? `Відкрити креатив ${node.name}`
-						: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
-				}
-			>
-				{node.type !== 'ad' ? (
-					<ChevronRight
-						size={14}
-						className={isExpanded ? 'shrink-0 rotate-90 transition-transform' : 'shrink-0 transition-transform'}
-					/>
-				) : (
-					<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
-				)}
-				{isAccount ? (
-					<span className="min-w-0 truncate">
-						<span className="block truncate">{node.name}</span>
-						<small className="block truncate font-normal text-muted-foreground">{node.clientName}</small>
-					</span>
-				) : (
-					<span className="truncate">{node.name}</span>
-				)}
-			</button>
-			{isAccount ? <MetaAdsManagerLink accountId={node.id} /> : null}
+		<span className="flex min-w-0 flex-col justify-center" style={{ paddingInlineStart: row.level * 14 }}>
+			<span className="flex min-w-0 items-center gap-1">
+				<button
+					type="button"
+					onClick={event => {
+						event.stopPropagation()
+						onToggle(node)
+					}}
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
+					aria-label={
+						node.type === 'ad'
+							? `Відкрити креатив ${node.name}`
+							: `${isExpanded ? 'Згорнути' : 'Розгорнути'} ${node.name}`
+					}
+				>
+					{node.type !== 'ad' ? (
+						<ChevronRight
+							size={14}
+							className={
+								isExpanded ? 'shrink-0 rotate-90 transition-transform' : 'shrink-0 transition-transform'
+							}
+						/>
+					) : (
+						<AdThumbnail creativeId={node.creativeId} hasVideo={node.creativeHasVideo} />
+					)}
+					<span className={isAccount ? 'truncate font-semibold' : 'truncate'}>{node.name}</span>
+				</button>
+				{isAccount ? <MetaAdsManagerLink accountId={node.id} /> : null}
+			</span>
+			{isAccount ? (
+				<span className="flex min-w-0 items-center gap-1 pl-[18px]">
+					<span className="truncate text-xs text-muted-foreground/80">{node.id}</span>
+					<CopyIdButton id={node.id} />
+				</span>
+			) : null}
 		</span>
 	)
 }
@@ -935,6 +1193,32 @@ function CreativeDetail({ adId, onClose }: { adId: string; onClose: () => void }
 				<p className="text-xs text-muted-foreground/70">Ідентифікатор допису Meta: {data.existingPostId}</p>
 			) : null}
 		</Lightbox>
+	)
+}
+
+function CopyIdButton({ id }: { id: string }) {
+	const [copied, setCopied] = useState(false)
+	return (
+		<TooltipProvider>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						onClick={event => {
+							event.stopPropagation()
+							navigator.clipboard.writeText(id)
+							setCopied(true)
+							setTimeout(() => setCopied(false), 1500)
+						}}
+						aria-label="Скопіювати ID кабінету"
+						className="inline-flex shrink-0 items-center text-muted-foreground hover:text-primary"
+					>
+						{copied ? <Check size={12} /> : <Copy size={12} />}
+					</button>
+				</TooltipTrigger>
+				<TooltipContent>{copied ? 'Скопійовано' : 'Копіювати ID'}</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
 	)
 }
 

@@ -111,6 +111,26 @@ export function gridMinWidth(metrics: FleetBoardMetricKey[]) {
 	return floors + (columns - 1) * columnGap + rowPaddingX * 2
 }
 
+export function reconcileColumnOrder(current: string[], available: string[]) {
+	const availableSet = new Set(available)
+	return [
+		...current.filter((id, index) => availableSet.has(id) && current.indexOf(id) === index),
+		...available.filter(id => !current.includes(id)),
+	]
+}
+
+export function reorderColumnIds(order: string[], sourceId: string, targetId: string) {
+	if (sourceId === targetId) return order
+	const sourceIndex = order.indexOf(sourceId)
+	const targetIndex = order.indexOf(targetId)
+	if (sourceIndex === -1 || targetIndex === -1) return order
+
+	const next = [...order]
+	next.splice(sourceIndex, 1)
+	next.splice(targetIndex, 0, sourceId)
+	return next
+}
+
 export function nextMetrics(search: FleetBoardSearch, metric: FleetBoardMetricKey) {
 	const metrics = search.metrics.includes(metric)
 		? search.metrics.filter(value => value !== metric)

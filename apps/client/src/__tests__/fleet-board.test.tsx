@@ -343,6 +343,30 @@ describe('Fleet Board', () => {
 		expect(setSearch).toHaveBeenCalledWith({ sort: 'name', direction: 'desc' })
 	})
 
+	it('reorders columns and resizes them with the column controls', async () => {
+		renderBoard()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Налаштувати стовпці' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Перемістити «Структура» праворуч' }))
+
+		const table = screen.getByRole('treegrid', { name: 'Дерево рекламних кабінетів' })
+		const headers = within(table).getAllByRole('columnheader')
+		expect(headers[0]?.textContent).toContain('Здоров’я')
+		expect(headers[1]?.textContent).toContain('Структура')
+
+		fireEvent.click(screen.getByRole('button', { name: 'Налаштувати стовпці' }))
+		const resizeHandle = within(table).getByRole('separator', { name: 'Змінити ширину стовпця «Структура»' })
+		expect(resizeHandle.getAttribute('aria-valuenow')).toBe('220')
+		fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' })
+		await waitFor(() =>
+			expect(
+				within(table)
+					.getByRole('separator', { name: 'Змінити ширину стовпця «Структура»' })
+					.getAttribute('aria-valuenow'),
+			).toBe('228'),
+		)
+	})
+
 	it('expands and collapses when clicking anywhere on a row', async () => {
 		renderBoard()
 

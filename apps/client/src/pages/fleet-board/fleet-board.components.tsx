@@ -8,7 +8,6 @@ import {
 	type ColumnDef,
 	type Header,
 	type ColumnOrderState,
-	type ColumnSizingState,
 	type Row,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -494,7 +493,7 @@ function ColumnResizeHandle({
 			aria-valuenow={Math.round(size)}
 			tabIndex={0}
 			title="Потягніть, щоб змінити ширину"
-			className="absolute inset-y-0 right-0 z-20 w-2 translate-x-1/2 cursor-col-resize touch-none select-none rounded-full outline-none hover:bg-primary/50 focus-visible:bg-primary focus-visible:ring-2 focus-visible:ring-ring/50"
+			className="absolute inset-y-0 right-0 z-20 w-2 translate-x-1/2 cursor-col-resize touch-none select-none rounded-full outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:content-[''] after:bg-border hover:after:bg-primary/50 focus-visible:after:bg-primary focus-visible:ring-2 focus-visible:ring-ring/50"
 			onMouseDown={header.getResizeHandler()}
 			onTouchStart={header.getResizeHandler()}
 			onClick={event => event.stopPropagation()}
@@ -581,29 +580,39 @@ function FleetDataTable({
 	const columnIds = columns.map(column => column.id).filter((id): id is string => Boolean(id))
 	const columnKey = columnIds.join('|')
 	const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => columnIds)
-	const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({})
 	const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
 	const [dropTargetId, setDropTargetId] = useState<string | null>(null)
 	const [columnMessage, setColumnMessage] = useState('')
-	useEffect(() => {
-		const availableIds = columnKey ? columnKey.split('|') : []
-		setColumnOrder(current => reconcileColumnOrder(current, availableIds))
-		setColumnSizing(current => {
-			const next = Object.fromEntries(Object.entries(current).filter(([id]) => availableIds.includes(id)))
-			return Object.keys(next).length === Object.keys(current).length ? current : next
-		})
-	}, [columnKey])
 	const table = useReactTable({
 		data: rows,
 		columns,
 		getCoreRowModel: getCoreRowModel(),
 		getRowId: row => row.key,
-		state: { columnOrder, columnSizing },
+		state: { columnOrder },
 		onColumnOrderChange: setColumnOrder,
-		onColumnSizingChange: setColumnSizing,
-		columnResizeMode: 'onEnd',
+		columnResizeMode: 'onChange',
 		defaultColumn: { size: 112, minSize: 88, maxSize: 480 },
 	})
+	useEffect(() => {
+		const availableIds = columnKey ? columnKey.split('|') : []
+		setColumnOrder(current => reconcileColumnOrder(current, availableIds))
+		table.setColumnSizing(current => {
+			const next = Object.fromEntries(Object.entries(current).filter(([id]) => availableIds.includes(id)))
+			return Object.keys(next).length === Object.keys(current).length ? current : next
+		})
+	}, [columnKey, table])
+	const resizingColumnId = table.getState().columnSizingInfo.isResizingColumn
+	useEffect(() => {
+		if (!resizingColumnId) return
+		const previousCursor = document.body.style.cursor
+		const previousUserSelect = document.body.style.userSelect
+		document.body.style.cursor = 'col-resize'
+		document.body.style.userSelect = 'none'
+		return () => {
+			document.body.style.cursor = previousCursor
+			document.body.style.userSelect = previousUserSelect
+		}
+	}, [resizingColumnId])
 	const displayRows = table.getRowModel().rows.flatMap<FleetDisplayRow>(row => {
 		const content = renderExpandedRow(row.original)
 		return content
@@ -642,13 +651,13 @@ function FleetDataTable({
 	}
 	const resetColumns = () => {
 		setColumnOrder(columnIds)
-		setColumnSizing({})
+		table.resetColumnSizing()
 		setColumnMessage('Порядок і ширину стовпців скинуто.')
 	}
 	const resizeByKeyboard = (column: Column<BoardRow>, delta: number) => {
 		const min = column.columnDef.minSize ?? 20
 		const max = column.columnDef.maxSize ?? Number.MAX_SAFE_INTEGER
-		setColumnSizing(current => ({
+		table.setColumnSizing(current => ({
 			...current,
 			[column.id]: Math.min(max, Math.max(min, (current[column.id] ?? column.getSize()) + delta)),
 		}))

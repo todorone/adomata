@@ -365,6 +365,13 @@ describe('Fleet Board', () => {
 					.getAttribute('aria-valuenow'),
 			).toBe('228'),
 		)
+		expect(resizeHandle.className).toContain('after:bg-border')
+		fireEvent.mouseDown(resizeHandle, { clientX: 100 })
+		expect(document.body.style.cursor).toBe('col-resize')
+		fireEvent.mouseMove(document, { clientX: 108 })
+		await waitFor(() => expect(resizeHandle.getAttribute('aria-valuenow')).toBe('236'))
+		fireEvent.mouseUp(document, { clientX: 108 })
+		expect(document.body.style.cursor).toBe('')
 	})
 
 	it('expands and collapses when clicking anywhere on a row', async () => {

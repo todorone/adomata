@@ -249,11 +249,12 @@ function money(value: string, currency: string) {
 function renderBoard(
 	overrides: Record<string, unknown> = {},
 	setSearch: (changes: Partial<FleetBoardSearch>) => void = () => undefined,
+	columnLayoutKey: string | null = null,
 ) {
 	const search = fleetBoardSearchSchema.parse(overrides) as FleetBoardSearch
 	return render(
 		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-			<FleetBoard search={search} setSearch={setSearch} />
+			<FleetBoard search={search} setSearch={setSearch} columnLayoutKey={columnLayoutKey} />
 		</QueryClientProvider>,
 	)
 }
@@ -274,6 +275,7 @@ async function renderToAdDepth(overrides: Record<string, unknown> = {}) {
 describe('Fleet Board', () => {
 	afterEach(() => {
 		cleanup()
+		localStorage.clear()
 		refetchSpy.mockClear()
 	})
 
@@ -369,9 +371,26 @@ describe('Fleet Board', () => {
 		fireEvent.mouseDown(resizeHandle, { clientX: 100 })
 		expect(document.body.style.cursor).toBe('col-resize')
 		fireEvent.mouseMove(document, { clientX: 108 })
-		await waitFor(() => expect(resizeHandle.getAttribute('aria-valuenow')).toBe('236'))
+		expect(resizeHandle.getAttribute('aria-valuenow')).toBe('228')
 		fireEvent.mouseUp(document, { clientX: 108 })
+		await waitFor(() => expect(resizeHandle.getAttribute('aria-valuenow')).toBe('236'))
 		expect(document.body.style.cursor).toBe('')
+	})
+
+	it('restores a layout for the supplied identity-scoped key', () => {
+		const key = 'test:fleet-board:tree:user:agency'
+		renderBoard({}, undefined, key)
+
+		fireEvent.click(screen.getByRole('button', { name: 'Налаштувати стовпці' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Перемістити «Структура» праворуч' }))
+		cleanup()
+
+		renderBoard({}, undefined, key)
+		const headers = within(screen.getByRole('treegrid', { name: 'Дерево рекламних кабінетів' })).getAllByRole(
+			'columnheader',
+		)
+		expect(headers[0]?.textContent).toContain('Здоров’я')
+		expect(headers[1]?.textContent).toContain('Структура')
 	})
 
 	it('expands and collapses when clicking anywhere on a row', async () => {

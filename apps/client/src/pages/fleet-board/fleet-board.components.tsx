@@ -7,7 +7,6 @@ import {
 	type Column,
 	type ColumnDef,
 	type Header,
-	type ColumnOrderState,
 	type Row,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -35,6 +34,7 @@ import { DateRangePicker } from '@/components/date-range-picker'
 import { Lightbox } from '@/components/lightbox'
 import { fleetBoardParentKey, fleetBoardQueries, type FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
+import { useColumnLayoutPersistence, type ColumnLayoutColumn } from '@/lib/column-layout-persistence'
 import { Button } from '@/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select'
@@ -55,7 +55,6 @@ import {
 	mediaUrl,
 	metaAdsManagerUrl,
 	nextMetrics,
-	reconcileColumnOrder,
 	reorderColumnIds,
 	syncNote,
 	type Account,
@@ -94,6 +93,7 @@ export type ViewProps = {
 	accounts: Account[]
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
+	columnLayoutKey: string | null
 	nodeIndex: NodeIndex
 	expanded: Set<string>
 	creativeAdId: string | null
@@ -305,7 +305,16 @@ function CompactSelect<Value extends string>({
 	)
 }
 
-export function TreeView({ accounts, search, setSearch, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
+export function TreeView({
+	accounts,
+	search,
+	setSearch,
+	columnLayoutKey,
+	nodeIndex,
+	expanded,
+	creativeAdId,
+	onToggle,
+}: ViewProps) {
 	const rows = flattenRows(accounts, search, nodeIndex, expanded)
 	const columns = createFleetColumns({
 		metrics: search.metrics,
@@ -321,6 +330,7 @@ export function TreeView({ accounts, search, setSearch, nodeIndex, expanded, cre
 				rows={rows}
 				columns={columns}
 				metrics={search.metrics}
+				columnLayoutKey={columnLayoutKey}
 				sort={search.sort}
 				direction={search.direction}
 				expanded={expanded}
@@ -433,6 +443,7 @@ type FleetDataTableProps = {
 	rows: BoardRow[]
 	columns: ColumnDef<BoardRow>[]
 	metrics: FleetBoardMetricKey[]
+	columnLayoutKey: string | null
 	sort: SortKey
 	direction: FleetBoardSearch['direction']
 	expanded: Set<string>
@@ -570,6 +581,7 @@ function FleetDataTable({
 	rows,
 	columns,
 	metrics,
+	columnLayoutKey,
 	sort,
 	direction,
 	expanded,
@@ -577,9 +589,25 @@ function FleetDataTable({
 	renderExpandedRow,
 }: FleetDataTableProps) {
 	const scrollRef = useRef<HTMLDivElement>(null)
-	const columnIds = columns.map(column => column.id).filter((id): id is string => Boolean(id))
-	const columnKey = columnIds.join('|')
-	const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => columnIds)
+	const layoutColumns = columns.flatMap<ColumnLayoutColumn>(column =>
+		column.id
+			? [
+					{
+						id: column.id,
+						minSize: column.minSize,
+						maxSize: column.maxSize,
+					},
+				]
+			: [],
+	)
+	const {
+		columnOrder,
+		columnSizing,
+		onColumnOrderChange,
+		onColumnSizingChange,
+		persistColumnLayout,
+		resetColumnLayout,
+	} = useColumnLayoutPersistence({ columns: layoutColumns, storageKey: columnLayoutKey })
 	const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
 	const [dropTargetId, setDropTargetId] = useState<string | null>(null)
 	const [columnMessage, setColumnMessage] = useState('')
@@ -588,19 +616,12 @@ function FleetDataTable({
 		columns,
 		getCoreRowModel: getCoreRowModel(),
 		getRowId: row => row.key,
-		state: { columnOrder },
-		onColumnOrderChange: setColumnOrder,
-		columnResizeMode: 'onChange',
+		state: { columnOrder, columnSizing },
+		onColumnOrderChange,
+		onColumnSizingChange,
+		columnResizeMode: 'onEnd',
 		defaultColumn: { size: 112, minSize: 88, maxSize: 480 },
 	})
-	useEffect(() => {
-		const availableIds = columnKey ? columnKey.split('|') : []
-		setColumnOrder(current => reconcileColumnOrder(current, availableIds))
-		table.setColumnSizing(current => {
-			const next = Object.fromEntries(Object.entries(current).filter(([id]) => availableIds.includes(id)))
-			return Object.keys(next).length === Object.keys(current).length ? current : next
-		})
-	}, [columnKey, table])
 	const resizingColumnId = table.getState().columnSizingInfo.isResizingColumn
 	useEffect(() => {
 		if (!resizingColumnId) return
@@ -611,8 +632,9 @@ function FleetDataTable({
 		return () => {
 			document.body.style.cursor = previousCursor
 			document.body.style.userSelect = previousUserSelect
+			persistColumnLayout()
 		}
-	}, [resizingColumnId])
+	}, [persistColumnLayout, resizingColumnId])
 	const displayRows = table.getRowModel().rows.flatMap<FleetDisplayRow>(row => {
 		const content = renderExpandedRow(row.original)
 		return content
@@ -644,14 +666,13 @@ function FleetDataTable({
 		const index = columnOrder.indexOf(columnId)
 		const target = columnOrder[index + direction]
 		if (!target) return
-		setColumnOrder(current => {
+		onColumnOrderChange(current => {
 			return reorderColumnIds(current, columnId, target)
 		})
 		setColumnMessage(`Стовпець «${columnLabel(columnId)}» переміщено на позицію ${index + direction + 1}.`)
 	}
 	const resetColumns = () => {
-		setColumnOrder(columnIds)
-		table.resetColumnSizing()
+		resetColumnLayout()
 		setColumnMessage('Порядок і ширину стовпців скинуто.')
 	}
 	const resizeByKeyboard = (column: Column<BoardRow>, delta: number) => {
@@ -661,6 +682,7 @@ function FleetDataTable({
 			...current,
 			[column.id]: Math.min(max, Math.max(min, (current[column.id] ?? column.getSize()) + delta)),
 		}))
+		persistColumnLayout()
 	}
 	const spacer = (height: number, key: string) =>
 		height > 0 ? (
@@ -711,7 +733,7 @@ function FleetDataTable({
 												onDrop={event => {
 													event.preventDefault()
 													if (draggedColumnId) {
-														setColumnOrder(current =>
+														onColumnOrderChange(current =>
 															reorderColumnIds(current, draggedColumnId, header.column.id),
 														)
 														setColumnMessage(
@@ -830,7 +852,16 @@ function FleetDataTable({
 	)
 }
 
-export function ControlRoom({ accounts, search, setSearch, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
+export function ControlRoom({
+	accounts,
+	search,
+	setSearch,
+	columnLayoutKey,
+	nodeIndex,
+	expanded,
+	creativeAdId,
+	onToggle,
+}: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
 	const railItems = accounts
 	const railRef = useRef<HTMLDivElement>(null)
@@ -891,6 +922,7 @@ export function ControlRoom({ accounts, search, setSearch, nodeIndex, expanded, 
 					accounts={[selected]}
 					search={search}
 					setSearch={setSearch}
+					columnLayoutKey={columnLayoutKey}
 					nodeIndex={nodeIndex}
 					expanded={expanded}
 					creativeAdId={creativeAdId}

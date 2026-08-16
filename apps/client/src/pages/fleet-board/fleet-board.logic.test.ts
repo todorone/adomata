@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { FleetBoardNode } from '@adomata/api/client'
 
 import { fleetBoardParentKey, indexFleetBoardNodes } from '@/data/fleet-board'
-import { reconcileColumnOrder, reorderColumnIds } from './fleet-board.logic'
+import { reconcileColumnOrder } from '@/lib/column-layout-persistence'
+import { reorderColumnIds } from './fleet-board.logic'
 
 const kpis = {
 	spend: '0',

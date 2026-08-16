@@ -1,4 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { getColumnLayoutStorageKey } from '@/lib/column-layout-persistence'
+import { useMe } from '@/data/me'
 import { requireSession } from '@/data/session'
 import { FleetBoard } from '@/pages/fleet-board/fleet-board'
 import { fleetBoardSearchSchema, metricsSearchValue, type FleetBoardSearch } from '@/data/fleet-board-search'
@@ -16,9 +18,17 @@ export const Route = createFileRoute('/')({
 function Home() {
 	const search = Route.useSearch()
 	const navigate = useNavigate({ from: Route.fullPath })
+	const { data: me, isPending: isMePending } = useMe()
+	const columnLayoutKey = getColumnLayoutStorageKey({
+		tableId: 'tree',
+		userId: me?.user.id,
+		organizationId: me?.activeOrganization?.id,
+	})
 	return (
 		<FleetBoard
 			key={`${rangeKey(search.range)}:${search.search}:${search.needsAttention}:${search.clientId ?? ''}`}
+			columnLayoutKey={columnLayoutKey}
+			columnLayoutReady={!isMePending}
 			search={search}
 			setSearch={changes =>
 				navigate({

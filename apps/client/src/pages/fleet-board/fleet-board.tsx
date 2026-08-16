@@ -17,9 +17,13 @@ import { expandSingleChildChain, type Node } from './fleet-board.logic'
 export function FleetBoard({
 	search,
 	setSearch,
+	columnLayoutKey = null,
+	columnLayoutReady = true,
 }: {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
+	columnLayoutKey?: string | null
+	columnLayoutReady?: boolean
 }) {
 	const root = useFleetBoardRoot({
 		range: search.range,
@@ -69,12 +73,14 @@ export function FleetBoard({
 		accounts: root.data?.accounts ?? [],
 		search,
 		setSearch,
+		columnLayoutKey,
 		nodeIndex,
 		expanded,
 		creativeAdId,
 		onToggle: toggle,
 	}
-	const hasRows = Boolean(root.data && root.data.accounts.length > 0)
+	const waitingForColumnLayoutIdentity = Boolean(root.data && !columnLayoutReady)
+	const hasRows = Boolean(root.data && root.data.accounts.length > 0 && columnLayoutReady)
 
 	return (
 		<div className="mx-auto flex h-full w-full min-h-0 min-w-0 max-w-[1500px] flex-col gap-2">
@@ -86,9 +92,9 @@ export function FleetBoard({
 				onRefresh={refresh}
 				isRefreshing={isRefreshing}
 			/>
-			{root.isPending && !root.data ? <LoadingState /> : null}
+			{(root.isPending && !root.data) || waitingForColumnLayoutIdentity ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}
-			{root.data && root.data.accounts.length === 0 ? <EmptyState /> : null}
+			{root.data && columnLayoutReady && root.data.accounts.length === 0 ? <EmptyState /> : null}
 			{hasRows && search.view === 'tree' ? <TreeView {...viewProps} /> : null}
 			{hasRows && search.view === 'control' ? <ControlRoom {...viewProps} /> : null}
 			{hasRows && search.view === 'signals' ? <SignalsView {...viewProps} /> : null}

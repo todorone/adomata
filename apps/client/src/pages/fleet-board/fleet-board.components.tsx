@@ -707,7 +707,7 @@ function FleetDataTable({
 					<Table
 						role="treegrid"
 						aria-label="Дерево рекламних кабінетів"
-						containerClassName="overflow-visible"
+						containerClassName="overflow-hidden"
 						className="table-fixed"
 						style={{ minWidth: Math.max(gridMinWidth(metrics), table.getTotalSize()) }}
 					>

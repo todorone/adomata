@@ -31,15 +31,21 @@ export function triggerBackgroundSync() {
 			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-			scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		]).then(results => {
-			for (const result of results) {
-				if (result.status === 'rejected')
-					logger.warn('Background sync failed', {
-						category: result.reason instanceof Error ? result.reason.name : 'unknown',
-					})
-			}
-		})
+		])
+			.then(results => {
+				for (const result of results) {
+					if (result.status === 'rejected')
+						logger.warn('Background sync failed', {
+							category: result.reason instanceof Error ? result.reason.name : 'unknown',
+						})
+				}
+				return scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
+			})
+			.catch(error => {
+				logger.warn('Historical reconciliation scheduling failed', {
+					category: error instanceof Error ? error.name : 'unknown',
+				})
+			})
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
 	}

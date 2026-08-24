@@ -29,6 +29,7 @@ function kpis(overrides: Partial<Kpis> = {}): Kpis {
 const freshness = {
 	accountTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
 	insightsTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
+	historicalReconciliation: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
 }
 
 const soloAccount: Account = {
@@ -158,10 +159,13 @@ const rootResponse: FleetBoardRoot = {
 	header: {
 		accountTierRefreshedAt: '2026-07-30T08:00:00.000Z',
 		insightsTierRefreshedAt: '2026-07-30T08:00:00.000Z',
+		historicalReconciliationRefreshedAt: '2026-07-30T08:00:00.000Z',
 		accountTierStale: false,
 		insightsTierStale: false,
+		historicalReconciliationStale: false,
 		accountTierNeverSynced: 0,
 		insightsTierNeverSynced: 0,
+		historicalReconciliationNeverSynced: 0,
 		provisional: false,
 	},
 }

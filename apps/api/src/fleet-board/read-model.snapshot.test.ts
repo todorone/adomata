@@ -46,6 +46,8 @@ const accountRow = (overrides: Record<string, unknown> = {}) =>
 		accountTierRefreshedAt: new Date('2026-01-03T00:00:00.000Z'),
 		insightsTierRefreshedAt: new Date('2026-01-03T00:00:00.000Z'),
 		insightsTierError: null,
+		historicalReconciliationSuccessfulAt: null,
+		historicalReconciliationError: null,
 		...overrides,
 	}) as typeof adAccount.$inferSelect
 
@@ -101,8 +103,15 @@ describe('Fleet Board complete snapshot read model', () => {
 	})
 
 	it('returns all live levels, empty branches, video metadata, and historical deleted contributions once', async () => {
-		const firstAccount = accountRow()
-		const secondAccount = accountRow({ id: 'act_2', clientId: 'client_2', name: 'Account 2' })
+		const firstAccount = accountRow({
+			historicalReconciliationSuccessfulAt: new Date('2026-01-01T12:00:00.000Z'),
+		})
+		const secondAccount = accountRow({
+			id: 'act_2',
+			clientId: 'client_2',
+			name: 'Account 2',
+			historicalReconciliationSuccessfulAt: new Date('2026-01-01T11:59:59.000Z'),
+		})
 		const firstClient = clientRow('client_1', 'agency_1', 'Client 1')
 		const secondClient = clientRow('client_2', 'agency_1', 'Client 2')
 		const liveCampaign = campaignRow()
@@ -200,6 +209,21 @@ describe('Fleet Board complete snapshot read model', () => {
 		})
 		expect(response.nodes.find(node => node.id === 'adset_empty')?.kpis.spend).toBe('0')
 		expect(response.accounts[0]?.kpis.spend).toBe('35')
+		expect(response.accounts[0]?.freshness.historicalReconciliation).toEqual({
+			refreshedAt: '2026-01-01T12:00:00.000Z',
+			stale: false,
+			failed: false,
+		})
+		expect(response.accounts[1]?.freshness.historicalReconciliation).toEqual({
+			refreshedAt: '2026-01-01T11:59:59.000Z',
+			stale: true,
+			failed: false,
+		})
+		expect(response.header).toMatchObject({
+			historicalReconciliationRefreshedAt: '2026-01-01T11:59:59.000Z',
+			historicalReconciliationStale: true,
+			historicalReconciliationNeverSynced: 0,
+		})
 		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('15')
 		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual(['agency_1'])
 		expect(dbSelect).toHaveBeenCalledTimes(6)

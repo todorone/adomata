@@ -30,11 +30,12 @@ describe('triggerBackgroundSync', () => {
 		for (const scheduler of Object.values(sync)) expect(scheduler).not.toHaveBeenCalled()
 	})
 
-	it('fires every Operational Slice and Creative enrichment without waiting', () => {
+	it('fires every Operational Slice and Creative enrichment before reconciliation', async () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
 		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
 
 		triggerBackgroundSync()
+		await new Promise(resolve => setTimeout(resolve, 0))
 
 		for (const scheduler of Object.values(sync)) {
 			expect(scheduler).toHaveBeenCalledWith({ trigger: 'cron', metaMode: 'fake', buildMetaClient })

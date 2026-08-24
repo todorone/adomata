@@ -54,10 +54,13 @@ describe('Fleet Board snapshot contract', () => {
 			header: {
 				accountTierRefreshedAt: null,
 				insightsTierRefreshedAt: null,
+				historicalReconciliationRefreshedAt: null,
 				accountTierStale: false,
 				insightsTierStale: false,
+				historicalReconciliationStale: false,
 				accountTierNeverSynced: 0,
 				insightsTierNeverSynced: 0,
+				historicalReconciliationNeverSynced: 0,
 				provisional: false,
 			},
 		})

@@ -93,7 +93,11 @@ export const fleetBoardAccountSchema = z.object({
 	}),
 	signalsLane: fleetBoardSignalsLaneSchema,
 	kpis: fleetBoardKpisSchema,
-	freshness: z.object({ accountTier: freshnessSchema, insightsTier: freshnessSchema }),
+	freshness: z.object({
+		accountTier: freshnessSchema,
+		insightsTier: freshnessSchema,
+		historicalReconciliation: freshnessSchema,
+	}),
 })
 
 export const fleetBoardNodeSchema = z.object({
@@ -140,12 +144,15 @@ export const fleetBoardRootResponseSchema = z.object({
 	header: z.object({
 		accountTierRefreshedAt: nullableIsoDateTimeSchema,
 		insightsTierRefreshedAt: nullableIsoDateTimeSchema,
+		historicalReconciliationRefreshedAt: nullableIsoDateTimeSchema,
 		accountTierStale: z.boolean(),
 		insightsTierStale: z.boolean(),
+		historicalReconciliationStale: z.boolean(),
 		// Visible Ad Accounts with no successful refresh for the tier — reported as their own
 		// fact so «ще не синхронізовано» never stands in for the whole fleet.
 		accountTierNeverSynced: z.number().int(),
 		insightsTierNeverSynced: z.number().int(),
+		historicalReconciliationNeverSynced: z.number().int(),
 		provisional: z.boolean(),
 	}),
 })

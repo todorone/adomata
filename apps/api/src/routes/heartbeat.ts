@@ -44,26 +44,34 @@ const route = createRoute({
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
 	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const [accountDataResult, hierarchyResult, insightsResult, creativeResult, historicalReconciliationResult] =
-		await Promise.allSettled([
-			scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-			scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		])
+	const [accountDataResult, hierarchyResult, insightsResult, creativeResult] = await Promise.allSettled([
+		scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+	])
 	if (accountDataResult.status === 'rejected') throw accountDataResult.reason
 	for (const [slice, result] of [
 		['hierarchy', hierarchyResult],
 		['insights', insightsResult],
 		['creative', creativeResult],
-		['historical reconciliation', historicalReconciliationResult],
 	] as const) {
 		if (result.status === 'rejected') {
 			logger.warn(`Durable ${slice} scheduling failed`, {
 				category: result.reason instanceof Error ? result.reason.name : 'unknown',
 			})
 		}
+	}
+	const historicalReconciliationResult = await Promise.allSettled([
+		scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+	])
+	if (historicalReconciliationResult[0]?.status === 'rejected') {
+		logger.warn('Durable historical reconciliation scheduling failed', {
+			category:
+				historicalReconciliationResult[0].reason instanceof Error
+					? historicalReconciliationResult[0].reason.name
+					: 'unknown',
+		})
 	}
 	const runs = accountDataResult.value
 	const accountData = runs.reduce(

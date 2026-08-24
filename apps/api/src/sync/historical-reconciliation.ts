@@ -57,6 +57,7 @@ export type HistoricalReconciliationGenerationResult = {
 type ReconciliationAccount = {
 	id: string
 	timezoneName: string | null
+	createdAt: Date
 	historicalReconciliationAttemptedAt: Date | null
 	historicalReconciliationSuccessfulAt: Date | null
 	historicalReconciliationDate: string | null
@@ -118,6 +119,7 @@ export async function enqueueHistoricalReconciliationRun({
 				.select({
 					id: adAccount.id,
 					timezoneName: adAccount.timezoneName,
+					createdAt: adAccount.createdAt,
 					historicalReconciliationAttemptedAt: adAccount.historicalReconciliationAttemptedAt,
 					historicalReconciliationSuccessfulAt: adAccount.historicalReconciliationSuccessfulAt,
 					historicalReconciliationDate: adAccount.historicalReconciliationDate,
@@ -641,14 +643,32 @@ function isReconciliationDue(account: ReconciliationAccount, targetDate: string,
 	const hasNotCompletedTarget = (account.historicalReconciliationDate ?? '') < targetDate
 	if (!hasNotCompletedTarget) return false
 	if (isAssignedNightSlot(account.id, localMinutes)) return true
-	return localMinutes >= reconciliationWindowEndMinutes && account.historicalReconciliationAttemptedAt !== null
+	return (
+		localMinutes >= reconciliationWindowEndMinutes &&
+		(account.historicalReconciliationAttemptedAt !== null ||
+			wasEligibleBeforeAssignedSlot(account, timezoneName, now))
+	)
 }
 
 function isAssignedNightSlot(accountId: string, localMinutes: number) {
 	if (localMinutes < reconciliationWindowStartMinutes || localMinutes >= reconciliationWindowEndMinutes) return false
-	const slot = hashAccountId(accountId) % reconciliationSlotCount
-	const slotStart = reconciliationWindowStartMinutes + slot * reconciliationSlotLengthMinutes
+	const slotStart = assignedSlotStart(accountId)
 	return localMinutes >= slotStart && localMinutes < slotStart + reconciliationSlotLengthMinutes
+}
+
+function wasEligibleBeforeAssignedSlot(account: ReconciliationAccount, timezoneName: string, now: Date) {
+	const localDate = dateRangeForAccount('today', timezoneName, now).end
+	const createdDate = dateRangeForAccount('today', timezoneName, account.createdAt).end
+	if (createdDate < localDate) return true
+	if (createdDate > localDate) return false
+	return localMinutesForAccount(timezoneName, account.createdAt) <= assignedSlotStart(account.id)
+}
+
+function assignedSlotStart(accountId: string) {
+	return (
+		reconciliationWindowStartMinutes +
+		(hashAccountId(accountId) % reconciliationSlotCount) * reconciliationSlotLengthMinutes
+	)
 }
 
 function localMinutesForAccount(timezoneName: string, now: Date) {
@@ -702,7 +722,3 @@ function errorCategory(error: unknown) {
 	}
 	return 'unexpected'
 }
-
-export const enqueueReconciliationRun = enqueueHistoricalReconciliationRun
-export const scheduleReconciliationRun = scheduleHistoricalReconciliationRun
-export const scheduleReconciliationRunsForAgencies = scheduleHistoricalReconciliationRunsForAgencies

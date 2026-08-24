@@ -31,6 +31,7 @@ export {
 
 const accountStaleMilliseconds = 10 * 60 * 1000
 const insightsStaleMilliseconds = 10 * 60 * 1000
+const historicalReconciliationStaleMilliseconds = 36 * 60 * 60 * 1000
 const actionItemsSchema = z.array(z.object({ action_type: z.string(), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) }))
 const purchaseActionTypes = new Set(['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase'])
 
@@ -329,6 +330,12 @@ function accountView(
 				insightsStaleMilliseconds,
 				now,
 			),
+			historicalReconciliation: freshness(
+				account.historicalReconciliationSuccessfulAt,
+				account.historicalReconciliationError !== null,
+				historicalReconciliationStaleMilliseconds,
+				now,
+			),
 		},
 	}
 }
@@ -391,13 +398,19 @@ function freshness(refreshedAt: Date | null, failed: boolean, threshold: number,
 function headerFreshness(accounts: AccountView[], range: FleetBoardRange, now: Date) {
 	const accountTier = summarizeFleetTier(accounts.map(account => account.freshness.accountTier))
 	const insightsTier = summarizeFleetTier(accounts.map(account => account.freshness.insightsTier))
+	const historicalReconciliation = summarizeFleetTier(
+		accounts.map(account => account.freshness.historicalReconciliation),
+	)
 	return {
 		accountTierRefreshedAt: accountTier.refreshedAt,
 		insightsTierRefreshedAt: insightsTier.refreshedAt,
+		historicalReconciliationRefreshedAt: historicalReconciliation.refreshedAt,
 		accountTierStale: accountTier.stale,
 		insightsTierStale: insightsTier.stale,
+		historicalReconciliationStale: historicalReconciliation.stale,
 		accountTierNeverSynced: accountTier.neverSynced,
 		insightsTierNeverSynced: insightsTier.neverSynced,
+		historicalReconciliationNeverSynced: historicalReconciliation.neverSynced,
 		provisional: accounts.some(account =>
 			isProvisional(dateRangeForAccount(range, account.timezoneName, now), account.timezoneName, now),
 		),

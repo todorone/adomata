@@ -177,6 +177,10 @@ export class MetaApiError extends Error {
 	}
 }
 
+export function isMetaAccessLoss(error: unknown) {
+	return error instanceof MetaApiError && (error.code === 10 || error.code === 190)
+}
+
 type MetaClientOptions = {
 	accessToken: string
 	fetch?: (input: string) => Promise<Response>

@@ -1,15 +1,25 @@
-import { asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { HttpResponse, http } from 'msw'
 
 import { db, sql } from '../db'
-import { adAccount, organization, syncAccountOutcome, syncInvocation, syncRun } from '../db/schema'
+import {
+	adAccount,
+	organization,
+	organizationSettings,
+	syncAccountOutcome,
+	syncInvocation,
+	syncRun,
+} from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
 import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
+import { replaceMetaAccessTokenAndRecoverAccounts } from '../sync/access-recovery'
 import {
 	enqueueAccountDataRun,
 	pruneSyncHistory,
 	runAccountDataGeneration,
+	scheduleAccountDataRun,
 	type AccountDataRunOptions,
 } from '../sync/account-data'
 
@@ -105,6 +115,83 @@ describe('durable Account data work', () => {
 		const result = await runAccountDataGeneration({ ...buildOptions(now), runId: queued.runId })
 		expect(result.status).toBe('failed')
 		expect(result.processed).toBe(5)
+	})
+
+	it('makes access-lost accounts due for operational work after replacing the Agency token', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		const accountId = 'act_100000000000001'
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'access_lost', accountDataNextDueAt: new Date(now.getTime() + 5 * 60 * 1000) })
+			.where(eq(adAccount.id, accountId))
+		await db.insert(organizationSettings).values({
+			id: 'settings_1',
+			organizationId: fakeMetaAgency.id,
+			metaAccessToken: 'old-token',
+			lastValidatedAt: new Date('2026-08-24T07:00:00.000Z'),
+			updatedAt: new Date('2026-08-24T07:00:00.000Z'),
+		})
+		const run = await enqueueAccountDataRun(buildOptions(now))
+
+		const replacement = await replaceMetaAccessTokenAndRecoverAccounts({
+			agencyId: fakeMetaAgency.id,
+			metaAccessToken: 'replacement-token',
+			now,
+		})
+
+		expect(replacement.recoveredAccountIds).toEqual([accountId])
+		const [settings] = await db
+			.select({ metaAccessToken: organizationSettings.metaAccessToken })
+			.from(organizationSettings)
+			.where(eq(organizationSettings.organizationId, fakeMetaAgency.id))
+		expect(settings).toEqual({ metaAccessToken: 'replacement-token' })
+		const [account] = await db
+			.select({ connectionStatus: adAccount.connectionStatus, nextDueAt: adAccount.accountDataNextDueAt })
+			.from(adAccount)
+			.where(eq(adAccount.id, accountId))
+		expect(account).toEqual({ connectionStatus: 'pending', nextDueAt: now })
+
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, run.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		expect(outcome).toEqual({ status: 'queued' })
+	})
+
+	it('classifies Meta code 190 as access lost with a diagnostic reference', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		const accountId = 'act_100000000000001'
+		fakeMetaServer.use(
+			http.get(`https://graph.facebook.com/v25.0/${accountId}`, () =>
+				HttpResponse.json(
+					{
+						error: {
+							message: 'Invalid OAuth access token',
+							type: 'OAuthException',
+							code: 190,
+							fbtrace_id: 'expired-token',
+						},
+					},
+					{ status: 400 },
+				),
+			),
+		)
+
+		const result = await scheduleAccountDataRun(buildOptions(now))
+		const [account] = await db
+			.select({
+				connectionStatus: adAccount.connectionStatus,
+				error: adAccount.accountDataError,
+				diagnosticReference: adAccount.accountDataDiagnosticReference,
+			})
+			.from(adAccount)
+			.where(eq(adAccount.id, accountId))
+
+		expect(account).toEqual({
+			connectionStatus: 'access_lost',
+			error: 'Invalid OAuth access token code=190 fbtrace=expired-token',
+			diagnosticReference: `sync-run/${result.runId}/account-data/${accountId}`,
+		})
 	})
 
 	it('expires detailed history without removing the current Account data state', async () => {

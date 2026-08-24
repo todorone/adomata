@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { eq } from 'drizzle-orm'
 
@@ -12,7 +10,8 @@ import { organizationSettings } from '../db/schema'
 import { apiError } from '../logic/apiError'
 import { isOwner, requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import { MetaApiError } from '../meta/client'
-import { getHeartbeatDependencies } from '../sync/runtime'
+import { replaceMetaAccessTokenAndRecoverAccounts } from '../sync/access-recovery'
+import { getHeartbeatDependencies, triggerAgencyBackgroundSync } from '../sync/runtime'
 
 const getRoute = createRoute({
 	method: 'get',
@@ -83,21 +82,11 @@ export const organizationSettingsRoutes = organizationSettingsBase
 			throw error
 		}
 
-		const now = new Date()
-		const [row] = await db
-			.insert(organizationSettings)
-			.values({
-				id: randomUUID(),
-				organizationId: c.get('orgId'),
-				metaAccessToken,
-				lastValidatedAt: now,
-				updatedAt: now,
-			})
-			.onConflictDoUpdate({
-				target: organizationSettings.organizationId,
-				set: { metaAccessToken, lastValidatedAt: now, updatedAt: now },
-			})
-			.returning()
+		const { settings: row, recoveredAccountIds } = await replaceMetaAccessTokenAndRecoverAccounts({
+			agencyId: c.get('orgId'),
+			metaAccessToken,
+		})
+		if (recoveredAccountIds.length > 0) triggerAgencyBackgroundSync(c.get('orgId'), 'connect')
 
 		return c.json(
 			organizationSettingsResponseSchema.parse({

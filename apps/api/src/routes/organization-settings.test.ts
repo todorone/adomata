@@ -13,6 +13,8 @@ const dbCalls = vi.hoisted(() => ({
 }))
 
 const metaCalls = vi.hoisted(() => ({ verifyToken: vi.fn(), buildMetaClient: vi.fn() }))
+const recoveryCalls = vi.hoisted(() => ({ replaceMetaAccessTokenAndRecoverAccounts: vi.fn() }))
+const syncCalls = vi.hoisted(() => ({ triggerAgencyBackgroundSync: vi.fn() }))
 
 vi.mock('../db', () => ({
 	db: {
@@ -43,6 +45,11 @@ vi.mock('../sync/runtime', () => ({
 		metaMode: 'live' as const,
 		buildMetaClient: metaCalls.buildMetaClient,
 	}),
+	triggerAgencyBackgroundSync: syncCalls.triggerAgencyBackgroundSync,
+}))
+
+vi.mock('../sync/access-recovery', () => ({
+	replaceMetaAccessTokenAndRecoverAccounts: recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts,
 }))
 
 vi.mock('../logic/auth', () => ({
@@ -90,6 +97,8 @@ beforeEach(() => {
 	metaCalls.verifyToken.mockReset()
 	metaCalls.buildMetaClient.mockReset()
 	metaCalls.buildMetaClient.mockReturnValue({ verifyToken: metaCalls.verifyToken })
+	recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts.mockReset()
+	syncCalls.triggerAgencyBackgroundSync.mockReset()
 })
 
 describe('GET /organization-settings', () => {
@@ -155,6 +164,7 @@ describe('PUT /organization-settings', () => {
 		expect(body.error.code).toBe('FORBIDDEN')
 		expect(metaCalls.verifyToken).not.toHaveBeenCalled()
 		expect(dbCalls.insertValues).not.toHaveBeenCalled()
+		expect(recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts).not.toHaveBeenCalled()
 	})
 
 	it('rejects an invalid token without persisting it', async () => {
@@ -171,19 +181,21 @@ describe('PUT /organization-settings', () => {
 		const body = apiErrorSchema.parse(await res.json())
 		expect(body.error.code).toBe('BAD_REQUEST')
 		expect(dbCalls.insertValues).not.toHaveBeenCalled()
+		expect(recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts).not.toHaveBeenCalled()
 	})
 
-	it('validates, then saves the token for the owner', async () => {
+	it('validates, then saves the token and recovers access-lost accounts for the owner', async () => {
 		metaCalls.verifyToken.mockResolvedValue({ id: 'meta-user', name: 'Meta User' })
-		dbCalls.insertReturning.mockResolvedValue([
-			{
+		recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts.mockResolvedValue({
+			settings: {
 				id: 'settings_1',
 				organizationId: 'org_1',
 				metaAccessToken: 'a-good-token',
 				updatedAt: new Date('2026-07-28T00:00:00.000Z'),
 				lastValidatedAt: new Date('2026-07-28T00:00:00.000Z'),
 			},
-		])
+			recoveredAccountIds: ['act_1'],
+		})
 		const { app } = await import('../app')
 
 		const res = await app.request('/organization-settings', {
@@ -200,8 +212,13 @@ describe('PUT /organization-settings', () => {
 			lastValidatedAt: new Date('2026-07-28T00:00:00.000Z'),
 		})
 		expect(metaCalls.buildMetaClient).toHaveBeenCalledWith('a-good-token')
-		expect(dbCalls.insertValues).toHaveBeenCalledWith(
-			expect.objectContaining({ organizationId: 'org_1', metaAccessToken: 'a-good-token' }),
+		expect(recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts).toHaveBeenCalledWith({
+			agencyId: 'org_1',
+			metaAccessToken: 'a-good-token',
+		})
+		expect(syncCalls.triggerAgencyBackgroundSync).toHaveBeenCalledWith('org_1', 'connect')
+		expect(metaCalls.verifyToken.mock.invocationCallOrder[0]).toBeLessThan(
+			recoveryCalls.replaceMetaAccessTokenAndRecoverAccounts.mock.invocationCallOrder[0]!,
 		)
 	})
 })

@@ -17,7 +17,7 @@ import {
 	syncRun,
 } from '../db/schema'
 import { dateRangeForAccount, firstConnectStart } from '../fleet-board/domain'
-import { MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 
@@ -500,7 +500,7 @@ async function recordOutcomeFailure(params: InsightsOutcomeContext, error: unkno
 	const message = describePollError(error)
 	const diagnosticReference = insightsDiagnosticReference(params.runId, accountId)
 	const occurredAt = params.clock()
-	const accessLost = isAccessLoss(error)
+	const accessLost = isMetaAccessLoss(error)
 	await db.transaction(async transaction => {
 		const outcome = await transaction
 			.update(syncAccountOutcome)
@@ -606,10 +606,6 @@ function insightsDiagnosticReference(runId: string, accountId: string) {
 	return `${runDiagnosticReference(runId)}/insights/${accountId}`
 }
 
-function isAccessLoss(error: unknown) {
-	return error instanceof MetaApiError && (error.code === 10 || error.code === 190)
-}
-
 function describePollError(error: unknown) {
 	if (error instanceof MetaApiError) {
 		return [
@@ -625,7 +621,7 @@ function describePollError(error: unknown) {
 
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
-		if (isAccessLoss(error)) return 'authorization'
+		if (isMetaAccessLoss(error)) return 'authorization'
 		if (error.code === 4 || error.status === 429) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'

@@ -5,7 +5,7 @@ import { and, asc, eq, inArray, isNull, isNotNull, lte, or, sql } from 'drizzle-
 import { logger } from '../core/logger'
 import { db } from '../db'
 import { adAccount, client, organizationSettings, syncAccountOutcome, syncInvocation, syncRun } from '../db/schema'
-import { MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
 
 const accountDataIntervalMilliseconds = 5 * 60 * 1000
@@ -430,7 +430,7 @@ async function recordOutcomeSkipped(params: AccountDataOutcomeContext, accountId
 async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
 	const diagnosticReference = accountDiagnosticReference(params.runId, accountId)
-	const accessLost = isAccessLoss(error)
+	const accessLost = isMetaAccessLoss(error)
 	const occurredAt = params.clock()
 	await db.transaction(async transaction => {
 		const outcome = await transaction
@@ -536,10 +536,6 @@ function accountDiagnosticReference(runId: string, accountId: string) {
 	return `${runDiagnosticReference(runId)}/account-data/${accountId}`
 }
 
-function isAccessLoss(error: unknown) {
-	return error instanceof MetaApiError && error.code === 10
-}
-
 function describePollError(error: unknown) {
 	if (error instanceof MetaApiError) {
 		return [
@@ -555,7 +551,7 @@ function describePollError(error: unknown) {
 
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
-		if (isAccessLoss(error)) return 'authorization'
+		if (isMetaAccessLoss(error)) return 'authorization'
 		if (error.code === 4 || error.status === 429) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'

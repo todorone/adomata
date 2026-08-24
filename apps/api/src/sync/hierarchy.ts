@@ -15,7 +15,7 @@ import {
 	syncInvocation,
 	syncRun,
 } from '../db/schema'
-import { MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 
@@ -561,7 +561,7 @@ async function recordOutcomeSkipped(params: HierarchyOutcomeContext, accountId: 
 async function recordOutcomeFailure(params: HierarchyOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
 	const diagnosticReference = hierarchyDiagnosticReference(params.runId, accountId)
-	const accessLost = error instanceof MetaApiError && error.code === 10
+	const accessLost = isMetaAccessLoss(error)
 	const occurredAt = params.clock()
 	await db.transaction(async transaction => {
 		const outcome = await transaction
@@ -680,7 +680,7 @@ function describePollError(error: unknown) {
 
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
-		if (error.code === 10) return 'authorization'
+		if (isMetaAccessLoss(error)) return 'authorization'
 		if (error.code === 4 || error.status === 429) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'

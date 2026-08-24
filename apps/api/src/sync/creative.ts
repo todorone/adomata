@@ -17,7 +17,7 @@ import {
 	syncRun,
 } from '../db/schema'
 import { creativeHasVideo } from '../fleet-board/creative'
-import { MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaCreative } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 
@@ -339,6 +339,7 @@ async function processOutcome(params: CreativeOutcomeContext) {
 			}
 		})
 		const failures = results.filter(result => result.error !== null)
+		const accessLost = failures.some(result => isMetaAccessLoss(result.error))
 		const committedAt = params.clock()
 		const diagnosticReference = creativeDiagnosticReference(params.runId, account.adAccount.id)
 
@@ -371,6 +372,7 @@ async function processOutcome(params: CreativeOutcomeContext) {
 			await transaction
 				.update(adAccount)
 				.set({
+					...(accessLost ? { connectionStatus: 'access_lost' as const } : {}),
 					creativeAttemptedAt: committedAt,
 					...(failures.length === 0
 						? {
@@ -471,6 +473,7 @@ async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unkno
 	const message = describePollError(error)
 	const diagnosticReference = creativeDiagnosticReference(params.runId, accountId)
 	const occurredAt = params.clock()
+	const accessLost = isMetaAccessLoss(error)
 	await db.transaction(async transaction => {
 		const outcome = await transaction
 			.update(syncAccountOutcome)
@@ -495,6 +498,7 @@ async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unkno
 		await transaction
 			.update(adAccount)
 			.set({
+				...(accessLost ? { connectionStatus: 'access_lost' as const } : {}),
 				creativeAttemptedAt: occurredAt,
 				creativeError: message,
 				creativeDiagnosticReference: diagnosticReference,
@@ -589,7 +593,7 @@ function describePollError(error: unknown) {
 
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
-		if (error.code === 10 || error.code === 190) return 'authorization'
+		if (isMetaAccessLoss(error)) return 'authorization'
 		if (error.code === 4 || error.status === 429) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'

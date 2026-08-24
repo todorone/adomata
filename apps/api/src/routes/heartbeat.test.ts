@@ -6,11 +6,14 @@ import { configureHeartbeat } from '../sync/runtime'
 const sync = vi.hoisted(() => ({
 	scheduleAccountDataRunsForAgencies: vi.fn(),
 	scheduleHierarchyRunsForAgencies: vi.fn(),
+	scheduleInsightsRunsForAgencies: vi.fn(),
+	scheduleCreativeRunsForAgencies: vi.fn(),
 }))
 
 vi.mock('../sync/account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
 vi.mock('../sync/hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
-vi.mock('../sync/account-tier', () => ({ runHeartbeat: vi.fn() }))
+vi.mock('../sync/insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
+vi.mock('../sync/creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
 
 const { heartbeatRoutes } = await import('./heartbeat')
 
@@ -18,10 +21,14 @@ describe('POST /heartbeat', () => {
 	beforeEach(() => {
 		sync.scheduleAccountDataRunsForAgencies.mockReset()
 		sync.scheduleHierarchyRunsForAgencies.mockReset()
+		sync.scheduleInsightsRunsForAgencies.mockReset()
+		sync.scheduleCreativeRunsForAgencies.mockReset()
 		sync.scheduleAccountDataRunsForAgencies.mockResolvedValue([
 			{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 },
 		])
 		sync.scheduleHierarchyRunsForAgencies.mockResolvedValue([])
+		sync.scheduleInsightsRunsForAgencies.mockResolvedValue([])
+		sync.scheduleCreativeRunsForAgencies.mockResolvedValue([])
 		configureHeartbeat({
 			heartbeatSecret: 'heartbeat-secret',
 			metaMode: 'fake',
@@ -55,6 +62,16 @@ describe('POST /heartbeat', () => {
 			buildMetaClient: expect.any(Function),
 		})
 		expect(sync.scheduleHierarchyRunsForAgencies).toHaveBeenCalledWith({
+			trigger: 'cron',
+			metaMode: 'fake',
+			buildMetaClient: expect.any(Function),
+		})
+		expect(sync.scheduleInsightsRunsForAgencies).toHaveBeenCalledWith({
+			trigger: 'cron',
+			metaMode: 'fake',
+			buildMetaClient: expect.any(Function),
+		})
+		expect(sync.scheduleCreativeRunsForAgencies).toHaveBeenCalledWith({
 			trigger: 'cron',
 			metaMode: 'fake',
 			buildMetaClient: expect.any(Function),

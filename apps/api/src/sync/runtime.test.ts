@@ -3,47 +3,42 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MetaClient } from '../meta/client'
 
 const sync = vi.hoisted(() => ({
-	runHeartbeat: vi.fn(),
-	scheduleAccountDataRun: vi.fn(),
-	scheduleHierarchyRun: vi.fn(),
+	scheduleAccountDataRunsForAgencies: vi.fn(),
+	scheduleHierarchyRunsForAgencies: vi.fn(),
+	scheduleInsightsRunsForAgencies: vi.fn(),
+	scheduleCreativeRunsForAgencies: vi.fn(),
 }))
 
-vi.mock('./account-tier', () => ({ runHeartbeat: sync.runHeartbeat }))
-vi.mock('./account-data', () => ({ scheduleAccountDataRun: sync.scheduleAccountDataRun }))
-vi.mock('./hierarchy', () => ({ scheduleHierarchyRun: sync.scheduleHierarchyRun }))
+vi.mock('./account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
+vi.mock('./hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
+vi.mock('./insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
+vi.mock('./creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
 
 const { configureHeartbeat, triggerBackgroundSync } = await import('./runtime')
 
 describe('triggerBackgroundSync', () => {
 	beforeEach(() => {
-		sync.runHeartbeat.mockReset()
-		sync.scheduleAccountDataRun.mockReset()
-		sync.scheduleHierarchyRun.mockReset()
+		for (const scheduler of Object.values(sync)) scheduler.mockReset().mockResolvedValue([])
 	})
 
 	it('does nothing when heartbeat dependencies are not configured', () => {
 		expect(() => triggerBackgroundSync()).not.toThrow()
-		expect(sync.runHeartbeat).not.toHaveBeenCalled()
+		for (const scheduler of Object.values(sync)) expect(scheduler).not.toHaveBeenCalled()
 	})
 
-	it('fires a heartbeat immediately without waiting for it to resolve', async () => {
-		let resolveHeartbeat: (() => void) | undefined
-		sync.runHeartbeat.mockReturnValue(
-			new Promise<void>(resolve => {
-				resolveHeartbeat = resolve
-			}),
-		)
+	it('fires every Operational Slice and Creative enrichment without waiting', () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
 		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
 
 		triggerBackgroundSync()
 
-		expect(sync.runHeartbeat).toHaveBeenCalledWith({ metaMode: 'fake', buildMetaClient })
-		resolveHeartbeat?.()
+		for (const scheduler of Object.values(sync)) {
+			expect(scheduler).toHaveBeenCalledWith({ trigger: 'cron', metaMode: 'fake', buildMetaClient })
+		}
 	})
 
-	it('swallows a rejected heartbeat instead of throwing', async () => {
-		sync.runHeartbeat.mockRejectedValue(new Error('boom'))
+	it('swallows a rejected slice scheduler instead of throwing', async () => {
+		sync.scheduleInsightsRunsForAgencies.mockRejectedValue(new Error('boom'))
 		configureHeartbeat({
 			heartbeatSecret: 'secret',
 			metaMode: 'fake',

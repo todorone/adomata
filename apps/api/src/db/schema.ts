@@ -191,7 +191,7 @@ export const syncRun = pgTable(
 		agencyId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
-		slice: text({ enum: ['account_data', 'hierarchy'] })
+		slice: text({ enum: ['account_data', 'hierarchy', 'insights', 'creative'] })
 			.notNull()
 			.default('account_data'),
 		trigger: text({ enum: ['cron', 'connect', 'manual'] }).notNull(),
@@ -284,6 +284,13 @@ export const adAccount = pgTable(
 		insightsTierError: text(),
 		accountTierRefreshedAt: timestamp({ withTimezone: true }),
 		insightsTierRefreshedAt: timestamp({ withTimezone: true }),
+		insightsAttemptedAt: timestamp({ withTimezone: true }),
+		insightsSuccessfulAt: timestamp({ withTimezone: true }),
+		insightsError: text(),
+		insightsDiagnosticReference: text(),
+		insightsNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		insightsLeaseOwner: text(),
+		insightsLeaseExpiresAt: timestamp({ withTimezone: true }),
 		accountDataAttemptedAt: timestamp({ withTimezone: true }),
 		accountDataSuccessfulAt: timestamp({ withTimezone: true }),
 		accountDataError: text(),
@@ -298,6 +305,13 @@ export const adAccount = pgTable(
 		hierarchyNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		hierarchyLeaseOwner: text(),
 		hierarchyLeaseExpiresAt: timestamp({ withTimezone: true }),
+		creativeAttemptedAt: timestamp({ withTimezone: true }),
+		creativeSuccessfulAt: timestamp({ withTimezone: true }),
+		creativeError: text(),
+		creativeDiagnosticReference: text(),
+		creativeNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		creativeLeaseOwner: text(),
+		creativeLeaseExpiresAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
 		metaAccountStatus: integer(),
 		metaDisableReason: integer(),
@@ -325,7 +339,7 @@ export const syncAccountOutcome = pgTable(
 		adAccountId: text()
 			.notNull()
 			.references(() => adAccount.id, { onDelete: 'cascade' }),
-		slice: text({ enum: ['account_data', 'hierarchy'] }).notNull(),
+		slice: text({ enum: ['account_data', 'hierarchy', 'insights', 'creative'] }).notNull(),
 		status: text({ enum: ['queued', 'running', 'succeeded', 'failed', 'skipped'] })
 			.notNull()
 			.default('queued'),

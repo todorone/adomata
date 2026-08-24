@@ -76,13 +76,19 @@ export const metaAccountsRoutes = metaAccountsBase
 		const now = new Date()
 		await db
 			.update(adAccount)
-			.set({ accountTierRefreshedAt: null, insightsTierRefreshedAt: null, updatedAt: now })
+			.set({
+				accountTierRefreshedAt: null,
+				insightsTierRefreshedAt: null,
+				insightsSuccessfulAt: null,
+				insightsNextDueAt: now,
+				updatedAt: now,
+			})
 			.from(client)
 			.where(
 				and(
 					eq(adAccount.clientId, client.id),
 					eq(client.agencyId, c.get('orgId')),
-					isNotNull(adAccount.insightsTierRefreshedAt),
+					isNotNull(adAccount.insightsSuccessfulAt),
 				),
 			)
 

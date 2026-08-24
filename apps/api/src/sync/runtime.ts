@@ -1,8 +1,9 @@
 import { logger } from '../core/logger'
 import type { MetaClient } from '../meta/client'
-import { scheduleAccountDataRun } from './account-data'
-import { runHeartbeat } from './account-tier'
-import { scheduleHierarchyRun } from './hierarchy'
+import { scheduleAccountDataRun, scheduleAccountDataRunsForAgencies } from './account-data'
+import { scheduleCreativeRun, scheduleCreativeRunsForAgencies } from './creative'
+import { scheduleHierarchyRun, scheduleHierarchyRunsForAgencies } from './hierarchy'
+import { scheduleInsightsRun, scheduleInsightsRunsForAgencies } from './insights'
 
 type HeartbeatDependencies = {
 	heartbeatSecret: string
@@ -24,9 +25,19 @@ export function getHeartbeatDependencies() {
 export function triggerBackgroundSync() {
 	try {
 		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
-		runHeartbeat({ metaMode, buildMetaClient }).catch(error =>
-			logger.warn('Background sync failed', { category: error instanceof Error ? error.name : 'unknown' }),
-		)
+		Promise.allSettled([
+			scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		]).then(results => {
+			for (const result of results) {
+				if (result.status === 'rejected')
+					logger.warn('Background sync failed', {
+						category: result.reason instanceof Error ? result.reason.name : 'unknown',
+					})
+			}
+		})
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
 	}
@@ -38,6 +49,8 @@ export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect'
 		Promise.all([
 			scheduleAccountDataRun({ agencyId, trigger, metaMode, buildMetaClient }),
 			scheduleHierarchyRun({ agencyId, trigger, metaMode, buildMetaClient }),
+			scheduleInsightsRun({ agencyId, trigger, metaMode, buildMetaClient }),
+			scheduleCreativeRun({ agencyId, trigger, metaMode, buildMetaClient }),
 		]).catch(error =>
 			logger.warn('Durable operational slice scheduling failed', {
 				agencyId,

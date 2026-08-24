@@ -171,6 +171,8 @@ describe('POST /meta-accounts/resync-insights', () => {
 			expect.objectContaining({
 				accountTierRefreshedAt: null,
 				insightsTierRefreshedAt: null,
+				insightsSuccessfulAt: null,
+				insightsNextDueAt: expect.any(Date),
 				updatedAt: expect.any(Date),
 			}),
 		)
@@ -178,7 +180,7 @@ describe('POST /meta-accounts/resync-insights', () => {
 		if (!whereCondition) throw new Error('Expected an update scope')
 		const scope = new PgDialect().sqlToQuery(whereCondition)
 		expect(scope.sql).toBe(
-			'("ad_account"."clientId" = "client"."id" and "client"."agencyId" = $1 and "ad_account"."insightsTierRefreshedAt" is not null)',
+			'("ad_account"."clientId" = "client"."id" and "client"."agencyId" = $1 and "ad_account"."insightsSuccessfulAt" is not null)',
 		)
 		expect(scope.params).toEqual(['org_1'])
 	})

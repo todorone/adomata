@@ -30,7 +30,7 @@ export {
 } from './creative'
 
 const accountStaleMilliseconds = 10 * 60 * 1000
-const insightsStaleMilliseconds = 2 * 60 * 60 * 1000
+const insightsStaleMilliseconds = 10 * 60 * 1000
 const actionItemsSchema = z.array(z.object({ action_type: z.string(), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) }))
 const purchaseActionTypes = new Set(['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase'])
 
@@ -324,8 +324,8 @@ function accountView(
 				now,
 			),
 			insightsTier: freshness(
-				account.insightsTierRefreshedAt,
-				account.insightsTierError !== null,
+				account.insightsSuccessfulAt ?? account.insightsTierRefreshedAt,
+				(account.insightsError ?? account.insightsTierError ?? null) !== null,
 				insightsStaleMilliseconds,
 				now,
 			),

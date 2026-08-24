@@ -149,7 +149,11 @@ const snapshotNodeIndex = {
 	'adset:adset-1': snapshotNodes.slice(3),
 }
 
-const { refetchSpy } = vi.hoisted(() => ({ refetchSpy: vi.fn(() => Promise.resolve()) }))
+const { refetchSpy, requestForceRefreshSpy, readForceRefreshSpy } = vi.hoisted(() => ({
+	refetchSpy: vi.fn(() => Promise.resolve()),
+	requestForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'queued' as const })),
+	readForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'completed' as const })),
+}))
 
 const rootResponse: FleetBoardRoot = {
 	clients: [soloClient, duoClient],
@@ -242,6 +246,11 @@ vi.mock('@/data/fleet-board', () => ({
 	},
 }))
 
+vi.mock('@/data/force-refresh', () => ({
+	requestForceRefresh: requestForceRefreshSpy,
+	readForceRefresh: readForceRefreshSpy,
+}))
+
 const { FleetBoard } = await import('@/pages/fleet-board/fleet-board')
 
 function money(value: string, currency: string) {
@@ -280,7 +289,10 @@ describe('Fleet Board', () => {
 	afterEach(() => {
 		cleanup()
 		localStorage.clear()
+		sessionStorage.clear()
 		refetchSpy.mockClear()
+		requestForceRefreshSpy.mockClear()
+		readForceRefreshSpy.mockClear()
 	})
 
 	it('renders Spend and CPA below Ad Account level in the ancestor Ad Account currency', async () => {
@@ -298,10 +310,21 @@ describe('Fleet Board', () => {
 		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
 	})
 
-	it('refreshes the complete snapshot with one root refetch', async () => {
+	it('waits for persisted Force Refresh completion before rereading the snapshot', async () => {
 		renderBoard({ depth: 'ad' })
 		fireEvent.click(screen.getByRole('button', { name: 'Оновити дані' }))
+		await waitFor(() => expect(requestForceRefreshSpy).toHaveBeenCalledTimes(1))
+		await waitFor(() => expect(readForceRefreshSpy).toHaveBeenCalledWith('refresh_1'))
 		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))
+	})
+
+	it('resumes polling a persisted Force Refresh after reload', async () => {
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		renderBoard({ depth: 'ad' })
+
+		await waitFor(() => expect(readForceRefreshSpy).toHaveBeenCalledWith('refresh_1'))
+		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))
+		expect(requestForceRefreshSpy).not.toHaveBeenCalled()
 	})
 
 	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {

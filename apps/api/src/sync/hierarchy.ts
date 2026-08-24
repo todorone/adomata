@@ -27,6 +27,8 @@ const noTokenMessage = 'No Meta token configured for this Agency'
 export type HierarchyRunOptions = {
 	agencyId: string
 	trigger: 'cron' | 'connect' | 'manual'
+	force?: boolean
+	forceRefreshId?: string
 	metaMode: 'fake' | 'live'
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
@@ -64,8 +66,13 @@ type HierarchyOutcomeContext = {
 export async function enqueueHierarchyRun({
 	agencyId,
 	trigger,
+	force = false,
+	forceRefreshId,
 	now = new Date(),
-}: Pick<HierarchyRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedHierarchyRun> {
+}: Pick<
+	HierarchyRunOptions,
+	'agencyId' | 'trigger' | 'force' | 'forceRefreshId' | 'now'
+>): Promise<EnqueuedHierarchyRun> {
 	await pruneSyncHistory(now)
 
 	return db.transaction(async transaction => {
@@ -86,6 +93,9 @@ export async function enqueueHierarchyRun({
 
 		const runId = activeRun?.id ?? randomUUID()
 		const joined = Boolean(activeRun)
+		if (activeRun && forceRefreshId) {
+			await transaction.update(syncRun).set({ forceRefreshId, updatedAt: now }).where(eq(syncRun.id, activeRun.id))
+		}
 		if (!activeRun) {
 			await transaction.insert(syncRun).values({
 				id: runId,
@@ -94,6 +104,7 @@ export async function enqueueHierarchyRun({
 				trigger,
 				status: 'queued',
 				diagnosticReference: runDiagnosticReference(runId),
+				forceRefreshId,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -106,7 +117,9 @@ export async function enqueueHierarchyRun({
 					and(
 						eq(client.agencyId, agencyId),
 						inArray(adAccount.connectionStatus, ['pending', 'connected']),
-						or(isNull(adAccount.hierarchySuccessfulAt), lte(adAccount.hierarchyNextDueAt, now)),
+						...(force
+							? []
+							: [or(isNull(adAccount.hierarchySuccessfulAt), lte(adAccount.hierarchyNextDueAt, now))]),
 					),
 				)
 
@@ -195,6 +208,7 @@ export async function runHierarchyGeneration({
 	})
 
 	await finishRun({ runId, leaseOwner, now })
+	import('./runtime').then(({ triggerPendingForceRefreshes }) => triggerPendingForceRefreshes()).catch(() => undefined)
 	const result = await readGenerationResult(runId)
 	logger.info('Durable hierarchy generation completed', {
 		agencyId,

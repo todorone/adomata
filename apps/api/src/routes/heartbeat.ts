@@ -6,7 +6,7 @@ import { scheduleCreativeRunsForAgencies } from '../sync/creative'
 import { scheduleHierarchyRunsForAgencies } from '../sync/hierarchy'
 import { scheduleInsightsRunsForAgencies } from '../sync/insights'
 import { scheduleHistoricalReconciliationRunsForAgencies } from '../sync/historical-reconciliation'
-import { getHeartbeatDependencies } from '../sync/runtime'
+import { getHeartbeatDependencies, triggerPendingForceRefreshes } from '../sync/runtime'
 
 const route = createRoute({
 	method: 'post',
@@ -73,6 +73,7 @@ export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
 					: 'unknown',
 		})
 	}
+	triggerPendingForceRefreshes()
 	const runs = accountDataResult.value
 	const accountData = runs.reduce(
 		(counts, run) => ({

@@ -29,6 +29,8 @@ const noTokenMessage = 'No Meta token configured for this Agency'
 export type InsightsRunOptions = {
 	agencyId: string
 	trigger: 'cron' | 'connect' | 'manual'
+	force?: boolean
+	forceRefreshId?: string
 	metaMode: 'fake' | 'live'
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
@@ -64,8 +66,13 @@ type InsightsOutcomeContext = {
 export async function enqueueInsightsRun({
 	agencyId,
 	trigger,
+	force = false,
+	forceRefreshId,
 	now = new Date(),
-}: Pick<InsightsRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedInsightsRun> {
+}: Pick<
+	InsightsRunOptions,
+	'agencyId' | 'trigger' | 'force' | 'forceRefreshId' | 'now'
+>): Promise<EnqueuedInsightsRun> {
 	await pruneSyncHistory(now)
 
 	return db.transaction(async transaction => {
@@ -86,6 +93,9 @@ export async function enqueueInsightsRun({
 
 		const runId = activeRun?.id ?? randomUUID()
 		const joined = Boolean(activeRun)
+		if (activeRun && forceRefreshId) {
+			await transaction.update(syncRun).set({ forceRefreshId, updatedAt: now }).where(eq(syncRun.id, activeRun.id))
+		}
 		if (!activeRun) {
 			await transaction.insert(syncRun).values({
 				id: runId,
@@ -94,6 +104,7 @@ export async function enqueueInsightsRun({
 				trigger,
 				status: 'queued',
 				diagnosticReference: runDiagnosticReference(runId),
+				forceRefreshId,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -110,7 +121,7 @@ export async function enqueueInsightsRun({
 							eq(adAccount.connectionStatus, 'connected'),
 							and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
 						),
-						or(isNull(adAccount.insightsSuccessfulAt), lte(adAccount.insightsNextDueAt, now)),
+						...(force ? [] : [or(isNull(adAccount.insightsSuccessfulAt), lte(adAccount.insightsNextDueAt, now))]),
 					),
 				)
 
@@ -194,6 +205,7 @@ export async function runInsightsGeneration({
 	})
 
 	await finishRun({ runId, leaseOwner, now: clock() })
+	import('./runtime').then(({ triggerPendingForceRefreshes }) => triggerPendingForceRefreshes()).catch(() => undefined)
 	const result = await readGenerationResult(runId)
 	logger.info('Durable Insights generation completed', {
 		agencyId,

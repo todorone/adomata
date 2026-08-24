@@ -46,6 +46,7 @@ export function triggerBackgroundSync() {
 					category: error instanceof Error ? error.name : 'unknown',
 				})
 			})
+			.finally(() => triggerPendingForceRefreshes())
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
 	}
@@ -81,6 +82,38 @@ export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect'
 				category: error instanceof Error ? error.name : 'unknown',
 			}),
 		)
+	} catch {
+		// Runtime configuration is intentionally absent in isolated API route tests.
+	}
+}
+
+export function triggerForceRefresh(agencyId: string, forceRefreshId: string) {
+	try {
+		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		import('./force-refresh')
+			.then(({ runForceRefresh }) => runForceRefresh({ agencyId, forceRefreshId, metaMode, buildMetaClient }))
+			.catch(error =>
+				logger.warn('Force Refresh execution failed', {
+					agencyId,
+					forceRefreshId,
+					category: error instanceof Error ? error.name : 'unknown',
+				}),
+			)
+	} catch {
+		// Runtime configuration is intentionally absent in isolated API route tests.
+	}
+}
+
+export function triggerPendingForceRefreshes() {
+	try {
+		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		import('./force-refresh')
+			.then(({ resumeForceRefreshes }) => resumeForceRefreshes({ metaMode, buildMetaClient }))
+			.catch(error =>
+				logger.warn('Pending Force Refresh execution failed', {
+					category: error instanceof Error ? error.name : 'unknown',
+				}),
+			)
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
 	}

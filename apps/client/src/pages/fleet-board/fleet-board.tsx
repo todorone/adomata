@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { fleetBoardKeys, fleetBoardParentKey, useFleetBoardRoot } from '@/data/fleet-board'
 import type { FleetBoardSearch } from '@/data/fleet-board-search'
+import { readForceRefresh, requestForceRefresh } from '@/data/force-refresh'
 import {
 	ControlRoom,
 	EmptyState,
@@ -33,21 +34,42 @@ export function FleetBoard({
 		sort: search.sort,
 		direction: search.direction,
 	})
+	const { refetch } = root
 	const queryClient = useQueryClient()
 	const [expanded, setExpanded] = useState<Set<string>>(new Set())
 	const [creativeAdId, setCreativeAdId] = useState<string | null>(search.ad ?? null)
-	const [isRefreshing, setIsRefreshing] = useState(false)
+	const [forceRefreshId, setForceRefreshId] = useState(() => sessionStorage.getItem('force-refresh-id'))
 
-	async function refresh() {
-		setIsRefreshing(true)
-		const tasks: Promise<unknown>[] = [root.refetch()]
-		if (creativeAdId) tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
-		try {
-			await Promise.all(tasks)
-		} finally {
-			setIsRefreshing(false)
-		}
+	function refresh() {
+		requestForceRefresh()
+			.then(requested => {
+				sessionStorage.setItem('force-refresh-id', requested.id)
+				setForceRefreshId(requested.id)
+			})
+			.catch(() => undefined)
 	}
+
+	useEffect(() => {
+		if (!forceRefreshId) return
+		let cancelled = false
+		waitForForceRefresh(forceRefreshId)
+			.then(async () => {
+				if (cancelled) return
+				const tasks: Promise<unknown>[] = [refetch()]
+				if (creativeAdId)
+					tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
+				await Promise.all(tasks)
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				if (cancelled) return
+				sessionStorage.removeItem('force-refresh-id')
+				setForceRefreshId(null)
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [creativeAdId, forceRefreshId, queryClient, refetch])
 
 	const nodeIndex = root.data?.nodeIndex ?? {}
 
@@ -90,7 +112,7 @@ export function FleetBoard({
 				header={root.data?.header}
 				clients={root.data?.clients ?? []}
 				onRefresh={refresh}
-				isRefreshing={isRefreshing}
+				isRefreshing={forceRefreshId !== null}
 			/>
 			{(root.isPending && !root.data) || waitingForColumnLayoutIdentity ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}
@@ -100,4 +122,13 @@ export function FleetBoard({
 			{hasRows && search.view === 'signals' ? <SignalsView {...viewProps} /> : null}
 		</div>
 	)
+}
+
+async function waitForForceRefresh(forceRefreshId: string) {
+	let refresh = await readForceRefresh(forceRefreshId)
+	while (refresh.status === 'queued' || refresh.status === 'running') {
+		await new Promise(resolve => setTimeout(resolve, 1000))
+		refresh = await readForceRefresh(forceRefreshId)
+	}
+	return refresh
 }

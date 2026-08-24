@@ -1,0 +1,1 @@
+ALTER TABLE "sync_run" ADD CONSTRAINT "sync_run_force_refresh_id_force_refresh_id_fk" FOREIGN KEY ("force_refresh_id") REFERENCES "public"."force_refresh"("id") ON DELETE cascade ON UPDATE no action;

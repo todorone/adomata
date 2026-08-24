@@ -184,6 +184,19 @@ export const organizationSettings = pgTable('organization_settings', {
 export type OrganizationSettings = typeof organizationSettings.$inferSelect
 export type NewOrganizationSettings = typeof organizationSettings.$inferInsert
 
+export const forceRefresh = pgTable(
+	'force_refresh',
+	{
+		id: text().primaryKey(),
+		agencyId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		requestedAt: timestamp({ withTimezone: true }).notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('force_refresh_agency_requested_idx').on(table.agencyId, table.requestedAt)],
+)
+
 export const syncRun = pgTable(
 	'sync_run',
 	{
@@ -203,12 +216,14 @@ export const syncRun = pgTable(
 		startedAt: timestamp({ withTimezone: true }),
 		completedAt: timestamp({ withTimezone: true }),
 		diagnosticReference: text(),
+		forceRefreshId: text().references(() => forceRefresh.id, { onDelete: 'cascade' }),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},
 	table => [
 		index('sync_run_agency_created_idx').on(table.agencyId, table.createdAt),
 		index('sync_run_lease_idx').on(table.status, table.leaseExpiresAt),
+		index('sync_run_force_refresh_idx').on(table.forceRefreshId),
 		uniqueIndex('sync_run_active_agency_slice_idx')
 			.on(table.agencyId, table.slice)
 			.where(sql`${table.status} in ('queued', 'running')`),
@@ -377,6 +392,7 @@ export const syncAccountOutcome = pgTable(
 export type SyncRun = typeof syncRun.$inferSelect
 export type SyncInvocation = typeof syncInvocation.$inferSelect
 export type SyncAccountOutcome = typeof syncAccountOutcome.$inferSelect
+export type ForceRefresh = typeof forceRefresh.$inferSelect
 
 export const campaign = pgTable(
 	'campaign',

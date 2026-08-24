@@ -4,7 +4,15 @@ import { and, asc, eq, inArray, isNull, isNotNull, lte, or, sql } from 'drizzle-
 
 import { logger } from '../core/logger'
 import { db } from '../db'
-import { adAccount, client, organizationSettings, syncAccountOutcome, syncInvocation, syncRun } from '../db/schema'
+import {
+	adAccount,
+	client,
+	forceRefresh,
+	organizationSettings,
+	syncAccountOutcome,
+	syncInvocation,
+	syncRun,
+} from '../db/schema'
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
 
@@ -16,6 +24,8 @@ const noTokenMessage = 'No Meta token configured for this Agency'
 export type AccountDataRunOptions = {
 	agencyId: string
 	trigger: 'cron' | 'connect' | 'manual'
+	force?: boolean
+	forceRefreshId?: string
 	metaMode: 'fake' | 'live'
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
@@ -53,8 +63,13 @@ type AccountDataOutcomeContext = {
 export async function enqueueAccountDataRun({
 	agencyId,
 	trigger,
+	force = false,
+	forceRefreshId,
 	now = new Date(),
-}: Pick<AccountDataRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedAccountDataRun> {
+}: Pick<
+	AccountDataRunOptions,
+	'agencyId' | 'trigger' | 'force' | 'forceRefreshId' | 'now'
+>): Promise<EnqueuedAccountDataRun> {
 	await pruneSyncHistory(now)
 
 	return db.transaction(async transaction => {
@@ -76,6 +91,9 @@ export async function enqueueAccountDataRun({
 
 		const runId = activeRun?.id ?? randomUUID()
 		const joined = Boolean(activeRun)
+		if (activeRun && forceRefreshId) {
+			await transaction.update(syncRun).set({ forceRefreshId, updatedAt: now }).where(eq(syncRun.id, activeRun.id))
+		}
 		if (!activeRun) {
 			await transaction.insert(syncRun).values({
 				id: runId,
@@ -84,6 +102,7 @@ export async function enqueueAccountDataRun({
 				trigger,
 				status: 'queued',
 				diagnosticReference: runDiagnosticReference(runId),
+				forceRefreshId,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -96,7 +115,9 @@ export async function enqueueAccountDataRun({
 					and(
 						eq(client.agencyId, agencyId),
 						inArray(adAccount.connectionStatus, ['pending', 'connected']),
-						or(isNull(adAccount.accountDataSuccessfulAt), lte(adAccount.accountDataNextDueAt, now)),
+						...(force
+							? []
+							: [or(isNull(adAccount.accountDataSuccessfulAt), lte(adAccount.accountDataNextDueAt, now))]),
 					),
 				)
 
@@ -169,6 +190,7 @@ export async function runAccountDataGeneration({
 	})
 
 	await finishRun({ runId, leaseOwner, now })
+	import('./runtime').then(({ triggerPendingForceRefreshes }) => triggerPendingForceRefreshes()).catch(() => undefined)
 	const result = await readGenerationResult(runId)
 	logger.info('Durable Account data generation completed', {
 		agencyId,
@@ -201,6 +223,7 @@ export async function pruneSyncHistory(now = new Date()) {
 	const cutoff = new Date(now.getTime() - historyRetentionMilliseconds)
 	await db.delete(syncInvocation).where(lte(syncInvocation.createdAt, cutoff))
 	await db.delete(syncRun).where(lte(syncRun.createdAt, cutoff))
+	await db.delete(forceRefresh).where(lte(forceRefresh.createdAt, cutoff))
 }
 
 async function initializeAccountDataFreshness(

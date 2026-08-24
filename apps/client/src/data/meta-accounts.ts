@@ -20,6 +20,8 @@ export const metaAccountsQueries = {
 			queryFn: async () =>
 				parseResponse(await api['meta-accounts'].$get(), metaAccountsDiscoveryResponseSchema, 'GET /meta-accounts'),
 			enabled,
+			refetchInterval: query =>
+				query.state.data?.accounts.some(account => account.initialImportStatus !== null) ? 5_000 : false,
 		}),
 }
 

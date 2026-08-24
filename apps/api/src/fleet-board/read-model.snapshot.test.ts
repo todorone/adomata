@@ -225,7 +225,11 @@ describe('Fleet Board complete snapshot read model', () => {
 			historicalReconciliationNeverSynced: 0,
 		})
 		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('15')
-		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual(['agency_1'])
+		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual([
+			'agency_1',
+			'connected',
+			'access_lost',
+		])
 		expect(dbSelect).toHaveBeenCalledTimes(6)
 	})
 

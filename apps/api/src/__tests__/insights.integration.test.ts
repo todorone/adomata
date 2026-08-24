@@ -182,12 +182,14 @@ describe('durable Insights and Creative work', () => {
 		const [account] = await db
 			.select({
 				insightsAt: adAccount.insightsSuccessfulAt,
+				initialImportHistoryCompletedAt: adAccount.initialImportHistoryCompletedAt,
 				creativeError: adAccount.creativeError,
 				connectionStatus: adAccount.connectionStatus,
 			})
 			.from(adAccount)
 			.where(eq(adAccount.id, 'act_100000000000001'))
 		expect(account?.insightsAt).toEqual(now)
+		expect(account?.initialImportHistoryCompletedAt).toEqual(now)
 		expect(account?.connectionStatus).toBe('connected')
 		expect(account?.creativeError).toContain('creative unavailable')
 		const initialInsights = await db.select().from(adInsight).where(eq(adInsight.adId, 'ad-001'))

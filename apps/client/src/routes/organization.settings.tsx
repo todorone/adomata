@@ -16,7 +16,9 @@ function MetaAccountsSection() {
 	const connect = useConnectMetaAccounts()
 
 	const accounts = discovery.data?.accounts ?? []
-	const connectedAccounts = accounts.filter(account => account.connected)
+	const connectedAccounts = accounts.filter(account => account.connected && account.initialImportStatus === null)
+	const importingAccounts = accounts.filter(account => account.initialImportStatus === 'importing')
+	const failedImports = accounts.filter(account => account.initialImportStatus === 'failed')
 	const unconnectedAccounts = accounts.filter(account => !account.connected)
 
 	function handleDiscover() {
@@ -24,8 +26,8 @@ function MetaAccountsSection() {
 		else setDiscoveryEnabled(true)
 	}
 
-	function handleConnect() {
-		const items: ConnectMetaAccountItem[] = unconnectedAccounts.map(account => ({
+	function handleConnect(selectedAccounts = unconnectedAccounts) {
+		const items: ConnectMetaAccountItem[] = selectedAccounts.map(account => ({
 			metaAccountId: account.metaAccountId,
 			name: account.name,
 			currency: account.currency,
@@ -57,6 +59,37 @@ function MetaAccountsSection() {
 				</div>
 			)}
 
+			{importingAccounts.length > 0 && (
+				<div className="flex flex-col gap-1">
+					{importingAccounts.map(account => (
+						<p key={account.metaAccountId} className="text-muted-foreground text-sm">
+							{account.name} — початкове завантаження даних триває
+						</p>
+					))}
+				</div>
+			)}
+
+			{failedImports.length > 0 && (
+				<div className="flex flex-col gap-3">
+					{failedImports.map(account => (
+						<div
+							key={account.metaAccountId}
+							className="flex flex-col gap-2 rounded-md border border-destructive/50 p-3 sm:flex-row sm:items-center sm:justify-between"
+						>
+							<p className="text-sm">{account.name} — початкове завантаження не вдалося</p>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => handleConnect([account])}
+								disabled={connect.isPending}
+							>
+								Повторити
+							</Button>
+						</div>
+					))}
+				</div>
+			)}
+
 			{unconnectedAccounts.length > 0 && (
 				<div className="flex flex-col gap-3">
 					{unconnectedAccounts.map(account => (
@@ -79,7 +112,7 @@ function MetaAccountsSection() {
 						</div>
 					))}
 					<div>
-						<Button type="button" onClick={handleConnect} disabled={connect.isPending}>
+						<Button type="button" onClick={() => handleConnect()} disabled={connect.isPending}>
 							{connect.isPending ? 'Підключення…' : `Підключити всі (${unconnectedAccounts.length})`}
 						</Button>
 					</div>

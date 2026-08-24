@@ -288,6 +288,9 @@ export const adAccount = pgTable(
 		insightsSuccessfulAt: timestamp({ withTimezone: true }),
 		insightsError: text(),
 		insightsDiagnosticReference: text(),
+		// An Initial Import has one 90-day history pull. It is distinct from the ongoing
+		// five-minute Insights freshness timestamp, which later covers only today.
+		initialImportHistoryCompletedAt: timestamp({ withTimezone: true }),
 		insightsNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		insightsLeaseOwner: text(),
 		insightsLeaseExpiresAt: timestamp({ withTimezone: true }),

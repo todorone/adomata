@@ -6,6 +6,7 @@ export const discoveredMetaAccountSchema = z.object({
 	currency: z.string(),
 	timezoneName: z.string().nullable(),
 	connected: z.boolean(),
+	initialImportStatus: z.enum(['importing', 'failed']).nullable(),
 	clientId: z.string().nullable(),
 	clientName: z.string().nullable(),
 	businessId: z.string().nullable(),

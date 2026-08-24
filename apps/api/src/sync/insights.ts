@@ -400,6 +400,9 @@ async function processOutcome(params: InsightsOutcomeContext) {
 					account.adAccount.hierarchySuccessfulAt
 						? { connectionStatus: 'connected' as const }
 						: {}),
+					...(account.adAccount.connectionStatus === 'pending'
+						? { initialImportHistoryCompletedAt: committedAt }
+						: {}),
 					insightsAttemptedAt: committedAt,
 					insightsSuccessfulAt: committedAt,
 					insightsError: null,

@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../db'
@@ -117,7 +117,22 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.select({ account: adAccount, client })
 		.from(adAccount)
 		.innerJoin(client, eq(adAccount.clientId, client.id))
-		.where(and(eq(client.agencyId, agencyId), isNull(client.deletedAt)))
+		.where(
+			and(
+				eq(client.agencyId, agencyId),
+				isNull(client.deletedAt),
+				or(
+					eq(adAccount.connectionStatus, 'connected'),
+					and(
+						eq(adAccount.connectionStatus, 'access_lost'),
+						isNotNull(adAccount.accountDataSuccessfulAt),
+						isNotNull(adAccount.hierarchySuccessfulAt),
+						isNotNull(adAccount.insightsSuccessfulAt),
+						isNotNull(adAccount.initialImportHistoryCompletedAt),
+					),
+				),
+			),
+		)
 	if (accountRows.length === 0) {
 		return {
 			accounts: [],

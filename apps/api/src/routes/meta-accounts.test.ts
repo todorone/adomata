@@ -31,6 +31,7 @@ function buildTransaction(options: {
 	existingClientsByBusinessId: Array<{ id: string; metaBusinessId: string | null }>
 	insertedClients: InsertedClient[]
 	upsertedAdAccounts: UpsertedAdAccount[]
+	retriedAdAccounts?: UpsertedAdAccount[]
 }) {
 	return {
 		insert: (table: unknown) => ({
@@ -41,8 +42,9 @@ function buildTransaction(options: {
 				}
 				if (table === adAccount) {
 					return {
-						onConflictDoUpdate: () => {
+						onConflictDoUpdate: ({ set }: { set: UpsertedAdAccount }) => {
 							options.upsertedAdAccounts.push(values)
+							options.retriedAdAccounts?.push(set)
 							return Promise.resolve(undefined)
 						},
 					}
@@ -164,7 +166,21 @@ describe('GET /meta-accounts', () => {
 		dbCalls.select
 			.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 			.mockImplementationOnce(() =>
-				chain([{ metaAccountId: 'act_1', clientId: 'client_1', clientName: 'Northstar' }]),
+				chain([
+					{
+						metaAccountId: 'act_1',
+						clientId: 'client_1',
+						clientName: 'Northstar',
+						connectionStatus: 'connected',
+						accountDataError: null,
+						accountDataSuccessfulAt: new Date(),
+						hierarchyError: null,
+						hierarchySuccessfulAt: new Date(),
+						insightsError: null,
+						insightsSuccessfulAt: new Date(),
+						initialImportHistoryCompletedAt: new Date(),
+					},
+				]),
 			)
 			.mockImplementationOnce(() =>
 				chain([
@@ -215,6 +231,7 @@ describe('GET /meta-accounts', () => {
 					currency: 'USD',
 					timezoneName: 'Europe/Kyiv',
 					connected: true,
+					initialImportStatus: null,
 					clientId: 'client_1',
 					clientName: 'Northstar',
 					businessId: 'biz_1',
@@ -226,6 +243,7 @@ describe('GET /meta-accounts', () => {
 					currency: 'USD',
 					timezoneName: null,
 					connected: false,
+					initialImportStatus: null,
 					clientId: 'client_2',
 					clientName: 'Meridian',
 					businessId: 'biz_2',
@@ -237,6 +255,7 @@ describe('GET /meta-accounts', () => {
 					currency: 'USD',
 					timezoneName: null,
 					connected: false,
+					initialImportStatus: null,
 					clientId: null,
 					clientName: null,
 					businessId: null,
@@ -245,6 +264,56 @@ describe('GET /meta-accounts', () => {
 			],
 		})
 		expect(metaCalls.buildMetaClient).toHaveBeenCalledWith('a-token')
+	})
+
+	it('reports a failed pending import so the connection flow can retry it', async () => {
+		dbCalls.select
+			.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
+			.mockImplementationOnce(() =>
+				chain([
+					{
+						metaAccountId: 'act_1',
+						clientId: 'client_1',
+						clientName: 'Northstar',
+						connectionStatus: 'access_lost',
+						accountDataError: null,
+						accountDataSuccessfulAt: null,
+						hierarchyError: 'Meta тимчасово недоступна',
+						hierarchySuccessfulAt: null,
+						insightsError: null,
+						insightsSuccessfulAt: null,
+						initialImportHistoryCompletedAt: null,
+					},
+				]),
+			)
+			.mockImplementationOnce(() => chain([{ id: 'client_1', name: 'Northstar', metaBusinessId: 'biz_1' }]))
+		metaCalls.listAdAccounts.mockResolvedValue({
+			items: [
+				{
+					id: 'act_1',
+					name: 'Pending account',
+					currency: 'USD',
+					timezoneName: 'Europe/Kyiv',
+					businessId: 'biz_1',
+					businessName: 'Northstar',
+				},
+			],
+			throttle: { exhausted: false },
+		})
+		const { app } = await import('../app')
+
+		const res = await app.request('/meta-accounts')
+
+		expect(res.status).toBe(200)
+		expect(metaAccountsDiscoveryResponseSchema.parse(await res.json())).toMatchObject({
+			accounts: [
+				{
+					metaAccountId: 'act_1',
+					connected: true,
+					initialImportStatus: 'failed',
+				},
+			],
+		})
 	})
 })
 
@@ -290,12 +359,14 @@ describe('POST /meta-accounts/connect', () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
+		const retriedAdAccounts: UpsertedAdAccount[] = []
 		dbCalls.transaction.mockImplementationOnce(async callback =>
 			callback(
 				buildTransaction({
 					existingClientsByBusinessId: [{ id: 'client_1', metaBusinessId: 'biz_1' }],
 					insertedClients,
 					upsertedAdAccounts,
+					retriedAdAccounts,
 				}),
 			),
 		)
@@ -319,6 +390,13 @@ describe('POST /meta-accounts/connect', () => {
 		expect(insertedClients).toEqual([])
 		expect(upsertedAdAccounts).toEqual([
 			expect.objectContaining({ id: 'act_1', clientId: 'client_1', name: 'Account 1', currency: 'USD' }),
+		])
+		expect(retriedAdAccounts).toMatchObject([
+			{
+				accountDataNextDueAt: expect.any(Date),
+				hierarchyNextDueAt: expect.any(Date),
+				insightsNextDueAt: expect.any(Date),
+			},
 		])
 		expect(syncCalls.triggerAgencyBackgroundSync).toHaveBeenCalledWith('org_1', 'connect')
 	})

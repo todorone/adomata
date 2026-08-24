@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import {
 	connectMetaAccountsBodySchema,
@@ -79,7 +79,19 @@ export const metaAccountsRoutes = metaAccountsBase
 
 		const [existingRows, clientRows] = await Promise.all([
 			db
-				.select({ metaAccountId: adAccount.id, clientId: client.id, clientName: client.name })
+				.select({
+					metaAccountId: adAccount.id,
+					clientId: client.id,
+					clientName: client.name,
+					connectionStatus: adAccount.connectionStatus,
+					accountDataError: adAccount.accountDataError,
+					accountDataSuccessfulAt: adAccount.accountDataSuccessfulAt,
+					hierarchyError: adAccount.hierarchyError,
+					hierarchySuccessfulAt: adAccount.hierarchySuccessfulAt,
+					insightsError: adAccount.insightsError,
+					insightsSuccessfulAt: adAccount.insightsSuccessfulAt,
+					initialImportHistoryCompletedAt: adAccount.initialImportHistoryCompletedAt,
+				})
 				.from(adAccount)
 				.innerJoin(client, eq(adAccount.clientId, client.id))
 				.where(eq(client.agencyId, orgId)),
@@ -104,6 +116,7 @@ export const metaAccountsRoutes = metaAccountsBase
 						currency: item.currency,
 						timezoneName: item.timezoneName,
 						connected: Boolean(existing),
+						initialImportStatus: initialImportStatus(existing),
 						clientId: existing?.clientId ?? businessMatch?.id ?? null,
 						clientName: existing?.clientName ?? businessMatch?.name ?? null,
 						businessId: item.businessId,
@@ -183,6 +196,10 @@ export const metaAccountsRoutes = metaAccountsBase
 							name: account.name,
 							currency: account.currency,
 							timezoneName: account.timezoneName,
+							connectionStatus: sql`case when ${adAccount.connectionStatus} = 'access_lost' then 'pending' else ${adAccount.connectionStatus} end`,
+							accountDataNextDueAt: now,
+							hierarchyNextDueAt: now,
+							insightsNextDueAt: now,
 							updatedAt: now,
 						},
 					})
@@ -195,3 +212,28 @@ export const metaAccountsRoutes = metaAccountsBase
 
 		return c.json(connectMetaAccountsResponseSchema.parse({ connected }), 200)
 	})
+
+function initialImportStatus(
+	existing:
+		| {
+				connectionStatus: 'pending' | 'connected' | 'access_lost'
+				accountDataError: string | null
+				accountDataSuccessfulAt: Date | null
+				hierarchyError: string | null
+				hierarchySuccessfulAt: Date | null
+				insightsError: string | null
+				insightsSuccessfulAt: Date | null
+				initialImportHistoryCompletedAt: Date | null
+		  }
+		| undefined,
+) {
+	if (!existing || existing.connectionStatus === 'connected') return null
+	if (
+		existing.accountDataSuccessfulAt &&
+		existing.hierarchySuccessfulAt &&
+		existing.insightsSuccessfulAt &&
+		existing.initialImportHistoryCompletedAt
+	)
+		return null
+	return existing.accountDataError || existing.hierarchyError || existing.insightsError ? 'failed' : 'importing'
+}

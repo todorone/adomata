@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 
+import { logger } from '../core/logger'
 import { scheduleAccountDataRunsForAgencies } from '../sync/account-data'
+import { scheduleHierarchyRunsForAgencies } from '../sync/hierarchy'
 import { getHeartbeatDependencies } from '../sync/runtime'
 
 const route = createRoute({
@@ -39,7 +41,17 @@ const route = createRoute({
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
 	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const runs = await scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
+	const [accountDataResult, hierarchyResult] = await Promise.allSettled([
+		scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+	])
+	if (accountDataResult.status === 'rejected') throw accountDataResult.reason
+	if (hierarchyResult.status === 'rejected') {
+		logger.warn('Durable hierarchy scheduling failed', {
+			category: hierarchyResult.reason instanceof Error ? hierarchyResult.reason.name : 'unknown',
+		})
+	}
+	const runs = accountDataResult.value
 	const accountData = runs.reduce(
 		(counts, run) => ({
 			processed: counts.processed + run.processed,

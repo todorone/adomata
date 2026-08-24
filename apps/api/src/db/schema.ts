@@ -191,6 +191,9 @@ export const syncRun = pgTable(
 		agencyId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
+		slice: text({ enum: ['account_data', 'hierarchy'] })
+			.notNull()
+			.default('account_data'),
 		trigger: text({ enum: ['cron', 'connect', 'manual'] }).notNull(),
 		status: text({ enum: ['queued', 'running', 'completed', 'failed'] })
 			.notNull()
@@ -206,8 +209,8 @@ export const syncRun = pgTable(
 	table => [
 		index('sync_run_agency_created_idx').on(table.agencyId, table.createdAt),
 		index('sync_run_lease_idx').on(table.status, table.leaseExpiresAt),
-		uniqueIndex('sync_run_active_agency_idx')
-			.on(table.agencyId)
+		uniqueIndex('sync_run_active_agency_slice_idx')
+			.on(table.agencyId, table.slice)
 			.where(sql`${table.status} in ('queued', 'running')`),
 	],
 )
@@ -288,6 +291,13 @@ export const adAccount = pgTable(
 		accountDataNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		accountDataLeaseOwner: text(),
 		accountDataLeaseExpiresAt: timestamp({ withTimezone: true }),
+		hierarchyAttemptedAt: timestamp({ withTimezone: true }),
+		hierarchySuccessfulAt: timestamp({ withTimezone: true }),
+		hierarchyError: text(),
+		hierarchyDiagnosticReference: text(),
+		hierarchyNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		hierarchyLeaseOwner: text(),
+		hierarchyLeaseExpiresAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
 		metaAccountStatus: integer(),
 		metaDisableReason: integer(),
@@ -315,7 +325,7 @@ export const syncAccountOutcome = pgTable(
 		adAccountId: text()
 			.notNull()
 			.references(() => adAccount.id, { onDelete: 'cascade' }),
-		slice: text({ enum: ['account_data'] }).notNull(),
+		slice: text({ enum: ['account_data', 'hierarchy'] }).notNull(),
 		status: text({ enum: ['queued', 'running', 'succeeded', 'failed', 'skipped'] })
 			.notNull()
 			.default('queued'),

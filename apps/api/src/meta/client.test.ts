@@ -137,7 +137,7 @@ describe('MetaClient', () => {
 			.mockResolvedValueOnce(
 				new Response(
 					JSON.stringify({
-						data: [{ id: 'campaign-2', name: 'Campaign 2', effective_status: 'PAUSED', objective: null }],
+						data: [{ id: 'campaign-2', name: 'Campaign 2', effective_status: 'FUTURE_STATUS', objective: null }],
 					}),
 					{ status: 200 },
 				),
@@ -147,16 +147,14 @@ describe('MetaClient', () => {
 		await expect(client.listCampaigns('act_100000000000001')).resolves.toMatchObject({
 			items: [
 				{ id: 'campaign-1', effectiveStatus: 'ACTIVE', objective: 'OUTCOME_LEADS' },
-				{ id: 'campaign-2', effectiveStatus: 'PAUSED', objective: null },
+				{ id: 'campaign-2', effectiveStatus: 'FUTURE_STATUS', objective: null },
 			],
 		})
 
 		const [firstUrl] = fetch.mock.calls[0] as [string]
 		expect(new URL(firstUrl).pathname).toBe('/v25.0/act_100000000000001/campaigns')
 		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,effective_status,objective')
-		expect(new URL(firstUrl).searchParams.get('effective_status')).toBe(
-			'["ACTIVE","PAUSED","ARCHIVED","CAMPAIGN_PAUSED","ADSET_PAUSED","PENDING_REVIEW","DISAPPROVED","PREAPPROVED","PENDING_BILLING_INFO","IN_PROCESS","WITH_ISSUES"]',
-		)
+		expect(new URL(firstUrl).searchParams.has('effective_status')).toBe(false)
 	})
 
 	it('lists Ad Accounts and normalizes missing timezones to null', async () => {

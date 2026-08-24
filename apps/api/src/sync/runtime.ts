@@ -2,6 +2,7 @@ import { logger } from '../core/logger'
 import type { MetaClient } from '../meta/client'
 import { scheduleAccountDataRun } from './account-data'
 import { runHeartbeat } from './account-tier'
+import { scheduleHierarchyRun } from './hierarchy'
 
 type HeartbeatDependencies = {
 	heartbeatSecret: string
@@ -34,8 +35,11 @@ export function triggerBackgroundSync() {
 export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect' | 'manual' = 'connect') {
 	try {
 		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
-		scheduleAccountDataRun({ agencyId, trigger, metaMode, buildMetaClient }).catch(error =>
-			logger.warn('Durable Account data scheduling failed', {
+		Promise.all([
+			scheduleAccountDataRun({ agencyId, trigger, metaMode, buildMetaClient }),
+			scheduleHierarchyRun({ agencyId, trigger, metaMode, buildMetaClient }),
+		]).catch(error =>
+			logger.warn('Durable operational slice scheduling failed', {
 				agencyId,
 				category: error instanceof Error ? error.name : 'unknown',
 			}),

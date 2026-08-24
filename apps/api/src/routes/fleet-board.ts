@@ -22,7 +22,7 @@ import {
 	needsCreativeMediaRefresh,
 } from '../fleet-board/read-model'
 import { fetchCreativeMedia, mediaRange } from '../fleet-board/media'
-import { getHeartbeatDependencies, triggerBackgroundSync } from '../sync/runtime'
+import { getHeartbeatDependencies } from '../sync/runtime'
 
 const rootRoute = createRoute({
 	method: 'get',
@@ -81,7 +81,6 @@ fleetBoardBase.use('*', requireAuth, requireVerifiedAuth, requireOrg)
 
 export const fleetBoardRoutes = fleetBoardBase
 	.openapi(rootRoute, async c => {
-		triggerBackgroundSync()
 		const result = await readFleetBoardRoot(c.get('orgId'), c.req.valid('query'))
 		return c.json(isProduction ? result : fleetBoardRootResponseSchema.parse(result), 200)
 	})

@@ -2,16 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MetaClient } from '../meta/client'
 
-const sync = vi.hoisted(() => ({ runHeartbeat: vi.fn(), scheduleAccountDataRun: vi.fn() }))
+const sync = vi.hoisted(() => ({
+	runHeartbeat: vi.fn(),
+	scheduleAccountDataRun: vi.fn(),
+	scheduleHierarchyRun: vi.fn(),
+}))
 
 vi.mock('./account-tier', () => ({ runHeartbeat: sync.runHeartbeat }))
 vi.mock('./account-data', () => ({ scheduleAccountDataRun: sync.scheduleAccountDataRun }))
+vi.mock('./hierarchy', () => ({ scheduleHierarchyRun: sync.scheduleHierarchyRun }))
 
 const { configureHeartbeat, triggerBackgroundSync } = await import('./runtime')
 
 describe('triggerBackgroundSync', () => {
 	beforeEach(() => {
 		sync.runHeartbeat.mockReset()
+		sync.scheduleAccountDataRun.mockReset()
+		sync.scheduleHierarchyRun.mockReset()
 	})
 
 	it('does nothing when heartbeat dependencies are not configured', () => {

@@ -1,19 +1,30 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, asc, eq, inArray, isNull, isNotNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 
 import { logger } from '../core/logger'
 import { db } from '../db'
-import { adAccount, client, organizationSettings, syncAccountOutcome, syncInvocation, syncRun } from '../db/schema'
+import {
+	ad,
+	adAccount,
+	adSet,
+	campaign,
+	client,
+	organizationSettings,
+	syncAccountOutcome,
+	syncInvocation,
+	syncRun,
+} from '../db/schema'
 import { MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
+import { pruneSyncHistory } from './account-data'
 
-const accountDataIntervalMilliseconds = 5 * 60 * 1000
+const hierarchyIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
-const historyRetentionMilliseconds = 30 * 24 * 60 * 60 * 1000
+const hierarchyConcurrency = 3
 const noTokenMessage = 'No Meta token configured for this Agency'
 
-export type AccountDataRunOptions = {
+export type HierarchyRunOptions = {
 	agencyId: string
 	trigger: 'cron' | 'connect' | 'manual'
 	metaMode: 'fake' | 'live'
@@ -22,13 +33,13 @@ export type AccountDataRunOptions = {
 	clock?: () => Date
 }
 
-export type EnqueuedAccountDataRun = {
+export type EnqueuedHierarchyRun = {
 	runId: string
 	invocationId: string
 	joined: boolean
 }
 
-export type AccountDataGenerationResult = {
+export type HierarchyGenerationResult = {
 	runId: string
 	status: 'queued' | 'running' | 'completed' | 'failed'
 	processed: number
@@ -37,7 +48,7 @@ export type AccountDataGenerationResult = {
 	queued: number
 }
 
-type AccountDataOutcomeContext = {
+type HierarchyOutcomeContext = {
 	agencyId: string
 	runId: string
 	outcomeId: string
@@ -48,16 +59,15 @@ type AccountDataOutcomeContext = {
 	clock: () => Date
 }
 
-export async function enqueueAccountDataRun({
+export async function enqueueHierarchyRun({
 	agencyId,
 	trigger,
 	now = new Date(),
-}: Pick<AccountDataRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedAccountDataRun> {
+}: Pick<HierarchyRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedHierarchyRun> {
 	await pruneSyncHistory(now)
 
 	return db.transaction(async transaction => {
 		await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${agencyId}))`)
-		await initializeAccountDataFreshness(transaction, agencyId, now)
 
 		const [activeRun] = await transaction
 			.select({ id: syncRun.id })
@@ -65,7 +75,7 @@ export async function enqueueAccountDataRun({
 			.where(
 				and(
 					eq(syncRun.agencyId, agencyId),
-					eq(syncRun.slice, 'account_data'),
+					eq(syncRun.slice, 'hierarchy'),
 					inArray(syncRun.status, ['queued', 'running']),
 				),
 			)
@@ -78,7 +88,7 @@ export async function enqueueAccountDataRun({
 			await transaction.insert(syncRun).values({
 				id: runId,
 				agencyId,
-				slice: 'account_data',
+				slice: 'hierarchy',
 				trigger,
 				status: 'queued',
 				diagnosticReference: runDiagnosticReference(runId),
@@ -94,7 +104,7 @@ export async function enqueueAccountDataRun({
 					and(
 						eq(client.agencyId, agencyId),
 						inArray(adAccount.connectionStatus, ['pending', 'connected']),
-						or(isNull(adAccount.accountDataSuccessfulAt), lte(adAccount.accountDataNextDueAt, now)),
+						or(isNull(adAccount.hierarchySuccessfulAt), lte(adAccount.hierarchyNextDueAt, now)),
 					),
 				)
 
@@ -104,9 +114,9 @@ export async function enqueueAccountDataRun({
 						id: randomUUID(),
 						runId,
 						adAccountId: account.id,
-						slice: 'account_data' as const,
+						slice: 'hierarchy' as const,
 						status: 'queued' as const,
-						diagnosticReference: accountDiagnosticReference(runId, account.id),
+						diagnosticReference: hierarchyDiagnosticReference(runId, account.id),
 						createdAt: now,
 						updatedAt: now,
 					})),
@@ -127,20 +137,36 @@ export async function enqueueAccountDataRun({
 	})
 }
 
-export async function scheduleAccountDataRun(options: AccountDataRunOptions) {
-	const enqueued = await enqueueAccountDataRun(options)
-	const result = await runAccountDataGeneration({ ...options, runId: enqueued.runId })
+export async function scheduleHierarchyRun(options: HierarchyRunOptions) {
+	const enqueued = await enqueueHierarchyRun(options)
+	const result = await runHierarchyGeneration({ ...options, runId: enqueued.runId })
 	return { ...enqueued, ...result }
 }
 
-export async function runAccountDataGeneration({
+export async function scheduleHierarchyRunsForAgencies(
+	options: Omit<HierarchyRunOptions, 'agencyId'>,
+): Promise<HierarchyGenerationResult[]> {
+	const agencies = await db
+		.select({ id: client.agencyId })
+		.from(adAccount)
+		.innerJoin(client, eq(adAccount.clientId, client.id))
+		.groupBy(client.agencyId)
+	const results: HierarchyGenerationResult[] = []
+	for (const agency of agencies) {
+		const result = await scheduleHierarchyRun({ ...options, agencyId: agency.id })
+		results.push(result)
+	}
+	return results
+}
+
+export async function runHierarchyGeneration({
 	agencyId,
 	runId,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
 	clock = () => new Date(),
-}: AccountDataRunOptions & { runId: string }): Promise<AccountDataGenerationResult> {
+}: HierarchyRunOptions & { runId: string }): Promise<HierarchyGenerationResult> {
 	const leaseOwner = randomUUID()
 	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
 	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
@@ -149,9 +175,9 @@ export async function runAccountDataGeneration({
 	const outcomes = await db
 		.select({ id: syncAccountOutcome.id })
 		.from(syncAccountOutcome)
-		.where(eq(syncAccountOutcome.runId, runId))
+		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
 		.orderBy(asc(syncAccountOutcome.createdAt))
-	await mapWithConcurrency(outcomes, 3, async outcome => {
+	await mapWithConcurrency(outcomes, hierarchyConcurrency, async outcome => {
 		await processOutcome({
 			agencyId,
 			runId,
@@ -166,7 +192,7 @@ export async function runAccountDataGeneration({
 
 	await finishRun({ runId, leaseOwner, now })
 	const result = await readGenerationResult(runId)
-	logger.info('Durable Account data generation completed', {
+	logger.info('Durable hierarchy generation completed', {
 		agencyId,
 		runId,
 		status: result.status,
@@ -175,50 +201,6 @@ export async function runAccountDataGeneration({
 		skipped: result.skipped,
 	})
 	return result
-}
-
-export async function scheduleAccountDataRunsForAgencies(
-	options: Omit<AccountDataRunOptions, 'agencyId'>,
-): Promise<AccountDataGenerationResult[]> {
-	const agencies = await db
-		.select({ id: client.agencyId })
-		.from(adAccount)
-		.innerJoin(client, eq(adAccount.clientId, client.id))
-		.groupBy(client.agencyId)
-	const results: AccountDataGenerationResult[] = []
-	for (const agency of agencies) {
-		const result = await scheduleAccountDataRun({ ...options, agencyId: agency.id })
-		results.push(result)
-	}
-	return results
-}
-
-export async function pruneSyncHistory(now = new Date()) {
-	const cutoff = new Date(now.getTime() - historyRetentionMilliseconds)
-	await db.delete(syncInvocation).where(lte(syncInvocation.createdAt, cutoff))
-	await db.delete(syncRun).where(lte(syncRun.createdAt, cutoff))
-}
-
-async function initializeAccountDataFreshness(
-	transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
-	agencyId: string,
-	now: Date,
-) {
-	await transaction
-		.update(adAccount)
-		.set({
-			accountDataSuccessfulAt: sql`${adAccount.accountTierRefreshedAt}`,
-			accountDataNextDueAt: now,
-		})
-		.from(client)
-		.where(
-			and(
-				eq(adAccount.clientId, client.id),
-				eq(client.agencyId, agencyId),
-				isNull(adAccount.accountDataSuccessfulAt),
-				isNotNull(adAccount.accountTierRefreshedAt),
-			),
-		)
 }
 
 async function claimRun(params: {
@@ -242,6 +224,7 @@ async function claimRun(params: {
 				and(
 					eq(syncRun.id, params.runId),
 					eq(syncRun.agencyId, params.agencyId),
+					eq(syncRun.slice, 'hierarchy'),
 					or(
 						eq(syncRun.status, 'queued'),
 						and(
@@ -260,6 +243,7 @@ async function claimRun(params: {
 			.where(
 				and(
 					eq(syncAccountOutcome.runId, params.runId),
+					eq(syncAccountOutcome.slice, 'hierarchy'),
 					eq(syncAccountOutcome.status, 'running'),
 					or(isNull(syncAccountOutcome.leaseExpiresAt), lte(syncAccountOutcome.leaseExpiresAt, params.now)),
 				),
@@ -289,7 +273,7 @@ async function loadAccountForRun(agencyId: string, accountId: string, metaMode: 
 	return account
 }
 
-async function processOutcome(params: AccountDataOutcomeContext) {
+async function processOutcome(params: HierarchyOutcomeContext) {
 	const leaseExpiresAt = new Date(params.now.getTime() + runLeaseMilliseconds)
 	const claimed = await db
 		.update(syncAccountOutcome)
@@ -304,18 +288,28 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 			and(
 				eq(syncAccountOutcome.id, params.outcomeId),
 				eq(syncAccountOutcome.runId, params.runId),
+				eq(syncAccountOutcome.slice, 'hierarchy'),
 				eq(syncAccountOutcome.status, 'queued'),
 			),
 		)
 		.returning({ adAccountId: syncAccountOutcome.adAccountId })
 	if (!claimed[0]) return true
 
-	const account = await loadAccountForRun(params.agencyId, claimed[0].adAccountId, params.metaMode)
+	await db
+		.update(adAccount)
+		.set({
+			hierarchyAttemptedAt: params.now,
+			hierarchyLeaseOwner: params.leaseOwner,
+			hierarchyLeaseExpiresAt: leaseExpiresAt,
+			updatedAt: params.now,
+		})
+		.where(eq(adAccount.id, claimed[0].adAccountId))
 
+	const account = await loadAccountForRun(params.agencyId, claimed[0].adAccountId, params.metaMode)
 	if (!account) {
 		await recordOutcomeFailure(
 			params,
-			new Error('Ad Account disappeared before Account data work started'),
+			new Error('Ad Account disappeared before hierarchy work started'),
 			claimed[0].adAccountId,
 		)
 		return false
@@ -326,9 +320,14 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 			await recordOutcomeSkipped(params, account.adAccount.id)
 			return false
 		}
-		const accountData = await params
-			.buildMetaClient(account.metaAccessToken ?? undefined)
-			.getAccount(account.adAccount.id)
+
+		const metaClient = params.buildMetaClient(account.metaAccessToken ?? undefined)
+		const [campaigns, adSets, ads] = await Promise.all([
+			metaClient.listCampaigns(account.adAccount.id),
+			metaClient.listAdSets(account.adAccount.id),
+			metaClient.listAds(account.adAccount.id),
+		])
+
 		const committedAt = params.clock()
 		await db.transaction(async transaction => {
 			const outcome = await transaction
@@ -339,7 +338,7 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 					leaseExpiresAt: null,
 					completedAt: committedAt,
 					successfulCommitAt: committedAt,
-					diagnosticReference: accountDiagnosticReference(params.runId, account.adAccount.id),
+					diagnosticReference: hierarchyDiagnosticReference(params.runId, account.adAccount.id),
 					error: null,
 					updatedAt: committedAt,
 				})
@@ -353,28 +352,97 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 				.returning({ id: syncAccountOutcome.id })
 			if (!outcome[0]) return
 
+			for (const item of campaigns.items) {
+				await transaction
+					.insert(campaign)
+					.values({
+						id: item.id,
+						adAccountId: account.adAccount.id,
+						name: item.name,
+						effectiveStatus: item.effectiveStatus,
+						objective: item.objective,
+						deletedAt: null,
+						updatedAt: committedAt,
+					})
+					.onConflictDoUpdate({
+						target: campaign.id,
+						set: {
+							adAccountId: account.adAccount.id,
+							name: item.name,
+							effectiveStatus: item.effectiveStatus,
+							objective: item.objective,
+							deletedAt: null,
+							updatedAt: committedAt,
+						},
+					})
+			}
+			for (const item of adSets.items) {
+				await transaction
+					.insert(adSet)
+					.values({
+						id: item.id,
+						campaignId: item.campaignId,
+						name: item.name,
+						effectiveStatus: item.effectiveStatus,
+						optimizationGoal: item.optimizationGoal,
+						resultActionType: item.resultActionType,
+						deletedAt: null,
+						updatedAt: committedAt,
+					})
+					.onConflictDoUpdate({
+						target: adSet.id,
+						set: {
+							campaignId: item.campaignId,
+							name: item.name,
+							effectiveStatus: item.effectiveStatus,
+							optimizationGoal: item.optimizationGoal,
+							resultActionType: item.resultActionType,
+							deletedAt: null,
+							updatedAt: committedAt,
+						},
+					})
+			}
+			for (const item of ads.items) {
+				await transaction
+					.insert(ad)
+					.values({
+						id: item.id,
+						adSetId: item.adSetId,
+						name: item.name,
+						effectiveStatus: item.effectiveStatus,
+						deletedAt: null,
+						updatedAt: committedAt,
+					})
+					.onConflictDoUpdate({
+						target: ad.id,
+						set: {
+							adSetId: item.adSetId,
+							name: item.name,
+							effectiveStatus: item.effectiveStatus,
+							deletedAt: null,
+							updatedAt: committedAt,
+						},
+					})
+			}
+
+			await softDeleteMissingHierarchy(
+				transaction,
+				account.adAccount.id,
+				campaigns.items.map(item => item.id),
+				adSets.items.map(item => item.id),
+				ads.items.map(item => item.id),
+				committedAt,
+			)
+
 			await transaction
 				.update(adAccount)
 				.set({
-					name: accountData.name,
-					currency: accountData.currency,
-					timezoneName: accountData.timezoneName,
-					connectionStatus: account.adAccount.connectionStatus,
-					metaAccountStatus: accountData.metaAccountStatus,
-					metaDisableReason: accountData.metaDisableReason,
-					balance: accountData.balance,
-					isPrepayAccount: accountData.isPrepayAccount,
-					fundingSourceType: accountData.fundingSourceType,
-					accountTierRefreshedAt: committedAt,
-					accountDataAttemptedAt: committedAt,
-					accountDataSuccessfulAt: committedAt,
-					accountDataError: null,
-					accountDataDiagnosticReference: null,
-					accountDataNextDueAt: new Date(committedAt.getTime() + accountDataIntervalMilliseconds),
-					accountDataLeaseOwner: null,
-					accountDataLeaseExpiresAt: null,
-					lastPollAttemptAt: committedAt,
-					lastPollError: null,
+					hierarchySuccessfulAt: committedAt,
+					hierarchyError: null,
+					hierarchyDiagnosticReference: hierarchyDiagnosticReference(params.runId, account.adAccount.id),
+					hierarchyNextDueAt: new Date(committedAt.getTime() + hierarchyIntervalMilliseconds),
+					hierarchyLeaseOwner: null,
+					hierarchyLeaseExpiresAt: null,
 					updatedAt: committedAt,
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
@@ -386,9 +454,74 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 	}
 }
 
-async function recordOutcomeSkipped(params: AccountDataOutcomeContext, accountId: string) {
+async function softDeleteMissingHierarchy(
+	transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	accountId: string,
+	presentCampaignIds: string[],
+	presentAdSetIds: string[],
+	presentAdIds: string[],
+	now: Date,
+) {
+	const existingCampaigns = await transaction
+		.select({ id: campaign.id })
+		.from(campaign)
+		.where(eq(campaign.adAccountId, accountId))
+	const existingAdSets = await transaction
+		.select({ id: adSet.id })
+		.from(adSet)
+		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+		.where(eq(campaign.adAccountId, accountId))
+	const existingAds = await transaction
+		.select({ id: ad.id })
+		.from(ad)
+		.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+		.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+		.where(eq(campaign.adAccountId, accountId))
+	await markMissing(
+		transaction,
+		campaign,
+		campaign.id,
+		existingCampaigns.map(row => row.id),
+		presentCampaignIds,
+		now,
+	)
+	await markMissing(
+		transaction,
+		adSet,
+		adSet.id,
+		existingAdSets.map(row => row.id),
+		presentAdSetIds,
+		now,
+	)
+	await markMissing(
+		transaction,
+		ad,
+		ad.id,
+		existingAds.map(row => row.id),
+		presentAdIds,
+		now,
+	)
+}
+
+async function markMissing(
+	transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	table: typeof campaign | typeof adSet | typeof ad,
+	idColumn: typeof campaign.id | typeof adSet.id | typeof ad.id,
+	existingIds: string[],
+	presentIds: string[],
+	now: Date,
+) {
+	const missingIds = existingIds.filter(id => !presentIds.includes(id))
+	if (missingIds.length === 0) return
+	await transaction
+		.update(table)
+		.set({ deletedAt: now, updatedAt: now })
+		.where(and(inArray(idColumn, missingIds), isNull(table.deletedAt)))
+}
+
+async function recordOutcomeSkipped(params: HierarchyOutcomeContext, accountId: string) {
 	const occurredAt = params.clock()
-	const diagnosticReference = accountDiagnosticReference(params.runId, accountId)
+	const diagnosticReference = hierarchyDiagnosticReference(params.runId, accountId)
 	await db.transaction(async transaction => {
 		const outcome = await transaction
 			.update(syncAccountOutcome)
@@ -413,24 +546,22 @@ async function recordOutcomeSkipped(params: AccountDataOutcomeContext, accountId
 		await transaction
 			.update(adAccount)
 			.set({
-				accountDataAttemptedAt: occurredAt,
-				accountDataError: noTokenMessage,
-				accountDataDiagnosticReference: diagnosticReference,
-				accountDataNextDueAt: new Date(occurredAt.getTime() + accountDataIntervalMilliseconds),
-				accountDataLeaseOwner: null,
-				accountDataLeaseExpiresAt: null,
-				lastPollAttemptAt: occurredAt,
-				lastPollError: noTokenMessage,
+				hierarchyAttemptedAt: occurredAt,
+				hierarchyError: noTokenMessage,
+				hierarchyDiagnosticReference: diagnosticReference,
+				hierarchyNextDueAt: new Date(occurredAt.getTime() + hierarchyIntervalMilliseconds),
+				hierarchyLeaseOwner: null,
+				hierarchyLeaseExpiresAt: null,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))
 	})
 }
 
-async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: unknown, accountId: string) {
+async function recordOutcomeFailure(params: HierarchyOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
-	const diagnosticReference = accountDiagnosticReference(params.runId, accountId)
-	const accessLost = isAccessLoss(error)
+	const diagnosticReference = hierarchyDiagnosticReference(params.runId, accountId)
+	const accessLost = error instanceof MetaApiError && error.code === 10
 	const occurredAt = params.clock()
 	await db.transaction(async transaction => {
 		const outcome = await transaction
@@ -457,19 +588,17 @@ async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: un
 			.update(adAccount)
 			.set({
 				...(accessLost ? { connectionStatus: 'access_lost' as const } : {}),
-				accountDataAttemptedAt: occurredAt,
-				accountDataError: message,
-				accountDataDiagnosticReference: diagnosticReference,
-				accountDataNextDueAt: new Date(occurredAt.getTime() + accountDataIntervalMilliseconds),
-				accountDataLeaseOwner: null,
-				accountDataLeaseExpiresAt: null,
-				lastPollAttemptAt: occurredAt,
-				lastPollError: message,
+				hierarchyAttemptedAt: occurredAt,
+				hierarchyError: message,
+				hierarchyDiagnosticReference: diagnosticReference,
+				hierarchyNextDueAt: new Date(occurredAt.getTime() + hierarchyIntervalMilliseconds),
+				hierarchyLeaseOwner: null,
+				hierarchyLeaseExpiresAt: null,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))
 	})
-	logger.warn('Durable Account data sync failed', {
+	logger.warn('Durable hierarchy sync failed', {
 		agencyId: params.agencyId,
 		runId: params.runId,
 		outcomeId: params.outcomeId,
@@ -481,7 +610,7 @@ async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner
 	const outcomes = await db
 		.select({ status: syncAccountOutcome.status })
 		.from(syncAccountOutcome)
-		.where(eq(syncAccountOutcome.runId, runId))
+		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
 	const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
 		? 'running'
 		: outcomes.some(outcome => outcome.status === 'failed')
@@ -496,16 +625,16 @@ async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner
 			completedAt: status === 'running' ? null : now,
 			updatedAt: now,
 		})
-		.where(and(eq(syncRun.id, runId), eq(syncRun.leaseOwner, leaseOwner)))
+		.where(and(eq(syncRun.id, runId), eq(syncRun.slice, 'hierarchy'), eq(syncRun.leaseOwner, leaseOwner)))
 }
 
-async function readGenerationResult(runId: string): Promise<AccountDataGenerationResult> {
+async function readGenerationResult(runId: string): Promise<HierarchyGenerationResult> {
 	const [run] = await db.select().from(syncRun).where(eq(syncRun.id, runId)).limit(1)
 	if (!run) throw new Error(`Sync run ${runId} not found`)
 	const outcomes = await db
 		.select({ status: syncAccountOutcome.status })
 		.from(syncAccountOutcome)
-		.where(eq(syncAccountOutcome.runId, runId))
+		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
 	return {
 		runId,
 		status: run.status,
@@ -532,12 +661,8 @@ function runDiagnosticReference(runId: string) {
 	return `sync-run/${runId}`
 }
 
-function accountDiagnosticReference(runId: string, accountId: string) {
-	return `${runDiagnosticReference(runId)}/account-data/${accountId}`
-}
-
-function isAccessLoss(error: unknown) {
-	return error instanceof MetaApiError && error.code === 10
+function hierarchyDiagnosticReference(runId: string, accountId: string) {
+	return `${runDiagnosticReference(runId)}/hierarchy/${accountId}`
 }
 
 function describePollError(error: unknown) {
@@ -555,7 +680,7 @@ function describePollError(error: unknown) {
 
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
-		if (isAccessLoss(error)) return 'authorization'
+		if (error.code === 10) return 'authorization'
 		if (error.code === 4 || error.status === 429) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'

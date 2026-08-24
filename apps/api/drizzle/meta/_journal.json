@@ -71,6 +71,13 @@
       "when": 1787582657879,
       "tag": "0009_fantastic_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787585873357,
+      "tag": "0010_secret_leper_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,7 @@ An end-brand that an Agency manages. The boundary that campaigns, posts, and bud
 _Avoid_: Brand, Customer, Account
 
 **Ad Account**:
-A Meta Ads Manager account the Agency has been granted access to, scoped to exactly one Client — never shared across Clients, even though Meta itself has no notion of Client and would permit it. A Client can have more than one Ad Account; the Fleet Board monitors KPIs per Ad Account and does not aggregate them by Client. Carries a connection status (pending / connected / access lost) so a broken Meta connection isn't mistaken for a quiet account with no spend, and a newly-discovered account awaiting its first poll isn't mistaken for either. Pending is the state between the Agency granting access and the first successful Account Tier poll; only that first poll flips it to connected. Access lost is not polled again; a future reconnection flow must return it to pending before polling resumes.
+A Meta Ads Manager account the Agency has been granted access to, scoped to exactly one Client — never shared across Clients, even though Meta itself has no notion of Client and would permit it. Its connection status is pending while its Initial Import is incomplete, connected once that data is usable, and access lost when Adomata can no longer read Meta; pending accounts stay outside the Fleet Board, and validating a replacement Agency token makes access-lost accounts eligible to recover.
 _Avoid_: Ads cabinet, Cabinet, Account
 
 **Account Health**:
@@ -26,7 +26,7 @@ Meta's own health signal for an Ad Account (`account_status`, `disable_reason`, 
 _Avoid_: Account status (ambiguous with connection status — always say which one)
 
 **Health Color / Health Reason**:
-The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering _why_. Health Color answers "what kind of state is this?"; Health Reason answers "why?". Red needs attention; yellow is the neutral fact that an active account uses postpay; green is active prepay; grey means Adomata has nothing to report because the connection is pending or lost. This split exists because permanent properties such as postpay billing must remain visible without being mislabeled as problems. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md).
+The board's traffic light for an Ad Account is always two things together, never the color alone: Health Color, a small closed set an agency director can scan without reading; and Health Reason, an always-visible short text answering _why_. Red needs attention; yellow is the neutral fact that an active account uses postpay; green is active prepay; grey means Adomata has nothing to report because access is lost. See [ADR 0018](docs/adr/0018-account-health-is-color-plus-reason-not-color-alone.md).
 _Avoid_: Traffic light (as if it's color-only), Status (too vague — say Health Color or Health Reason)
 
 **Campaign / Ad Set / Ad**:
@@ -73,11 +73,11 @@ What an Ad Account owes Meta, mirrored from the account's balance and shown as i
 _Avoid_: Balance (that's Meta's raw field), Debt
 
 **Needs Attention**:
-The Fleet Board classification for an Ad Account with red Account Health or a lost Meta connection. Yellow postpay, green health, pending first sync, and a merely non-running campaign do not qualify.
+The Fleet Board classification for an Ad Account with red Account Health or a lost Meta connection. Yellow postpay, green health, and a merely non-running campaign do not qualify; pending accounts are not yet on the Fleet Board.
 _Avoid_: Yellow, Warning, Unhealthy (a lost connection has unknown Account Health)
 
 **Signals Lane**:
-One of four operational groups in Signals view: Needs Attention, Postpay, Active, or Awaiting Data. Needs Attention includes red Account Health and lost Meta connections; Postpay is yellow without an attention claim; Active is green; Awaiting Data is pending first sync. Signals places each Ad Account in the lane for its own operational state.
+One of three operational groups in Signals view: Needs Attention, Postpay, or Active. Needs Attention includes red Account Health and lost Meta connections; Postpay is yellow without an attention claim; Active is green. Signals places each connected or access-lost Ad Account in the lane for its own operational state.
 _Avoid_: Traffic-light lane, Grey lane
 
 **Running**:
@@ -126,22 +126,26 @@ _Avoid_: Alert
 
 ### Freshness
 
+**Initial Import**:
+The period after an Agency selects an Ad Account but before that account has usable Account data, hierarchy, today's Insights, and 90 days of history. Progress may be visible in the connection flow, but the account remains outside the Fleet Board until the import completes; Creative enrichment is not part of completion.
+_Avoid_: First sync (the import is durable and may span several attempts), Awaiting Data (pending accounts are not board rows)
+
+**Operational Slice**:
+One independently refreshable part of an Ad Account's current data: Account data, hierarchy, or today's Insights. Each targets a successful refresh every five minutes, and a failure in one slice never makes another successful slice stale.
+_Avoid_: Account Tier, Insights Tier (the old cadence split is superseded)
+
 **Stale**:
-An Ad Account whose last successful Account Tier refresh is more than 10 minutes old or whose last successful Insights Tier refresh is more than 2 hours old — twice the target cadence of the respective tier. The Fleet Board summarizes each tier using the oldest successful refresh among currently visible Ad Accounts and marks stale or failed accounts individually. An Ad Account that has **never** successfully synced a tier is excluded from that summary and counted separately, because "nothing has synced" and "one new account has not synced yet" are different facts; the tier's timestamp is empty only when no visible Ad Account has ever synced it. Stale is also distinct from a **failed sync** — a sync failure is Adomata's inability to read Meta, never evidence that Meta considers the account unhealthy.
-_Avoid_: Provisional (a freshly synced current-day KPI can still be Provisional)
+The state of an Operational Slice with no successful refresh in the prior 10 minutes, or Historical Reconciliation with no success in the prior 36 hours. Stale is about the age of Adomata's last usable copy, not Meta's Account Health or whether a Provisional KPI may still change.
+_Avoid_: Provisional, Failed (a fresh snapshot can survive a failed attempt without becoming Stale)
 
-**Account Tier**:
-The faster of the Fleet Board's two refresh cadences (5 minutes): Account Health, money owed, and whether an Ad Account's campaigns are running. Backed by cheap baseline Meta Ad Account reads, not Insights calls.
-_Avoid_: Operational tier (collides with the owner's own "operational information" for the board as a whole), Health tier (collides with [Account Health](#tenancy) — that's the signal, this is the refresh cadence)
-
-**Insights Tier**:
-The slower of the Fleet Board's two refresh cadences (1 hour): Spend and KPIs. Backed by Meta Insights calls, which carry a real rate-limit cost the Account Tier doesn't.
-_Avoid_: Performance tier
+**Historical Reconciliation**:
+The account-local nightly refresh of the 28 complete prior days inside the Reconciliation Window. It is independent of today's five-minute Insights refresh and becomes Stale after 36 hours without success.
+_Avoid_: Historical resync, Backfill (backfill belongs to Initial Import)
 
 **Provisional**:
-The state of an Insights Tier metric whose Time Range includes any day inside the Reconciliation Window, while Meta may still revise it. Distinct from staleness — a Provisional number can be freshly polled and still change. A day becomes Final only after it ages out of the Reconciliation Window; an aggregate is Provisional when any included day is Provisional.
+The state of a KPI whose Time Range includes any day inside the Reconciliation Window, while Meta may still revise it. A Provisional number can be freshly synchronized and still change; a day becomes Final only after it ages out of the window, and an aggregate is Provisional when any included day is Provisional.
 _Avoid_: Stale, pending (staleness is about the age of Adomata's copy; Provisional is about whether Meta itself has finished computing the number)
 
 **Reconciliation Window**:
-The current day plus the 28 complete prior days that the Insights Tier keeps re-polling and overwriting while they remain Provisional. Exists because Meta documents that Insights may change for 28 days after being reported, and because an advertiser editing an ad set's attribution setting or a platform-wide attribution change can also move historical results. A day older than the window is stored as-is and never re-checked again; that residual drift risk is accepted, not engineered around, for this scope.
+The current account-local day plus the 28 complete prior days whose Insights remain Provisional. Today refreshes every five minutes and the prior days undergo Historical Reconciliation nightly; a day older than the window is stored as-is and never checked again.
 _Avoid_: —

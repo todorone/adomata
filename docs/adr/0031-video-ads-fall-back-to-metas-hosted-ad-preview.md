@@ -66,7 +66,7 @@ outlive the token it carries.
   proxy — this is the permission that does not exist.
 - **`preview_shareable_link`.** Meta-hosted, but a page that requires a Meta login and cannot be
   embedded, so it leaves the board rather than filling the Creative surface.
-- **Storing the preview URL on the Creative during the Insights Tier sync.** Removes the live call,
+- **Storing the preview URL during Creative enrichment.** Removes the live call,
   but pays for a preview on every active Ad hourly, and persists a short-lived Meta token whose
   expiry we cannot observe — a snapshot that silently rots is worse than a call that succeeds or
   visibly does not.

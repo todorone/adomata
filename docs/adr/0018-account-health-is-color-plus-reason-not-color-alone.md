@@ -18,31 +18,31 @@ See [CONTEXT.md — Health Color / Health Reason](../../CONTEXT.md#tenancy) for 
 
 ## The mapping
 
-Evaluated top to bottom; first match wins. Inputs are the Ad Account's `connectionStatus` (Adomata's
-own) and, from Meta's Account Tier poll, `account_status`, `disable_reason`, and `is_prepay_account`.
+Evaluated top to bottom; first match wins. Pending accounts stay outside the Fleet Board during Initial
+Import ([ADR 0032](0032-sync-runs-are-durable-and-invisible-when-healthy.md)). Inputs are the Ad Account's
+`connectionStatus` (Adomata's own) and, from Meta's Account-data slice, `account_status`,
+`disable_reason`, and `is_prepay_account`.
 
 | #   | Condition                                                           | Color      | Reason                                                                                                                                                                                                                                                                    |
 | --- | ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `connectionStatus = pending` (no successful poll yet)               | **grey**   | "Awaiting first sync"                                                                                                                                                                                                                                                     |
-| 2   | `connectionStatus = access_lost`                                    | **grey**   | "Meta connection lost"                                                                                                                                                                                                                                                    |
-| 3   | `account_status ≠ ACTIVE`, `disable_reason` present                 | **red**    | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`)                                                                         |
-| 4   | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent)      | **red**    | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
-| 5   | `account_status = ACTIVE`, `is_prepay_account = false`              | **yellow** | "Postpay account — billed after spend"                                                                                                                                                                                                                                    |
-| 6   | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green**  | "Active"                                                                                                                                                                                                                                                                  |
+| 1   | `connectionStatus = access_lost`                                    | **grey**   | "Meta connection lost"                                                                                                                                                                                                                                                    |
+| 2   | `account_status ≠ ACTIVE`, `disable_reason` present                 | **red**    | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`)                                                                         |
+| 3   | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent)      | **red**    | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
+| 4   | `account_status = ACTIVE`, `is_prepay_account = false`              | **yellow** | "Postpay account — billed after spend"                                                                                                                                                                                                                                    |
+| 5   | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green**  | "Active"                                                                                                                                                                                                                                                                  |
 
 Notes on the inputs:
 
 - `ANY_ACTIVE`/`ANY_CLOSED` are Meta query filter values, never returned as an actual account's
   `account_status` — not part of this table.
-- `CLOSED`/`PENDING_CLOSURE` are shown red (row 4), not filtered off the board. Adomata can't tell an
+- `CLOSED`/`PENDING_CLOSURE` are shown red (row 3), not filtered off the board. Adomata can't tell an
   advertiser-initiated wind-down from a Meta-initiated one from this field alone, and silently dropping
   the row risks a director never noticing a client relationship ended without their say-so. Whether to
   eventually stop _syncing_ a closed account is a separate, later decision.
 - `balance` (amount owed) never drives color — a postpay account normally carries a balance mid-cycle,
   so `balance > 0` alone doesn't mean trouble. It's always displayed as its own informational field,
   regardless of color, per the owner's brief-view request.
-- Campaigns running/not running is its own column, untouched by Health Color — `CONTEXT.md`'s Account
-  Tier definition already lists it as a signal distinct from Account Health.
+- Campaigns running/not running is its own column, untouched by Health Color.
 
 ## Rejected alternatives
 

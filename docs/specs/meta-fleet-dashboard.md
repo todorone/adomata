@@ -28,15 +28,16 @@ behind it in priority.
 
 Three personas, and the question each brings:
 
-| Persona                      | Their question                     | What the board owes them                                                                                                                                                            |
-| ---------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Media buyer** (таргетолог) | "Where is the problem, right now?" | Sees the break immediately instead of touring accounts on a schedule. Drives the 5-minute **Account Tier** — a blocked account or stopped campaign is what they need to catch fast. |
-| **Project manager**          | "What's the operational picture?"  | Cross-client visibility in one place. The shareable-URL property of **Metric Selection** (§5) serves this persona specifically.                                                     |
-| **Agency director**          | "Is this particular client fine?"  | Filters to the Client and scans its Ad Accounts directly, with each account's health and KPIs visible without expanding a Client aggregate.                                         |
+| Persona                      | Their question                     | What the board owes them                                                                                                                    |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Media buyer** (таргетолог) | "Where is the problem, right now?" | Sees the break immediately instead of touring accounts on a schedule. Drives five-minute freshness for Account state and today's KPIs.      |
+| **Project manager**          | "What's the operational picture?"  | Cross-client visibility in one place. The shareable-URL property of **Metric Selection** (§5) serves this persona specifically.             |
+| **Agency director**          | "Is this particular client fine?"  | Filters to the Client and scans its Ad Accounts directly, with each account's health and KPIs visible without expanding a Client aggregate. |
 
 None of the three watches the board continuously; all check in opportunistically a few times a day. That
-finding is load-bearing — it is why fixed-interval polling suffices instead of streaming, and why the
-sync heartbeat can safely ride on the board's own read traffic (§7).
+finding is load-bearing — fixed-interval Meta polling suffices instead of streaming, while an open board
+quietly rereads Adomata's snapshot often enough to receive completed background work. Board reads never
+trigger Meta synchronization ([ADR 0032](../adr/0032-sync-runs-are-durable-and-invisible-when-healthy.md)).
 
 **Scale to design for**: 10–50 Clients, 30–150 Ad Accounts.
 
@@ -69,10 +70,10 @@ view groups or renders aggregate rows/cards by Client.
 
 Two orthogonal ideas that must never be conflated:
 
-- **Connection status** (pending / connected / access lost) is whether _Adomata_ can still read the
-  account. **Pending** is the state between the Agency granting access and the first successful Account
-  Tier poll; only that first poll flips it to connected. **Access lost** is not polled again — a future
-  reconnection flow must return it to pending before polling resumes.
+- **Connection status** (pending / connected / access lost) is whether _Adomata_ can present and continue
+  reading the account. **Pending** lasts until the account's resumable Initial Import has usable Account
+  data, hierarchy, today's Insights, and 90 days of history; pending accounts stay outside the Fleet Board.
+  A valid replacement Agency token makes access-lost accounts retryable and enqueues an operational refresh.
 - **Account Health** is whether _Meta_ considers the account healthy. When connection status is access
   lost, Account Health is **unknown, not red** — Adomata cannot call the API to check.
 
@@ -89,17 +90,17 @@ require a color per nuance ([ADR 0018](../adr/0018-account-health-is-color-plus-
 
 ### The mapping
 
-Evaluated top to bottom; **first match wins**. Inputs are the Ad Account's `connectionStatus` (Adomata's
-own) and, from Meta's Account Tier poll, `account_status`, `disable_reason`, and `is_prepay_account`.
+Evaluated top to bottom; **first match wins**. Pending accounts do not reach this mapping because they are
+not on the Fleet Board. Inputs are the Ad Account's `connectionStatus` (Adomata's own) and, from Meta's
+Account-data slice, `account_status`, `disable_reason`, and `is_prepay_account`.
 
 | #   | Condition                                                           | Color      | Reason                                                                                                                                                                                                                                                                    |
 | --- | ------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `connectionStatus = pending` (no successful poll yet)               | **grey**   | "Awaiting first sync"                                                                                                                                                                                                                                                     |
-| 2   | `connectionStatus = access_lost`                                    | **grey**   | "Meta connection lost"                                                                                                                                                                                                                                                    |
-| 3   | `account_status ≠ ACTIVE`, `disable_reason` present                 | **red**    | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`)                                                                         |
-| 4   | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent)      | **red**    | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
-| 5   | `account_status = ACTIVE`, `is_prepay_account = false`              | **yellow** | "Postpay account — billed after spend"                                                                                                                                                                                                                                    |
-| 6   | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green**  | "Active"                                                                                                                                                                                                                                                                  |
+| 1   | `connectionStatus = access_lost`                                    | **grey**   | "Meta connection lost"                                                                                                                                                                                                                                                    |
+| 2   | `account_status ≠ ACTIVE`, `disable_reason` present                 | **red**    | The specific `disable_reason` label, e.g. "Disabled — payment risk" (`RISK_PAYMENT`), "Disabled — integrity policy" (`ADS_INTEGRITY_POLICY`), "Disabled — permanently closed" (`PERMANENT_CLOSE`)                                                                         |
+| 3   | `account_status ≠ ACTIVE`, no `disable_reason` (`NONE`/absent)      | **red**    | The `account_status` label, e.g. "Unsettled balance" (`UNSETTLED`), "Pending risk review" (`PENDING_RISK_REVIEW`), "Pending settlement" (`PENDING_SETTLEMENT`), "In grace period" (`IN_GRACE_PERIOD`), "Pending closure" (`PENDING_CLOSURE`), "Account closed" (`CLOSED`) |
+| 4   | `account_status = ACTIVE`, `is_prepay_account = false`              | **yellow** | "Postpay account — billed after spend"                                                                                                                                                                                                                                    |
+| 5   | `account_status = ACTIVE`, `is_prepay_account = true` or unreadable | **green**  | "Active"                                                                                                                                                                                                                                                                  |
 
 Notes on the inputs:
 
@@ -114,8 +115,8 @@ Notes on the inputs:
   regardless of color, per the owner's brief-view request.
 - Campaigns running/not running is **its own column**, untouched by Health Color.
 
-**Grey** is categorically different from the other three: it means Adomata has nothing to report
-(connection pending or access lost), never a Meta-reported problem.
+**Grey** is categorically different from the other three: it means Adomata cannot currently read Meta
+because access is lost, never a Meta-reported Account Health problem.
 
 Yellow is a **neutral label, not a warning**. The research found no credit-limit, next-bill-date, or
 "approaching limit" field anywhere in Meta's documented surface
@@ -134,7 +135,7 @@ The board ships three functionally complete presentations over one data and doma
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Tree** (default) | One comparison-first hierarchy table. Campaign / Ad Set / Ad rows appear indented beneath their parent and share aligned KPI columns. Local row expansion is additive to View Depth.                                               |
 | **Control Room**   | A virtualized fleet rail beside one selected Ad Account's hierarchy and detail. The selected Ad Account and Ad are URL-addressable; a missing or stale selection falls back to the first sorted account without rewriting the URL. |
-| **Signals**        | Four operational lanes with expandable Ad Account cards: Needs Attention, Postpay, Active, Awaiting Data. Each card carries its Client as metadata.                                                                                |
+| **Signals**        | Three operational lanes with expandable Ad Account cards: Needs Attention, Postpay, and Active. Each card carries its Client as metadata.                                                                                          |
 
 Every view exposes the same **Time Range**, **Metric Selection**, View Depth, filters, sorting
 inputs, freshness, hierarchy levels, and Creative data. A later evidence-based decision may promote one,
@@ -350,7 +351,7 @@ is URL-encoded like every other view control, defaulting to off. Framing it as a
 
 ### Synced snapshots, not live passthrough
 
-Every figure on the board is read from **Adomata's own database**, populated by the sync loops — never
+Every figure on the board is read from **Adomata's own database**, populated by durable sync runs — never
 fetched from Meta synchronously on page load
 ([ADR 0013](../adr/0013-fleet-board-reads-synced-snapshots-not-meta-live.md)). A board over 30–150
 accounts fanning out into a live call per account would put one slow account's latency under every
@@ -360,12 +361,13 @@ confirms the sync side is affordable — roughly 300–750 calls for a full 150-
 inside a 5–15 minute floor — so no cost pressure pushes back toward live reads.
 
 **Nothing on the board is fetched live.** The whole tree syncs, including on-expand levels: expanding a
-Campaign reads already-synced Ad Sets, it does not call Meta.
+Campaign reads already-synced Ad Sets, it does not call Meta. `GET /fleet-board` is also side-effect-free
+with respect to Meta: it neither creates nor wakes synchronization work.
 
 ### Complete Fleet Board snapshot
 
 `GET /fleet-board` is the single board read for a Time Range and root-query state. Its response contains
-Client metadata, sorted Ad Account roots, header/per-account freshness, and all live descendants below the
+Client metadata, sorted Ad Account roots, per-account synchronization health, and all live descendants below the
 returned roots in one flat `nodes` collection. Campaign, Ad Set, and Ad nodes use the same presentation-neutral
 fields and immediate `parentId`; their KPI values are materialized by the same read-model pass as the roots.
 Soft-deleted structure is omitted from `nodes`, while its stored Insights remain available to the historical
@@ -373,14 +375,19 @@ rollups. The larger first payload is intentional: it replaces repeated parent-li
 model. If continuous fleet volume later makes this response too large, pagination or streaming is a separate
 decision. Creative payloads, media, and Meta-hosted previews stay lazy.
 
+While the tab is visible, the client rereads this snapshot every minute and immediately on window focus.
+These quiet database reads make completed background work appear without exposing healthy sync status or
+triggering more Meta work.
+
 ### What syncs, and at what grain
 
-| Data                                                                                                                | Grain                       | Cadence                    | Notes                                                 |
-| ------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------- | ----------------------------------------------------- |
-| Ad Account baseline (`account_status`, `disable_reason`, `is_prepay_account`, `balance`, currency, `timezone_name`) | Ad Account                  | **Account Tier — 5 min**   | Cheap baseline reads, not Insights calls.             |
-| Campaigns running / not running                                                                                     | Campaign                    | **Account Tier — 5 min**   | Own column, distinct from Health Color.               |
-| The tree (Campaign / Ad Set / Ad)                                                                                   | per object                  | Account Tier               | Synced and **soft-deleted**, never fetched on expand. |
-| Insights (spend, impressions, `inline_link_clicks`, raw `actions` / `action_values`)                                | **Ad × account-local date** | **Insights Tier — 1 hour** | Every other level is a computed rollup.               |
+| Slice                                                                                                        | Grain                        | Cadence                                    | Notes                                                                  |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------- | ------------------------------------------ | ---------------------------------------------------------------------- |
+| Account data (`account_status`, `disable_reason`, `is_prepay_account`, `balance`, currency, `timezone_name`) | Ad Account                   | **Every 5 minutes**                        | Independent from hierarchy and Insights.                               |
+| Hierarchy and Running state (Campaign / Ad Set / Ad)                                                         | per object                   | **Every 5 minutes**                        | Complete enumeration; soft-deleted and never fetched on expand.        |
+| Today's Insights (`spend`, `impressions`, `inline_link_clicks`, raw `actions` / `action_values`)             | Ad × account-local today     | **Every 5 minutes**                        | Every other level is a computed rollup.                                |
+| Historical Reconciliation                                                                                    | Ad × prior account-local day | **Nightly, distributed 02:00–05:00 local** | Rewrites the 28 complete prior days; retries during the following day. |
+| Creative metadata and media                                                                                  | Ad / asset                   | Independent, best-effort                   | Never blocks Account data, hierarchy, Insights, or Initial Import.     |
 
 **Insights are stored at Ad grain only.** One row per (Ad, date), keeping the **raw `actions` /
 `action_values` arrays** so CPA can resolve the Ad Set's canonical `action_type` _at read time_ rather
@@ -392,8 +399,8 @@ KPI (like reach) needs its own fetch at its own level, not an extension of this 
 
 The read pattern is Meta's `insights?level=...` sync endpoint. There is no hard documented minimum
 interval; the **undocumented backend throttle is the real ceiling**, so 5–15 minutes is the practical
-floor. There is no spend-tier scaling, and **webhooks do not cover spend or insights** — the board is
-poll-only by necessity, not by choice.
+floor. The five-minute operational target deliberately sits at that floor. There is no spend-tier scaling,
+and **webhooks do not cover spend or insights** — the board is poll-only by necessity, not by choice.
 
 ### Keys, history, and deletion
 
@@ -405,40 +412,66 @@ poll-only by necessity, not by choice.
   time a sync no longer sees the object ([ADR 0011](../adr/0011-soft-delete-synced-tree-for-rollup-stability.md)).
   A deleted Ad's historical Insights rows stay joinable, so past rollup totals never shrink retroactively
   because an advertiser cleaned up their Ads Manager. **The live tree filters out soft-deleted rows; only
-  rollup queries over past dates join through them.**
+  rollup queries over past dates join through them.** Missing objects are marked only after a complete,
+  authoritative enumeration; a failed or partial page preserves the prior hierarchy, and unknown future
+  Meta statuses remain synchronized rather than being filtered out.
 - Insights history is **daily rollups, not write-once**. The current account-local day plus the prior 28
-  complete days form the **Reconciliation Window** and keep being re-polled and overwritten on every
-  Insights Tier cycle because
-  Meta documents that a settled day's number can still move — an advertiser editing an ad set's
-  attribution setting, or a platform-wide attribution change
+  complete days form the **Reconciliation Window**. Today refreshes every five minutes; the prior 28 days
+  reconcile nightly because Meta documents that a settled day's number can still move — an advertiser
+  editing an ad set's attribution setting, or a platform-wide attribution change
   ([ADR 0014](../adr/0014-daily-history-with-a-rolling-reconciliation-window.md)). A day older than the
   window is stored as-is and never re-checked; that residual drift risk is **accepted, not engineered
   around**.
-- **First-connect backfill reaches the earlier of the account-local month start or 28 days before today**
-  ([ADR 0015](../adr/0015-first-connect-backfill-to-start-of-calendar-month.md)). Budget Exhausted tracks
-  a Client's actual month-to-date spend, so an account connected on the 20th would silently under-report
-  the first 19 days — a Budget could already be exhausted with the board showing otherwise — while the
-  earlier boundary keeps the Reconciliation Window and Last 7 days complete across month boundaries.
+- **Initial Import covers 90 account-local days through today**
+  ([ADR 0029](../adr/0029-first-connect-backfill-covers-90-local-days.md)). A selected account stays
+  outside the Fleet Board until Account data, its complete hierarchy, today's Insights, and that history
+  are usable. Progress persists incrementally and idempotently so a failed account resumes without rolling
+  back or holding other selected accounts; Creative enrichment is not part of completion.
+
+### Durable runs
+
+Cron, connection, and Force Refresh create or join persisted sync runs. Each run records its trigger,
+Agency, status, lease, start/completion times, and per-account slice outcomes. Slice completion time is
+the successful commit time, never the run's start time. Work is idempotent, leases make abandoned work
+eligible for recovery, and run details expire after 30 days while each account retains its current slice
+success/error state.
+
+The API runner executes slices independently. Fresh Account data remains committed when hierarchy or
+Insights fails; fresh Insights for known Ads remains committed when Creative enrichment fails; one
+account never rolls back another. A complete hierarchy enumeration must precede Insights for newly
+discovered Ads, but established Ads continue using the freshest successful slice. Capacity is reserved in
+this priority order:
+
+1. Routine five-minute Account data, hierarchy, and today's Insights.
+2. Force Refresh.
+3. Initial Import.
+4. Historical Reconciliation.
+
+Only one equivalent generation runs per Agency. Concurrent manual requests coalesce, with a server-side
+one-minute cooldown. Force Refresh covers the current Agency's Account data, hierarchy, and today's
+Insights—not Historical Reconciliation—and guarantees a successful generation started at or after the
+click. It joins unfinished work where possible and schedules one follow-up for slices that completed
+before the click. The client polls persisted job status, rereads the board after success, and exposes no
+success message.
 
 ### Where it runs
 
 `apps/api` runs as a **long-lived Bun process in Docker on a shared Hetzner VPS via Coolify, against
 Postgres** (`drizzle-orm/bun-sql`). Only the client SPA is on Cloudflare. This **corrects
 [ADR 0003](../adr/0003-bootstrap-infra-from-frontpeek.md)'s stale "Cloudflare Workers" premise** for the
-API — there is no `wrangler.toml` for it at all
-([ADR 0016](../adr/0016-sync-driven-by-heartbeat-not-workers-native-cron.md)).
+API — the scheduled Worker is a separate, deliberately small Cloudflare deployment
+([ADR 0032](../adr/0032-sync-runs-are-durable-and-invisible-when-healthy.md)).
 
-Sync is therefore driven by a single **authenticated `/heartbeat` endpoint** that checks each tier's
-last-refreshed timestamp and fires whichever tier is due. It is called:
+A repository-owned Cloudflare Worker has a versioned `*/5 * * * *` Cron Trigger and calls the API's
+authenticated scheduler endpoint. That endpoint records the invocation, creates or joins due work, wakes
+the API's in-process runner, and returns without tying the work to the request lifetime. Connection and
+Force Refresh wake the same runner immediately instead of waiting for the next cron tick. If the API
+restarts, leases expire and the next cron invocation resumes abandoned work.
 
-- in production, by a **Cloudflare Cron Trigger** on a 5-minute schedule (matching the fastest tier);
-- **in-process, as a non-blocking side effect of the board's own read endpoint** — which doubles as the
-  entire local-dev trigger (no dev-only scheduling code path) and a production backstop keeping freshness
-  correlated with someone actually looking.
-
-A **per-tier lock** prevents cron-triggered and read-triggered heartbeats from double-running a tier. A
-host-level cron job was rejected: Coolify assigns container names a fresh UUID on every deploy, so a cron
-job addressing a container by name would silently break.
+Scheduler code, cron configuration, deployment, and secrets wiring are reviewed and deployed with the
+repository. Production release verification must observe the complete chain: Cloudflare invocation,
+authenticated API receipt, and a completed persisted run. Alert delivery over those records is separate
+reporting-system work, not part of Fleet Board synchronization.
 
 ### Meta in dev and test
 
@@ -450,37 +483,45 @@ header-parsing code runs unchanged in every environment
 missing credential fails loudly instead of silently serving fixtures. Fixtures are **raw Meta signal
 combinations, not hand-set colors**, in a small fixed roster shared by the dev seed script and the tests
 ([ADR 0016-mock](../adr/0016-meta-fixtures-are-raw-signals-in-a-small-shared-roster.md)) — so the §3
-mapping is exercised rather than bypassed. Mock coverage currently **stops at the sync layer**
-([ADR 0017](../adr/0017-meta-mock-testing-stops-at-the-sync-layer-for-now.md)); Playwright E2E of the
-board itself waits on Onboarding, since no real connect flow exists yet to seed through.
+mapping is exercised rather than bypassed. The durable design requires API integration coverage for
+leases, resumption, slice isolation, and throttling plus a real-flow Playwright path from connection
+through Initial Import to a fresh Fleet Board; no test-only seeding endpoint is introduced.
 
 ---
 
 ## 9. Freshness and staleness
 
-Two tiers, not one interval ([ADR 0008](../adr/0008-two-tier-freshness-for-fleet-board.md)):
+Healthy synchronization is invisible ([ADR 0032](../adr/0032-sync-runs-are-durable-and-invisible-when-healthy.md)):
+the board shows no routine sync copy, timestamp, progress, or success notice. Only Force Refresh remains
+visible. Freshness is measured independently per account and slice:
 
-| Tier              | Target        | Covers                                                    | Why                                                                                                                                                   |
-| ----------------- | ------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Account Tier**  | **5 minutes** | Account Health, money owed, campaigns running/not running | A blocked account or stopped campaign is a break the media buyer needs to catch fast. Cheap baseline reads.                                           |
-| **Insights Tier** | **1 hour**    | Spend and the KPIs                                        | Tolerable because no persona watches continuously. Insights calls compete against the undocumented backend throttle that is the fleet's real ceiling. |
+| Data                                                    | Healthy target          | Becomes Stale                          |
+| ------------------------------------------------------- | ----------------------- | -------------------------------------- |
+| Account data, hierarchy, today's Insights               | success every 5 minutes | 10 minutes without a successful commit |
+| Historical Reconciliation of the prior 28 complete days | once per local night    | 36 hours without a successful commit   |
 
-A single uniform interval would either poll Account Tier data too slowly to catch a break, or poll
-Insights needlessly often against the more constrained budget. **The split is hard to unwind** — the sync
-architecture (two loops, two schedules, per-tier timestamps) assumes it.
+A failed scheduled attempt does not disturb a still-fresh last-known snapshot or appear to the user.
+Authentication or permission loss, a failed Force Refresh, and a failed Initial Import appear immediately;
+routine operational failures appear once their slice becomes Stale. Independent slice timestamps mean
+the board may combine fresh Account data with older Insights rather than discarding successful work.
 
-### Staleness is shown, not silent
+### Error icons
 
-The board header displays the **oldest successful refresh among currently visible Ad Accounts** for each
-tier, so one failed account cannot hide behind a newer fleet timestamp. An Ad Account that has **never**
-successfully synced a tier is **excluded** from that tier's oldest-refresh calculation rather than nulling
-it, and is instead reported as its own per-tier count — "nothing has synced" and "one new account has not
-synced yet" are different facts and must read differently. The tier timestamp is empty only when no
-visible Ad Account has ever synced it, which is the one case where «ще не синхронізовано» is the truth.
-The rule is a pure function in the Fleet Board domain module alongside the health and rollup rules; the
-read model calls it. Each stale or failed account is also marked individually. Account Tier becomes Stale after 10 minutes and Insights Tier after 2 hours —
-twice their target cadence. The UI shows a generic Ukrainian failure message; raw Meta errors stay in
-server logs.
+Each affected Ad Account shows one highest-severity icon in every Fleet Board view. The toolbar shows the
+highest-severity aggregate icon and affected-account counts for the current view; its popover lists those
+accounts, while an account icon lists every affected slice.
+
+- A **yellow triangle** means degraded but usable: a Stale operational slice, Historical Reconciliation
+  more than 36 hours overdue, or a failed Force Refresh whose last-known data remains usable.
+- A **red circle with an exclamation mark** means action required: expired or invalid credentials, lost
+  permissions, no usable snapshot, or an unrecoverable validation failure.
+
+The popover contains Ukrainian user-facing text naming the affected data, whether shown values are
+last-known or unavailable, last successful time, plain-language cause, recommended action, and a Force
+Refresh or Reconnect Meta action when applicable. It also includes a diagnostic reference; only
+superadmins may see a Meta error code, and raw responses, tokens, and stack traces never appear. The
+popover opens on hover and keyboard focus and pins on click or tap. Its trigger has a Ukrainian accessible
+label. Icons cannot be dismissed and clear only after the affected slice succeeds or access is repaired.
 
 ### Provisional is not staleness
 
@@ -515,25 +556,22 @@ Ruled beyond this destination. These never graduate into scope — a reader shou
 These do not change the Fleet Board core defined above, but each needs its own delivery decision or
 validation gate.
 
-1. **Onboarding.** How an Agency connects a Meta Business Manager and maps discovered Ad Accounts onto
-   Adomata Clients. It creates the pending state and blocks real-flow Playwright setup
-   ([ADR 0017](../adr/0017-meta-mock-testing-stops-at-the-sync-layer-for-now.md)). The board is developed
-   against the existing fake roster and API/component tests until this exists.
-2. **Reconnection.** How an access-lost Ad Account returns to pending. Without it, the board correctly
-   surfaces the account under Needs Attention but cannot repair access.
-3. **Budget on the board.** Whether Client rows surface Adomata Budget / Budget Exhausted beside Meta
+1. **Sync reporting and alert delivery.** Durable run records expose the required facts, but choosing
+   delivery channels, recipients, grouping, escalation, and recovery notifications is a separate design
+   ([#46](https://github.com/todorone/adomata/issues/46)).
+2. **Budget on the board.** Whether Client rows surface Adomata Budget / Budget Exhausted beside Meta
    data. Budget remains in the domain but outside this board delivery.
-4. **Creative comparison.** Cross-Ad ranking needs a durable cross-Ad Creative identity and validation
+3. **Creative comparison.** Cross-Ad ranking needs a durable cross-Ad Creative identity and validation
    of dynamic-creative breakdowns. The three complete views display identical Creative data; they do not
    rank assets or assign per-asset results.
-5. **Per-persona defaults and visibility.** Every User still sees every Client in the active Agency. Saved
+4. **Per-persona defaults and visibility.** Every User still sees every Client in the active Agency. Saved
    presets, role-based defaults, and Client-level scoping remain separate work.
-6. **Real Meta validation.** Access to a real agency Business Manager
+5. **Real Meta validation.** Access to a real agency Business Manager
    ([#3](https://github.com/todorone/adomata/issues/3)) is required before production release to verify
    Ad Account ID normalization, `balance` denomination/display, result-action mapping, pagination,
    account timezone behavior, video `source`, temporary media refresh, and asset-feed shapes. No code may
    guess the undocumented `balance` scale.
-7. **Post-interview view consolidation.** Tree, Control Room, and Signals remain complete during
+6. **Post-interview view consolidation.** Tree, Control Room, and Signals remain complete during
    evaluation. Structured interviews use equivalent tasks and URL-addressed views without adding an
    analytics system. A follow-up ADR chooses the new default, retains only distinct workflows, and
    deletes redundant views.
@@ -542,19 +580,19 @@ validation gate.
 
 ## Provenance
 
-| Section                          | Settled by                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| §1 personas, scope               | [interview](../interviews/2026-07-25-agency-owner-fleet-dashboard.md), [#9](https://github.com/todorone/adomata/issues/9)                                                                                                                                                                                                                     |
-| §2 hierarchy, Client metadata    | [#10](https://github.com/todorone/adomata/issues/10), ADR [0004](../adr/0004-better-auth-organization-naming-stays-vendor-internal.md) · [0006](../adr/0006-ad-account-belongs-to-exactly-one-client.md) · [0007](../adr/0007-creative-is-a-property-of-an-ad-not-a-tree-level.md)                                                            |
-| §3 traffic light                 | [#11](https://github.com/todorone/adomata/issues/11), [ADR 0018](../adr/0018-account-health-is-color-plus-reason-not-color-alone.md), [health research](../research/2026-07-25-meta-ad-account-health-and-money-owed.md)                                                                                                                      |
-| §4 complete views, depth, scale  | [#13](https://github.com/todorone/adomata/issues/13), [ADR 0026](../adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md)                                                                                                                                                                                                        |
-| §5 KPI, Time Range, URL controls | [#14](https://github.com/todorone/adomata/issues/14), ADR [0020](../adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md) · [0023](../adr/0023-fleet-board-time-ranges-are-account-local.md) · [0024](../adr/0024-fleet-board-clicks-mean-inline-link-clicks.md), [insights research](../research/insights-metrics-by-level.md) |
-| §6 Creative detail               | [#16](https://github.com/todorone/adomata/issues/16), [ADR 0027](../adr/0027-creative-presentation-is-native-to-each-fleet-board-view.md), [#7 creative research](../research/2026-07-25-meta-creative-retrieval.md)                                                                                                                          |
-| §7 rollup                        | [#15](https://github.com/todorone/adomata/issues/15), ADR [0010](../adr/0010-insights-stored-at-ad-grain-only.md) · [0019](../adr/0019-fleet-board-rollup-rules.md) · [0025](../adr/0025-kpis-follow-meta-ad-set-attribution.md)                                                                                                              |
-| §8 data architecture             | [#12](https://github.com/todorone/adomata/issues/12) · [#18](https://github.com/todorone/adomata/issues/18) · [#19](https://github.com/todorone/adomata/issues/19), ADR 0009–0017, [rate-limit research](../research/2026-07-25-meta-api-rate-limits-fleet-refresh.md)                                                                        |
-| §9 freshness                     | [#8](https://github.com/todorone/adomata/issues/8), [ADR 0008](../adr/0008-two-tier-freshness-for-fleet-board.md)                                                                                                                                                                                                                             |
-| §10 non-goals                    | [map #2](https://github.com/todorone/adomata/issues/2) Out-of-scope, [ADR 0001](../adr/0001-meta-only-for-v1.md) · [0005](../adr/0005-fleet-board-is-read-only.md)                                                                                                                                                                            |
-| §11 dependencies                 | [map #2](https://github.com/todorone/adomata/issues/2), [ADR 0017](../adr/0017-meta-mock-testing-stops-at-the-sync-layer-for-now.md), [ADR 0026](../adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md)                                                                                                                        |
+| Section                          | Settled by                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §1 personas, scope               | [interview](../interviews/2026-07-25-agency-owner-fleet-dashboard.md), [#9](https://github.com/todorone/adomata/issues/9)                                                                                                                                                                                                                                                                               |
+| §2 hierarchy, Client metadata    | [#10](https://github.com/todorone/adomata/issues/10), ADR [0004](../adr/0004-better-auth-organization-naming-stays-vendor-internal.md) · [0006](../adr/0006-ad-account-belongs-to-exactly-one-client.md) · [0007](../adr/0007-creative-is-a-property-of-an-ad-not-a-tree-level.md)                                                                                                                      |
+| §3 traffic light                 | [#11](https://github.com/todorone/adomata/issues/11), [ADR 0018](../adr/0018-account-health-is-color-plus-reason-not-color-alone.md), [health research](../research/2026-07-25-meta-ad-account-health-and-money-owed.md)                                                                                                                                                                                |
+| §4 complete views, depth, scale  | [#13](https://github.com/todorone/adomata/issues/13), [ADR 0026](../adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md)                                                                                                                                                                                                                                                                  |
+| §5 KPI, Time Range, URL controls | [#14](https://github.com/todorone/adomata/issues/14), ADR [0020](../adr/0020-fleet-board-metric-selection-is-url-encoded-not-stored.md) · [0023](../adr/0023-fleet-board-time-ranges-are-account-local.md) · [0024](../adr/0024-fleet-board-clicks-mean-inline-link-clicks.md), [insights research](../research/insights-metrics-by-level.md)                                                           |
+| §6 Creative detail               | [#16](https://github.com/todorone/adomata/issues/16), [ADR 0027](../adr/0027-creative-presentation-is-native-to-each-fleet-board-view.md), [#7 creative research](../research/2026-07-25-meta-creative-retrieval.md)                                                                                                                                                                                    |
+| §7 rollup                        | [#15](https://github.com/todorone/adomata/issues/15), ADR [0010](../adr/0010-insights-stored-at-ad-grain-only.md) · [0019](../adr/0019-fleet-board-rollup-rules.md) · [0025](../adr/0025-kpis-follow-meta-ad-set-attribution.md)                                                                                                                                                                        |
+| §8 data architecture             | [#12](https://github.com/todorone/adomata/issues/12) · [#18](https://github.com/todorone/adomata/issues/18) · [#19](https://github.com/todorone/adomata/issues/19) · [#45](https://github.com/todorone/adomata/issues/45), ADR 0009–0017 · [0032](../adr/0032-sync-runs-are-durable-and-invisible-when-healthy.md), [rate-limit research](../research/2026-07-25-meta-api-rate-limits-fleet-refresh.md) |
+| §9 freshness                     | [#8](https://github.com/todorone/adomata/issues/8) · [#45](https://github.com/todorone/adomata/issues/45), [ADR 0032](../adr/0032-sync-runs-are-durable-and-invisible-when-healthy.md)                                                                                                                                                                                                                  |
+| §10 non-goals                    | [map #2](https://github.com/todorone/adomata/issues/2) Out-of-scope, [ADR 0001](../adr/0001-meta-only-for-v1.md) · [0005](../adr/0005-fleet-board-is-read-only.md)                                                                                                                                                                                                                                      |
+| §11 dependencies                 | [map #2](https://github.com/todorone/adomata/issues/2), [ADR 0017](../adr/0017-meta-mock-testing-stops-at-the-sync-layer-for-now.md), [ADR 0026](../adr/0026-fleet-board-ships-three-complete-views-for-evaluation.md)                                                                                                                                                                                  |
 
 The earlier prototype-only decisions in ADR 0021 and ADR 0022 are superseded by ADR 0026 and ADR 0027.
 Tree, Control Room, and Signals now ship as complete views for equivalent-task user interviews, not as

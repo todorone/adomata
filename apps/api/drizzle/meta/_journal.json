@@ -64,6 +64,13 @@
       "when": 1786276748217,
       "tag": "0008_decode_double_encoded_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787582657879,
+      "tag": "0009_fantastic_bedlam",
+      "breakpoints": true
     }
   ]
 }

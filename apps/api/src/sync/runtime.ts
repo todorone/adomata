@@ -1,5 +1,6 @@
 import { logger } from '../core/logger'
 import type { MetaClient } from '../meta/client'
+import { scheduleAccountDataRun } from './account-data'
 import { runHeartbeat } from './account-tier'
 
 type HeartbeatDependencies = {
@@ -24,6 +25,20 @@ export function triggerBackgroundSync() {
 		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
 		runHeartbeat({ metaMode, buildMetaClient }).catch(error =>
 			logger.warn('Background sync failed', { category: error instanceof Error ? error.name : 'unknown' }),
+		)
+	} catch {
+		// Runtime configuration is intentionally absent in isolated API route tests.
+	}
+}
+
+export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect' | 'manual' = 'connect') {
+	try {
+		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		scheduleAccountDataRun({ agencyId, trigger, metaMode, buildMetaClient }).catch(error =>
+			logger.warn('Durable Account data scheduling failed', {
+				agencyId,
+				category: error instanceof Error ? error.name : 'unknown',
+			}),
 		)
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.

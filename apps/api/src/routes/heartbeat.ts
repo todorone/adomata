@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 
-import { runHeartbeat } from '../sync/account-tier'
+import { scheduleAccountDataRunsForAgencies } from '../sync/account-data'
 import { getHeartbeatDependencies } from '../sync/runtime'
 
 const route = createRoute({
@@ -13,18 +13,21 @@ const route = createRoute({
 				'application/json': {
 					schema: z.object({
 						ok: z.literal(true),
-						accountTier: z.object({
+						accountData: z.object({
 							processed: z.number(),
 							failed: z.number(),
 							skipped: z.number(),
-							skippedNoToken: z.number(),
+							queued: z.number(),
 						}),
-						insightsTier: z.object({
-							processed: z.number(),
-							failed: z.number(),
-							skipped: z.number(),
-							skippedNoToken: z.number(),
-						}),
+						runs: z.array(
+							z.object({
+								runId: z.string(),
+								status: z.enum(['queued', 'running', 'completed', 'failed']),
+								processed: z.number(),
+								failed: z.number(),
+								queued: z.number(),
+							}),
+						),
 					}),
 				},
 			},
@@ -36,6 +39,15 @@ const route = createRoute({
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
 	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const result = await runHeartbeat({ metaMode, buildMetaClient })
-	return c.json({ ok: true as const, ...result }, 200)
+	const runs = await scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
+	const accountData = runs.reduce(
+		(counts, run) => ({
+			processed: counts.processed + run.processed,
+			failed: counts.failed + run.failed,
+			skipped: counts.skipped + run.skipped,
+			queued: counts.queued + run.queued,
+		}),
+		{ processed: 0, failed: 0, skipped: 0, queued: 0 },
+	)
+	return c.json({ ok: true as const, accountData, runs }, 200)
 })

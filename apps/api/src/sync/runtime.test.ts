@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MetaClient } from '../meta/client'
 
-const sync = vi.hoisted(() => ({ runHeartbeat: vi.fn() }))
+const sync = vi.hoisted(() => ({ runHeartbeat: vi.fn(), scheduleAccountDataRun: vi.fn() }))
 
 vi.mock('./account-tier', () => ({ runHeartbeat: sync.runHeartbeat }))
+vi.mock('./account-data', () => ({ scheduleAccountDataRun: sync.scheduleAccountDataRun }))
 
 const { configureHeartbeat, triggerBackgroundSync } = await import('./runtime')
 

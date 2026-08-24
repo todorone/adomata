@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
 	boolean,
 	customType,
@@ -183,6 +184,51 @@ export const organizationSettings = pgTable('organization_settings', {
 export type OrganizationSettings = typeof organizationSettings.$inferSelect
 export type NewOrganizationSettings = typeof organizationSettings.$inferInsert
 
+export const syncRun = pgTable(
+	'sync_run',
+	{
+		id: text().primaryKey(),
+		agencyId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		trigger: text({ enum: ['cron', 'connect', 'manual'] }).notNull(),
+		status: text({ enum: ['queued', 'running', 'completed', 'failed'] })
+			.notNull()
+			.default('queued'),
+		leaseOwner: text(),
+		leaseExpiresAt: timestamp({ withTimezone: true }),
+		startedAt: timestamp({ withTimezone: true }),
+		completedAt: timestamp({ withTimezone: true }),
+		diagnosticReference: text(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [
+		index('sync_run_agency_created_idx').on(table.agencyId, table.createdAt),
+		index('sync_run_lease_idx').on(table.status, table.leaseExpiresAt),
+		uniqueIndex('sync_run_active_agency_idx')
+			.on(table.agencyId)
+			.where(sql`${table.status} in ('queued', 'running')`),
+	],
+)
+
+export const syncInvocation = pgTable(
+	'sync_invocation',
+	{
+		id: text().primaryKey(),
+		agencyId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		runId: text()
+			.notNull()
+			.references(() => syncRun.id, { onDelete: 'cascade' }),
+		trigger: text({ enum: ['cron', 'connect', 'manual'] }).notNull(),
+		receivedAt: timestamp({ withTimezone: true }).notNull(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [index('sync_invocation_agency_received_idx').on(table.agencyId, table.receivedAt)],
+)
+
 // Fleet Board: Adomata-owned end-brand, scoped under an Agency (see CONTEXT.md — Client)
 export const client = pgTable(
 	'client',
@@ -235,6 +281,13 @@ export const adAccount = pgTable(
 		insightsTierError: text(),
 		accountTierRefreshedAt: timestamp({ withTimezone: true }),
 		insightsTierRefreshedAt: timestamp({ withTimezone: true }),
+		accountDataAttemptedAt: timestamp({ withTimezone: true }),
+		accountDataSuccessfulAt: timestamp({ withTimezone: true }),
+		accountDataError: text(),
+		accountDataDiagnosticReference: text(),
+		accountDataNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		accountDataLeaseOwner: text(),
+		accountDataLeaseExpiresAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
 		metaAccountStatus: integer(),
 		metaDisableReason: integer(),
@@ -251,6 +304,41 @@ export const adAccount = pgTable(
 
 export type AdAccount = typeof adAccount.$inferSelect
 export type NewAdAccount = typeof adAccount.$inferInsert
+
+export const syncAccountOutcome = pgTable(
+	'sync_account_outcome',
+	{
+		id: text().primaryKey(),
+		runId: text()
+			.notNull()
+			.references(() => syncRun.id, { onDelete: 'cascade' }),
+		adAccountId: text()
+			.notNull()
+			.references(() => adAccount.id, { onDelete: 'cascade' }),
+		slice: text({ enum: ['account_data'] }).notNull(),
+		status: text({ enum: ['queued', 'running', 'succeeded', 'failed', 'skipped'] })
+			.notNull()
+			.default('queued'),
+		leaseOwner: text(),
+		leaseExpiresAt: timestamp({ withTimezone: true }),
+		attemptedAt: timestamp({ withTimezone: true }),
+		completedAt: timestamp({ withTimezone: true }),
+		successfulCommitAt: timestamp({ withTimezone: true }),
+		diagnosticReference: text(),
+		error: text(),
+		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+	},
+	table => [
+		uniqueIndex('sync_account_outcome_run_account_slice_idx').on(table.runId, table.adAccountId, table.slice),
+		index('sync_account_outcome_lease_idx').on(table.status, table.leaseExpiresAt),
+		index('sync_account_outcome_account_created_idx').on(table.adAccountId, table.createdAt),
+	],
+)
+
+export type SyncRun = typeof syncRun.$inferSelect
+export type SyncInvocation = typeof syncInvocation.$inferSelect
+export type SyncAccountOutcome = typeof syncAccountOutcome.$inferSelect
 
 export const campaign = pgTable(
 	'campaign',

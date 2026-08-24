@@ -3,19 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MetaClient } from '../meta/client'
 import { configureHeartbeat } from '../sync/runtime'
 
-const sync = vi.hoisted(() => ({ runHeartbeat: vi.fn() }))
+const sync = vi.hoisted(() => ({ scheduleAccountDataRunsForAgencies: vi.fn() }))
 
-vi.mock('../sync/account-tier', () => ({ runHeartbeat: sync.runHeartbeat }))
+vi.mock('../sync/account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
+vi.mock('../sync/account-tier', () => ({ runHeartbeat: vi.fn() }))
 
 const { heartbeatRoutes } = await import('./heartbeat')
 
 describe('POST /heartbeat', () => {
 	beforeEach(() => {
-		sync.runHeartbeat.mockReset()
-		sync.runHeartbeat.mockResolvedValue({
-			accountTier: { processed: 2, failed: 0, skipped: 0, skippedNoToken: 0 },
-			insightsTier: { processed: 1, failed: 0, skipped: 0, skippedNoToken: 0 },
-		})
+		sync.scheduleAccountDataRunsForAgencies.mockReset()
+		sync.scheduleAccountDataRunsForAgencies.mockResolvedValue([
+			{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 },
+		])
 		configureHeartbeat({
 			heartbeatSecret: 'heartbeat-secret',
 			metaMode: 'fake',
@@ -28,7 +28,7 @@ describe('POST /heartbeat', () => {
 		await expect(
 			heartbeatRoutes.request('/', { method: 'POST', headers: { Authorization: 'Bearer wrong-secret' } }),
 		).resolves.toMatchObject({ status: 401 })
-		expect(sync.runHeartbeat).not.toHaveBeenCalled()
+		expect(sync.scheduleAccountDataRunsForAgencies).not.toHaveBeenCalled()
 	})
 
 	it('runs the heartbeat with the configured Meta client for valid credentials', async () => {
@@ -40,9 +40,13 @@ describe('POST /heartbeat', () => {
 		expect(response.status).toBe(200)
 		expect(await response.json()).toEqual({
 			ok: true,
-			accountTier: { processed: 2, failed: 0, skipped: 0, skippedNoToken: 0 },
-			insightsTier: { processed: 1, failed: 0, skipped: 0, skippedNoToken: 0 },
+			accountData: { processed: 2, failed: 1, skipped: 0, queued: 0 },
+			runs: [{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 }],
 		})
-		expect(sync.runHeartbeat).toHaveBeenCalledOnce()
+		expect(sync.scheduleAccountDataRunsForAgencies).toHaveBeenCalledWith({
+			trigger: 'cron',
+			metaMode: 'fake',
+			buildMetaClient: expect.any(Function),
+		})
 	})
 })

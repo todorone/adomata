@@ -29,9 +29,10 @@ type UpsertedAdAccount = Record<string, unknown>
 
 function buildTransaction(options: {
 	existingClientsByBusinessId: Array<{ id: string; metaBusinessId: string | null }>
+	existingAdAccountResults?: Array<Array<{ clientId: string; agencyId: string }>>
 	insertedClients: InsertedClient[]
 	upsertedAdAccounts: UpsertedAdAccount[]
-	retriedAdAccounts?: UpsertedAdAccount[]
+	updatedAdAccounts?: UpsertedAdAccount[]
 }) {
 	return {
 		insert: (table: unknown) => ({
@@ -42,21 +43,49 @@ function buildTransaction(options: {
 				}
 				if (table === adAccount) {
 					return {
-						onConflictDoUpdate: ({ set }: { set: UpsertedAdAccount }) => {
-							options.upsertedAdAccounts.push(values)
-							options.retriedAdAccounts?.push(set)
-							return Promise.resolve(undefined)
-						},
+						onConflictDoNothing: () => ({
+							returning: () => {
+								options.upsertedAdAccounts.push(values)
+								return Promise.resolve([{ id: values.id }])
+							},
+						}),
 					}
 				}
 				throw new Error('Unexpected insert table in test double')
 			},
 		}),
 		select: () => ({
-			from: () => ({
-				where: () => Promise.resolve(options.existingClientsByBusinessId),
-			}),
+			from: (table: unknown) => {
+				if (table === adAccount) {
+					return {
+						innerJoin: () => ({
+							where: () => ({
+								limit: () => Promise.resolve(options.existingAdAccountResults?.shift() ?? []),
+							}),
+						}),
+					}
+				}
+				if (table === client) {
+					return {
+						where: () => ({
+							limit: () => Promise.resolve([...options.existingClientsByBusinessId, ...options.insertedClients]),
+						}),
+					}
+				}
+				throw new Error('Unexpected select table in test double')
+			},
 		}),
+		update: (table: unknown) => {
+			if (table !== adAccount) throw new Error('Unexpected update table in test double')
+			return {
+				set: (values: UpsertedAdAccount) => ({
+					where: () => {
+						options.updatedAdAccounts?.push(values)
+						return Promise.resolve(undefined)
+					},
+				}),
+			}
+		},
 	}
 }
 
@@ -359,17 +388,12 @@ describe('POST /meta-accounts/connect', () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
-		const retriedAdAccounts: UpsertedAdAccount[] = []
-		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(
-				buildTransaction({
-					existingClientsByBusinessId: [{ id: 'client_1', metaBusinessId: 'biz_1' }],
-					insertedClients,
-					upsertedAdAccounts,
-					retriedAdAccounts,
-				}),
-			),
-		)
+		const transaction = buildTransaction({
+			existingClientsByBusinessId: [{ id: 'client_1', metaBusinessId: 'biz_1' }],
+			insertedClients,
+			upsertedAdAccounts,
+		})
+		dbCalls.transaction.mockImplementation(callback => callback(transaction))
 
 		const res = await postConnect({
 			accounts: [
@@ -386,17 +410,13 @@ describe('POST /meta-accounts/connect', () => {
 
 		expect(res.status).toBe(200)
 		const body = connectMetaAccountsResponseSchema.parse(await res.json())
-		expect(body).toEqual({ connected: 1 })
+		expect(body).toEqual({
+			connected: 1,
+			results: [{ metaAccountId: 'act_1', status: 'connected', message: 'Рекламний кабінет підключено' }],
+		})
 		expect(insertedClients).toEqual([])
 		expect(upsertedAdAccounts).toEqual([
 			expect.objectContaining({ id: 'act_1', clientId: 'client_1', name: 'Account 1', currency: 'USD' }),
-		])
-		expect(retriedAdAccounts).toMatchObject([
-			{
-				accountDataNextDueAt: expect.any(Date),
-				hierarchyNextDueAt: expect.any(Date),
-				insightsNextDueAt: expect.any(Date),
-			},
 		])
 		expect(syncCalls.triggerAgencyBackgroundSync).toHaveBeenCalledWith('org_1', 'connect')
 	})
@@ -405,9 +425,8 @@ describe('POST /meta-accounts/connect', () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
-		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })),
-		)
+		const transaction = buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })
+		dbCalls.transaction.mockImplementation(callback => callback(transaction))
 
 		const res = await postConnect({
 			accounts: [
@@ -432,7 +451,13 @@ describe('POST /meta-accounts/connect', () => {
 
 		expect(res.status).toBe(200)
 		const body = connectMetaAccountsResponseSchema.parse(await res.json())
-		expect(body).toEqual({ connected: 2 })
+		expect(body).toEqual({
+			connected: 2,
+			results: [
+				{ metaAccountId: 'act_1', status: 'connected', message: 'Рекламний кабінет підключено' },
+				{ metaAccountId: 'act_2', status: 'connected', message: 'Рекламний кабінет підключено' },
+			],
+		})
 		expect(insertedClients).toHaveLength(1)
 		expect(insertedClients[0]).toMatchObject({ agencyId: 'org_1', name: 'Acme Holdings', metaBusinessId: 'biz_1' })
 		expect(upsertedAdAccounts).toHaveLength(2)
@@ -444,9 +469,8 @@ describe('POST /meta-accounts/connect', () => {
 		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
 		const insertedClients: InsertedClient[] = []
 		const upsertedAdAccounts: UpsertedAdAccount[] = []
-		dbCalls.transaction.mockImplementationOnce(async callback =>
-			callback(buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })),
-		)
+		const transaction = buildTransaction({ existingClientsByBusinessId: [], insertedClients, upsertedAdAccounts })
+		dbCalls.transaction.mockImplementation(callback => callback(transaction))
 
 		const res = await postConnect({
 			accounts: [{ metaAccountId: 'act_1', name: 'Solo account', currency: 'USD', timezoneName: null }],
@@ -454,9 +478,91 @@ describe('POST /meta-accounts/connect', () => {
 
 		expect(res.status).toBe(200)
 		const body = connectMetaAccountsResponseSchema.parse(await res.json())
-		expect(body).toEqual({ connected: 1 })
+		expect(body).toEqual({
+			connected: 1,
+			results: [{ metaAccountId: 'act_1', status: 'connected', message: 'Рекламний кабінет підключено' }],
+		})
 		expect(insertedClients).toHaveLength(1)
 		expect(insertedClients[0]).toMatchObject({ agencyId: 'org_1', name: 'Solo account', metaBusinessId: null })
 		expect(upsertedAdAccounts[0]?.clientId).toBe(insertedClients[0]?.id)
+	})
+
+	it('retries an account already owned by this Agency without moving its Client', async () => {
+		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
+		const insertedClients: InsertedClient[] = []
+		const upsertedAdAccounts: UpsertedAdAccount[] = []
+		const updatedAdAccounts: UpsertedAdAccount[] = []
+		const transaction = buildTransaction({
+			existingClientsByBusinessId: [],
+			existingAdAccountResults: [[{ clientId: 'original_client', agencyId: 'org_1' }]],
+			insertedClients,
+			upsertedAdAccounts,
+			updatedAdAccounts,
+		})
+		dbCalls.transaction.mockImplementation(callback => callback(transaction))
+
+		const res = await postConnect({
+			accounts: [
+				{
+					metaAccountId: 'act_1',
+					name: 'Retried account',
+					currency: 'USD',
+					timezoneName: 'Europe/Kyiv',
+					businessId: 'different-business',
+					businessName: 'Different business',
+				},
+			],
+		})
+
+		expect(res.status).toBe(200)
+		expect(insertedClients).toEqual([])
+		expect(upsertedAdAccounts).toEqual([])
+		expect(updatedAdAccounts).toMatchObject([
+			{
+				name: 'Retried account',
+				currency: 'USD',
+				timezoneName: 'Europe/Kyiv',
+				accountDataNextDueAt: expect.any(Date),
+				hierarchyNextDueAt: expect.any(Date),
+				insightsNextDueAt: expect.any(Date),
+			},
+		])
+		expect(updatedAdAccounts[0]).not.toHaveProperty('clientId')
+	})
+
+	it('connects available accounts while rejecting an account owned by another Agency', async () => {
+		dbCalls.select.mockImplementationOnce(() => chain([{ metaAccessToken: 'a-token' }]))
+		const insertedClients: InsertedClient[] = []
+		const upsertedAdAccounts: UpsertedAdAccount[] = []
+		const transaction = buildTransaction({
+			existingClientsByBusinessId: [],
+			existingAdAccountResults: [[], [{ clientId: 'foreign_client', agencyId: 'org_other' }]],
+			insertedClients,
+			upsertedAdAccounts,
+		})
+		dbCalls.transaction.mockImplementation(callback => callback(transaction))
+
+		const res = await postConnect({
+			accounts: [
+				{ metaAccountId: 'act_available', name: 'Available', currency: 'USD', timezoneName: null },
+				{ metaAccountId: 'act_foreign', name: 'Foreign', currency: 'USD', timezoneName: null },
+			],
+		})
+
+		expect(res.status).toBe(200)
+		expect(connectMetaAccountsResponseSchema.parse(await res.json())).toEqual({
+			connected: 1,
+			results: [
+				{ metaAccountId: 'act_available', status: 'connected', message: 'Рекламний кабінет підключено' },
+				{
+					metaAccountId: 'act_foreign',
+					status: 'failed',
+					message: 'Цей рекламний кабінет уже підключено до іншої агенції',
+				},
+			],
+		})
+		expect(insertedClients).toHaveLength(1)
+		expect(upsertedAdAccounts).toEqual([expect.objectContaining({ id: 'act_available' })])
+		expect(syncCalls.triggerAgencyBackgroundSync).toHaveBeenCalledWith('org_1', 'connect')
 	})
 })

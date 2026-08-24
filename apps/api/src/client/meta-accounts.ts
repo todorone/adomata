@@ -34,5 +34,15 @@ export const connectMetaAccountsBodySchema = z.object({
 })
 export type ConnectMetaAccountsBody = z.infer<typeof connectMetaAccountsBodySchema>
 
-export const connectMetaAccountsResponseSchema = z.object({ connected: z.number().int() })
+export const connectMetaAccountResultSchema = z.object({
+	metaAccountId: z.string(),
+	status: z.enum(['connected', 'failed']),
+	message: z.string(),
+})
+export type ConnectMetaAccountResult = z.infer<typeof connectMetaAccountResultSchema>
+
+export const connectMetaAccountsResponseSchema = z.object({
+	connected: z.number().int(),
+	results: z.array(connectMetaAccountResultSchema),
+})
 export type ConnectMetaAccountsResponse = z.infer<typeof connectMetaAccountsResponseSchema>

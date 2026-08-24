@@ -4,21 +4,37 @@ import { MetaClient } from '../meta/client'
 
 const sync = vi.hoisted(() => ({
 	scheduleAccountDataRunsForAgencies: vi.fn(),
+	scheduleAccountDataRun: vi.fn(),
 	scheduleHierarchyRunsForAgencies: vi.fn(),
+	scheduleHierarchyRun: vi.fn(),
 	scheduleInsightsRunsForAgencies: vi.fn(),
+	scheduleInsightsRun: vi.fn(),
 	scheduleCreativeRunsForAgencies: vi.fn(),
+	scheduleCreativeRun: vi.fn(),
 	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
 }))
 
-vi.mock('./account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
-vi.mock('./hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
-vi.mock('./insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
-vi.mock('./creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
+vi.mock('./account-data', () => ({
+	scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies,
+	scheduleAccountDataRun: sync.scheduleAccountDataRun,
+}))
+vi.mock('./hierarchy', () => ({
+	scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies,
+	scheduleHierarchyRun: sync.scheduleHierarchyRun,
+}))
+vi.mock('./insights', () => ({
+	scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies,
+	scheduleInsightsRun: sync.scheduleInsightsRun,
+}))
+vi.mock('./creative', () => ({
+	scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies,
+	scheduleCreativeRun: sync.scheduleCreativeRun,
+}))
 vi.mock('./historical-reconciliation', () => ({
 	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
 }))
 
-const { configureHeartbeat, triggerBackgroundSync } = await import('./runtime')
+const { configureHeartbeat, triggerAgencyBackgroundSync, triggerBackgroundSync } = await import('./runtime')
 
 describe('triggerBackgroundSync', () => {
 	beforeEach(() => {
@@ -37,7 +53,13 @@ describe('triggerBackgroundSync', () => {
 		triggerBackgroundSync()
 		await new Promise(resolve => setTimeout(resolve, 0))
 
-		for (const scheduler of Object.values(sync)) {
+		for (const scheduler of [
+			sync.scheduleAccountDataRunsForAgencies,
+			sync.scheduleHierarchyRunsForAgencies,
+			sync.scheduleInsightsRunsForAgencies,
+			sync.scheduleCreativeRunsForAgencies,
+			sync.scheduleHistoricalReconciliationRunsForAgencies,
+		]) {
 			expect(scheduler).toHaveBeenCalledWith({ trigger: 'cron', metaMode: 'fake', buildMetaClient })
 		}
 	})
@@ -52,5 +74,29 @@ describe('triggerBackgroundSync', () => {
 
 		expect(() => triggerBackgroundSync()).not.toThrow()
 		await new Promise(resolve => setTimeout(resolve, 0))
+	})
+
+	it('waits for Account data and hierarchy before starting Initial Import insights', async () => {
+		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
+		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		let finishAccountData: (() => void) | undefined
+		let finishHierarchy: (() => void) | undefined
+		sync.scheduleAccountDataRun.mockImplementation(() => new Promise<void>(resolve => (finishAccountData = resolve)))
+		sync.scheduleHierarchyRun.mockImplementation(() => new Promise<void>(resolve => (finishHierarchy = resolve)))
+
+		triggerAgencyBackgroundSync('agency_1', 'connect')
+		await Promise.resolve()
+
+		expect(sync.scheduleInsightsRun).not.toHaveBeenCalled()
+		finishAccountData?.()
+		finishHierarchy?.()
+		await new Promise(resolve => setTimeout(resolve, 0))
+
+		expect(sync.scheduleInsightsRun).toHaveBeenCalledWith({
+			agencyId: 'agency_1',
+			trigger: 'connect',
+			metaMode: 'fake',
+			buildMetaClient,
+		})
 	})
 })

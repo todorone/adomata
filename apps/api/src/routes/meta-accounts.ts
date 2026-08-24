@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import {
 	connectMetaAccountsBodySchema,
 	connectMetaAccountsResponseSchema,
 	metaAccountsDiscoveryResponseSchema,
+	type ConnectMetaAccountItem,
 } from '../client/meta-accounts'
 import { db } from '../db'
 import { adAccount, client, organizationSettings } from '../db/schema'
@@ -138,80 +139,102 @@ export const metaAccountsRoutes = metaAccountsBase
 
 		const { accounts } = c.req.valid('json')
 		const now = new Date()
+		const results = []
+		for (const account of accounts) results.push(await connectAccount(orgId, account, now))
+		const connected = results.filter(result => result.status === 'connected').length
 
-		const connected = await db.transaction(async transaction => {
-			const businessIds = [...new Set(accounts.flatMap(account => (account.businessId ? [account.businessId] : [])))]
-			const clientIdByBusinessId = new Map<string, string>()
-			if (businessIds.length > 0) {
-				const existing = await transaction
-					.select({ id: client.id, metaBusinessId: client.metaBusinessId })
-					.from(client)
-					.where(and(eq(client.agencyId, orgId), inArray(client.metaBusinessId, businessIds)))
-				for (const row of existing) if (row.metaBusinessId) clientIdByBusinessId.set(row.metaBusinessId, row.id)
-			}
+		if (connected > 0) triggerAgencyBackgroundSync(orgId, 'connect')
 
-			for (const account of accounts) {
-				if (account.businessId && !clientIdByBusinessId.has(account.businessId)) {
-					const id = randomUUID()
-					await transaction.insert(client).values({
-						id,
-						agencyId: orgId,
-						name: account.businessName ?? account.name,
-						metaBusinessId: account.businessId,
-						createdAt: now,
-						updatedAt: now,
-					})
-					clientIdByBusinessId.set(account.businessId, id)
-				}
-			}
-
-			for (const account of accounts) {
-				let resolvedClientId = account.businessId ? clientIdByBusinessId.get(account.businessId) : undefined
-				if (!resolvedClientId) {
-					resolvedClientId = randomUUID()
-					await transaction.insert(client).values({
-						id: resolvedClientId,
-						agencyId: orgId,
-						name: account.name,
-						metaBusinessId: null,
-						createdAt: now,
-						updatedAt: now,
-					})
-				}
-				await transaction
-					.insert(adAccount)
-					.values({
-						id: account.metaAccountId,
-						clientId: resolvedClientId,
-						name: account.name,
-						currency: account.currency,
-						timezoneName: account.timezoneName,
-						createdAt: now,
-						updatedAt: now,
-					})
-					.onConflictDoUpdate({
-						target: adAccount.id,
-						set: {
-							clientId: resolvedClientId,
-							name: account.name,
-							currency: account.currency,
-							timezoneName: account.timezoneName,
-							connectionStatus: sql`case when ${adAccount.connectionStatus} = 'access_lost' then 'pending' else ${adAccount.connectionStatus} end`,
-							accountDataNextDueAt: now,
-							hierarchyNextDueAt: now,
-							insightsNextDueAt: now,
-							updatedAt: now,
-						},
-					})
-			}
-
-			return accounts.length
-		})
-
-		triggerAgencyBackgroundSync(orgId, 'connect')
-
-		return c.json(connectMetaAccountsResponseSchema.parse({ connected }), 200)
+		return c.json(connectMetaAccountsResponseSchema.parse({ connected, results }), 200)
 	})
+
+async function connectAccount(orgId: string, account: ConnectMetaAccountItem, now: Date) {
+	try {
+		return await connectAccountOnce(orgId, account, now)
+	} catch (error) {
+		if (error instanceof AccountConnectionConflict) return await connectAccountOnce(orgId, account, now)
+		throw error
+	}
+}
+
+async function connectAccountOnce(orgId: string, account: ConnectMetaAccountItem, now: Date) {
+	return await db.transaction(async transaction => {
+		const [existingAccount] = await transaction
+			.select({ clientId: adAccount.clientId, agencyId: client.agencyId })
+			.from(adAccount)
+			.innerJoin(client, eq(adAccount.clientId, client.id))
+			.where(eq(adAccount.id, account.metaAccountId))
+			.limit(1)
+		if (existingAccount && existingAccount.agencyId !== orgId) {
+			return {
+				metaAccountId: account.metaAccountId,
+				status: 'failed' as const,
+				message: 'Цей рекламний кабінет уже підключено до іншої агенції',
+			}
+		}
+
+		if (existingAccount) {
+			await transaction
+				.update(adAccount)
+				.set({
+					name: account.name,
+					currency: account.currency,
+					timezoneName: account.timezoneName,
+					connectionStatus: sql`case when ${adAccount.connectionStatus} = 'access_lost' then 'pending' else ${adAccount.connectionStatus} end`,
+					accountDataNextDueAt: now,
+					hierarchyNextDueAt: now,
+					insightsNextDueAt: now,
+					updatedAt: now,
+				})
+				.where(eq(adAccount.id, account.metaAccountId))
+			return connectedAccount(account.metaAccountId)
+		}
+
+		let resolvedClientId: string | undefined
+		if (account.businessId) {
+			const [businessClient] = await transaction
+				.select({ id: client.id })
+				.from(client)
+				.where(and(eq(client.agencyId, orgId), eq(client.metaBusinessId, account.businessId)))
+				.limit(1)
+			resolvedClientId = businessClient?.id
+		}
+		if (!resolvedClientId) {
+			resolvedClientId = randomUUID()
+			await transaction.insert(client).values({
+				id: resolvedClientId,
+				agencyId: orgId,
+				name: account.businessName ?? account.name,
+				metaBusinessId: account.businessId ?? null,
+				createdAt: now,
+				updatedAt: now,
+			})
+		}
+
+		const [inserted] = await transaction
+			.insert(adAccount)
+			.values({
+				id: account.metaAccountId,
+				clientId: resolvedClientId,
+				name: account.name,
+				currency: account.currency,
+				timezoneName: account.timezoneName,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoNothing()
+			.returning({ id: adAccount.id })
+		if (!inserted) throw new AccountConnectionConflict()
+
+		return connectedAccount(account.metaAccountId)
+	})
+}
+
+class AccountConnectionConflict extends Error {}
+
+function connectedAccount(metaAccountId: string) {
+	return { metaAccountId, status: 'connected' as const, message: 'Рекламний кабінет підключено' }
+}
 
 function initialImportStatus(
 	existing:

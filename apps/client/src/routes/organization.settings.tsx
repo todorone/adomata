@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import type { ConnectMetaAccountItem } from '@adomata/api/client'
+import type { ConnectMetaAccountItem, ConnectMetaAccountsResponse } from '@adomata/api/client'
 
 import { useMetaAccountsDiscovery, useConnectMetaAccounts } from '@/data/meta-accounts'
 import { useMe } from '@/data/me'
@@ -12,6 +12,10 @@ import { Label } from '@/ui/label'
 
 function MetaAccountsSection() {
 	const [discoveryEnabled, setDiscoveryEnabled] = useState(false)
+	const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
+	const [connectionReport, setConnectionReport] = useState<
+		Array<{ accountName: string; status: 'connected' | 'failed'; message: string }>
+	>([])
 	const discovery = useMetaAccountsDiscovery(discoveryEnabled)
 	const connect = useConnectMetaAccounts()
 
@@ -20,13 +24,14 @@ function MetaAccountsSection() {
 	const importingAccounts = accounts.filter(account => account.initialImportStatus === 'importing')
 	const failedImports = accounts.filter(account => account.initialImportStatus === 'failed')
 	const unconnectedAccounts = accounts.filter(account => !account.connected)
+	const selectedAccounts = unconnectedAccounts.filter(account => selectedAccountIds.includes(account.metaAccountId))
 
 	function handleDiscover() {
 		if (discoveryEnabled) discovery.refetch()
 		else setDiscoveryEnabled(true)
 	}
 
-	function handleConnect(selectedAccounts = unconnectedAccounts) {
+	function handleConnect(selectedAccounts: typeof unconnectedAccounts) {
 		const items: ConnectMetaAccountItem[] = selectedAccounts.map(account => ({
 			metaAccountId: account.metaAccountId,
 			name: account.name,
@@ -36,7 +41,23 @@ function MetaAccountsSection() {
 			businessName: account.businessName,
 		}))
 		if (items.length === 0) return
-		connect.mutate({ accounts: items })
+		connect.mutate(
+			{ accounts: items },
+			{
+				onSuccess: (result: ConnectMetaAccountsResponse) => {
+					setConnectionReport(
+						result.results.map(item => ({
+							accountName:
+								selectedAccounts.find(account => account.metaAccountId === item.metaAccountId)?.name ??
+								item.metaAccountId,
+							status: item.status,
+							message: item.message,
+						})),
+					)
+					setSelectedAccountIds([])
+				},
+			},
+		)
 	}
 
 	return (
@@ -90,6 +111,19 @@ function MetaAccountsSection() {
 				</div>
 			)}
 
+			{connectionReport.length > 0 && (
+				<div className="flex flex-col gap-1" aria-live="polite">
+					{connectionReport.map(item => (
+						<p
+							key={`${item.accountName}-${item.status}`}
+							className={item.status === 'failed' ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}
+						>
+							{item.accountName} — {item.message}
+						</p>
+					))}
+				</div>
+			)}
+
 			{unconnectedAccounts.length > 0 && (
 				<div className="flex flex-col gap-3">
 					{unconnectedAccounts.map(account => (
@@ -97,12 +131,28 @@ function MetaAccountsSection() {
 							key={account.metaAccountId}
 							className="flex flex-col gap-1 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
 						>
-							<div>
-								<p className="font-medium">{account.name}</p>
-								<p className="text-muted-foreground text-sm">
-									{account.currency}
-									{account.timezoneName ? ` · ${account.timezoneName}` : ''}
-								</p>
+							<div className="flex items-start gap-3">
+								<input
+									id={`meta-account-${account.metaAccountId}`}
+									type="checkbox"
+									checked={selectedAccountIds.includes(account.metaAccountId)}
+									onChange={event =>
+										setSelectedAccountIds(ids =>
+											event.target.checked
+												? [...ids, account.metaAccountId]
+												: ids.filter(id => id !== account.metaAccountId),
+										)
+									}
+								/>
+								<div>
+									<Label htmlFor={`meta-account-${account.metaAccountId}`} className="font-medium">
+										{account.name}
+									</Label>
+									<p className="text-muted-foreground text-sm">
+										{account.currency}
+										{account.timezoneName ? ` · ${account.timezoneName}` : ''}
+									</p>
+								</div>
 							</div>
 							<p className="text-muted-foreground text-sm">
 								{account.clientId
@@ -111,9 +161,21 @@ function MetaAccountsSection() {
 							</p>
 						</div>
 					))}
-					<div>
-						<Button type="button" onClick={() => handleConnect()} disabled={connect.isPending}>
-							{connect.isPending ? 'Підключення…' : `Підключити всі (${unconnectedAccounts.length})`}
+					<div className="flex gap-2">
+						<Button
+							type="button"
+							onClick={() => handleConnect(selectedAccounts)}
+							disabled={connect.isPending || selectedAccounts.length === 0}
+						>
+							{connect.isPending ? 'Підключення…' : `Підключити вибрані (${selectedAccounts.length})`}
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => handleConnect(unconnectedAccounts)}
+							disabled={connect.isPending}
+						>
+							Підключити всі ({unconnectedAccounts.length})
 						</Button>
 					</div>
 					{connect.isError && <p className="text-destructive text-sm">{connect.error.message}</p>}

@@ -55,12 +55,28 @@ export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect'
 	try {
 		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
 		Promise.all([
-			scheduleAccountDataRun({ agencyId, trigger, metaMode, buildMetaClient }),
-			scheduleHierarchyRun({ agencyId, trigger, metaMode, buildMetaClient }),
-			scheduleInsightsRun({ agencyId, trigger, metaMode, buildMetaClient }),
-			scheduleCreativeRun({ agencyId, trigger, metaMode, buildMetaClient }),
-		]).catch(error =>
-			logger.warn('Durable operational slice scheduling failed', {
+			scheduleAccountDataRun({
+				agencyId,
+				trigger,
+				metaMode,
+				buildMetaClient,
+			}),
+			scheduleHierarchyRun({
+				agencyId,
+				trigger,
+				metaMode,
+				buildMetaClient,
+			}),
+		])
+			.then(() => scheduleInsightsRun({ agencyId, trigger, metaMode, buildMetaClient }))
+			.catch(error =>
+				logger.warn('Durable operational slice scheduling failed', {
+					agencyId,
+					category: error instanceof Error ? error.name : 'unknown',
+				}),
+			)
+		scheduleCreativeRun({ agencyId, trigger, metaMode, buildMetaClient }).catch(error =>
+			logger.warn('Creative enrichment scheduling failed', {
 				agencyId,
 				category: error instanceof Error ? error.name : 'unknown',
 			}),

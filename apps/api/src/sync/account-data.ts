@@ -20,6 +20,7 @@ export type AccountDataRunOptions = {
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
 	clock?: () => Date
+	onAccountSynchronized?: (accountId: string) => void
 }
 
 export type EnqueuedAccountDataRun = {
@@ -46,6 +47,7 @@ type AccountDataOutcomeContext = {
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now: Date
 	clock: () => Date
+	onAccountSynchronized?: (accountId: string) => void
 }
 
 export async function enqueueAccountDataRun({
@@ -140,6 +142,7 @@ export async function runAccountDataGeneration({
 	buildMetaClient,
 	now = new Date(),
 	clock = () => new Date(),
+	onAccountSynchronized,
 }: AccountDataRunOptions & { runId: string }): Promise<AccountDataGenerationResult> {
 	const leaseOwner = randomUUID()
 	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
@@ -161,6 +164,7 @@ export async function runAccountDataGeneration({
 			buildMetaClient,
 			now,
 			clock,
+			onAccountSynchronized,
 		})
 	})
 
@@ -379,6 +383,7 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
+		params.onAccountSynchronized?.(account.adAccount.id)
 		return true
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)

@@ -31,6 +31,7 @@ export type HierarchyRunOptions = {
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now?: Date
 	clock?: () => Date
+	onAccountSynchronized?: (accountId: string) => void
 }
 
 export type EnqueuedHierarchyRun = {
@@ -57,6 +58,7 @@ type HierarchyOutcomeContext = {
 	buildMetaClient: (accessToken?: string) => MetaClient
 	now: Date
 	clock: () => Date
+	onAccountSynchronized?: (accountId: string) => void
 }
 
 export async function enqueueHierarchyRun({
@@ -166,6 +168,7 @@ export async function runHierarchyGeneration({
 	buildMetaClient,
 	now = new Date(),
 	clock = () => new Date(),
+	onAccountSynchronized,
 }: HierarchyRunOptions & { runId: string }): Promise<HierarchyGenerationResult> {
 	const leaseOwner = randomUUID()
 	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
@@ -187,6 +190,7 @@ export async function runHierarchyGeneration({
 			buildMetaClient,
 			now,
 			clock,
+			onAccountSynchronized,
 		})
 	})
 
@@ -447,6 +451,7 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
+		params.onAccountSynchronized?.(account.adAccount.id)
 		return true
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)

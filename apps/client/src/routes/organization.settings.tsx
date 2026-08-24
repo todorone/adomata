@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import type { ConnectMetaAccountItem } from '@adomata/api/client'
 
-import { useConfirm } from '@/components/modal-provider'
-import { useMetaAccountsDiscovery, useConnectMetaAccounts, useResyncMetaAccounts } from '@/data/meta-accounts'
+import { useMetaAccountsDiscovery, useConnectMetaAccounts } from '@/data/meta-accounts'
 import { useMe } from '@/data/me'
 import { useOrganizationSettings, useUpdateOrganizationSettings } from '@/data/organization-settings'
 import { requireSession } from '@/data/session'
@@ -12,11 +11,9 @@ import { Input } from '@/ui/input'
 import { Label } from '@/ui/label'
 
 function MetaAccountsSection() {
-	const confirm = useConfirm()
 	const [discoveryEnabled, setDiscoveryEnabled] = useState(false)
 	const discovery = useMetaAccountsDiscovery(discoveryEnabled)
 	const connect = useConnectMetaAccounts()
-	const resync = useResyncMetaAccounts()
 
 	const accounts = discovery.data?.accounts ?? []
 	const connectedAccounts = accounts.filter(account => account.connected)
@@ -38,16 +35,6 @@ function MetaAccountsSection() {
 		}))
 		if (items.length === 0) return
 		connect.mutate({ accounts: items })
-	}
-
-	async function handleResync() {
-		const confirmed = await confirm({
-			title: 'Повторно синхронізувати історію показників?',
-			description:
-				'Для всіх раніше синхронізованих рекламних кабінетів агенції буде повторно завантажено до 90 днів історії з Meta. Це може тривати певний час.',
-			confirmLabel: 'Розпочати синхронізацію',
-		})
-		if (confirmed) resync.mutate()
 	}
 
 	return (
@@ -103,22 +90,6 @@ function MetaAccountsSection() {
 			{discoveryEnabled && !discovery.isFetching && !discovery.isError && accounts.length === 0 && (
 				<p className="text-muted-foreground text-sm">Рекламні кабінети не знайдено.</p>
 			)}
-
-			<div className="flex flex-col gap-2 border-t pt-4">
-				<div>
-					<h3 className="font-medium">Оновити історію показників</h3>
-					<p className="text-muted-foreground text-sm">
-						Тимчасова дія для завантаження до 90 днів історії для вже підключених рекламних кабінетів.
-					</p>
-				</div>
-				<div>
-					<Button type="button" variant="outline" onClick={handleResync} disabled={resync.isPending}>
-						{resync.isPending ? 'Запуск синхронізації…' : 'Повторно синхронізувати історію'}
-					</Button>
-				</div>
-				{resync.isError && <p className="text-destructive text-sm">{resync.error.message}</p>}
-				{resync.isSuccess && <p className="text-sm text-green-700">Синхронізацію історії поставлено в чергу.</p>}
-			</div>
 		</div>
 	)
 }

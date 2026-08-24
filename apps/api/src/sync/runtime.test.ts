@@ -7,12 +7,16 @@ const sync = vi.hoisted(() => ({
 	scheduleHierarchyRunsForAgencies: vi.fn(),
 	scheduleInsightsRunsForAgencies: vi.fn(),
 	scheduleCreativeRunsForAgencies: vi.fn(),
+	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
 }))
 
 vi.mock('./account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
 vi.mock('./hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
 vi.mock('./insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
 vi.mock('./creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
+vi.mock('./historical-reconciliation', () => ({
+	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
+}))
 
 const { configureHeartbeat, triggerBackgroundSync } = await import('./runtime')
 

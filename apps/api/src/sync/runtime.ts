@@ -2,6 +2,7 @@ import { logger } from '../core/logger'
 import type { MetaClient } from '../meta/client'
 import { scheduleAccountDataRun, scheduleAccountDataRunsForAgencies } from './account-data'
 import { scheduleCreativeRun, scheduleCreativeRunsForAgencies } from './creative'
+import { scheduleHistoricalReconciliationRunsForAgencies } from './historical-reconciliation'
 import { scheduleHierarchyRun, scheduleHierarchyRunsForAgencies } from './hierarchy'
 import { scheduleInsightsRun, scheduleInsightsRunsForAgencies } from './insights'
 
@@ -30,6 +31,7 @@ export function triggerBackgroundSync() {
 			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 		]).then(results => {
 			for (const result of results) {
 				if (result.status === 'rejected')

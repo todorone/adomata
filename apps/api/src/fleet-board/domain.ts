@@ -150,6 +150,15 @@ export function reconciliationWindow(timezoneName: string, now = new Date()): Ac
 	return { start: shiftDate(end, -28), end }
 }
 
+export function historicalReconciliationRange(timezoneName: string, now = new Date()): AccountDateRange {
+	const end = shiftDate(localDate(timezoneName, now), -1)
+	return { start: shiftDate(end, -27), end }
+}
+
+export function historicalReconciliationRangeForEndDate(end: string): AccountDateRange {
+	return { start: shiftDate(end, -27), end }
+}
+
 export function firstConnectStart(timezoneName: string, now = new Date()) {
 	return shiftDate(localDate(timezoneName, now), -90)
 }

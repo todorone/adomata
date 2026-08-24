@@ -8,12 +8,16 @@ const sync = vi.hoisted(() => ({
 	scheduleHierarchyRunsForAgencies: vi.fn(),
 	scheduleInsightsRunsForAgencies: vi.fn(),
 	scheduleCreativeRunsForAgencies: vi.fn(),
+	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
 }))
 
 vi.mock('../sync/account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
 vi.mock('../sync/hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
 vi.mock('../sync/insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
 vi.mock('../sync/creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
+vi.mock('../sync/historical-reconciliation', () => ({
+	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
+}))
 
 const { heartbeatRoutes } = await import('./heartbeat')
 
@@ -23,12 +27,14 @@ describe('POST /heartbeat', () => {
 		sync.scheduleHierarchyRunsForAgencies.mockReset()
 		sync.scheduleInsightsRunsForAgencies.mockReset()
 		sync.scheduleCreativeRunsForAgencies.mockReset()
+		sync.scheduleHistoricalReconciliationRunsForAgencies.mockReset()
 		sync.scheduleAccountDataRunsForAgencies.mockResolvedValue([
 			{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 },
 		])
 		sync.scheduleHierarchyRunsForAgencies.mockResolvedValue([])
 		sync.scheduleInsightsRunsForAgencies.mockResolvedValue([])
 		sync.scheduleCreativeRunsForAgencies.mockResolvedValue([])
+		sync.scheduleHistoricalReconciliationRunsForAgencies.mockResolvedValue([])
 		configureHeartbeat({
 			heartbeatSecret: 'heartbeat-secret',
 			metaMode: 'fake',
@@ -72,6 +78,11 @@ describe('POST /heartbeat', () => {
 			buildMetaClient: expect.any(Function),
 		})
 		expect(sync.scheduleCreativeRunsForAgencies).toHaveBeenCalledWith({
+			trigger: 'cron',
+			metaMode: 'fake',
+			buildMetaClient: expect.any(Function),
+		})
+		expect(sync.scheduleHistoricalReconciliationRunsForAgencies).toHaveBeenCalledWith({
 			trigger: 'cron',
 			metaMode: 'fake',
 			buildMetaClient: expect.any(Function),

@@ -5,6 +5,7 @@ import { scheduleAccountDataRunsForAgencies } from '../sync/account-data'
 import { scheduleCreativeRunsForAgencies } from '../sync/creative'
 import { scheduleHierarchyRunsForAgencies } from '../sync/hierarchy'
 import { scheduleInsightsRunsForAgencies } from '../sync/insights'
+import { scheduleHistoricalReconciliationRunsForAgencies } from '../sync/historical-reconciliation'
 import { getHeartbeatDependencies } from '../sync/runtime'
 
 const route = createRoute({
@@ -43,17 +44,20 @@ const route = createRoute({
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
 	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const [accountDataResult, hierarchyResult, insightsResult, creativeResult] = await Promise.allSettled([
-		scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-	])
+	const [accountDataResult, hierarchyResult, insightsResult, creativeResult, historicalReconciliationResult] =
+		await Promise.allSettled([
+			scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+			scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
+		])
 	if (accountDataResult.status === 'rejected') throw accountDataResult.reason
 	for (const [slice, result] of [
 		['hierarchy', hierarchyResult],
 		['insights', insightsResult],
 		['creative', creativeResult],
+		['historical reconciliation', historicalReconciliationResult],
 	] as const) {
 		if (result.status === 'rejected') {
 			logger.warn(`Durable ${slice} scheduling failed`, {

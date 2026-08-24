@@ -191,7 +191,7 @@ export const syncRun = pgTable(
 		agencyId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: 'cascade' }),
-		slice: text({ enum: ['account_data', 'hierarchy', 'insights', 'creative'] })
+		slice: text({ enum: ['account_data', 'hierarchy', 'insights', 'creative', 'historical_reconciliation'] })
 			.notNull()
 			.default('account_data'),
 		trigger: text({ enum: ['cron', 'connect', 'manual'] }).notNull(),
@@ -312,6 +312,14 @@ export const adAccount = pgTable(
 		creativeNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		creativeLeaseOwner: text(),
 		creativeLeaseExpiresAt: timestamp({ withTimezone: true }),
+		historicalReconciliationAttemptedAt: timestamp({ withTimezone: true }),
+		historicalReconciliationSuccessfulAt: timestamp({ withTimezone: true }),
+		historicalReconciliationDate: date(),
+		historicalReconciliationPendingDate: date(),
+		historicalReconciliationError: text(),
+		historicalReconciliationDiagnosticReference: text(),
+		historicalReconciliationLeaseOwner: text(),
+		historicalReconciliationLeaseExpiresAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)
 		metaAccountStatus: integer(),
 		metaDisableReason: integer(),
@@ -339,7 +347,9 @@ export const syncAccountOutcome = pgTable(
 		adAccountId: text()
 			.notNull()
 			.references(() => adAccount.id, { onDelete: 'cascade' }),
-		slice: text({ enum: ['account_data', 'hierarchy', 'insights', 'creative'] }).notNull(),
+		slice: text({
+			enum: ['account_data', 'hierarchy', 'insights', 'creative', 'historical_reconciliation'],
+		}).notNull(),
 		status: text({ enum: ['queued', 'running', 'succeeded', 'failed', 'skipped'] })
 			.notNull()
 			.default('queued'),
@@ -350,6 +360,7 @@ export const syncAccountOutcome = pgTable(
 		successfulCommitAt: timestamp({ withTimezone: true }),
 		diagnosticReference: text(),
 		error: text(),
+		reconciliationDate: date(),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},

@@ -1,14 +1,8 @@
 import { createMiddleware } from 'hono/factory'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SQL } from 'drizzle-orm'
-import { PgDialect } from 'drizzle-orm/pg-core'
 
 import { apiErrorSchema } from '../client/error'
-import {
-	connectMetaAccountsResponseSchema,
-	metaAccountsDiscoveryResponseSchema,
-	resyncMetaAccountsResponseSchema,
-} from '../client/meta-accounts'
+import { connectMetaAccountsResponseSchema, metaAccountsDiscoveryResponseSchema } from '../client/meta-accounts'
 import { adAccount, client } from '../db/schema'
 import { MetaApiError } from '../meta/client'
 
@@ -64,7 +58,7 @@ function buildTransaction(options: {
 	}
 }
 
-const dbCalls = vi.hoisted(() => ({ select: vi.fn(), transaction: vi.fn(), update: vi.fn() }))
+const dbCalls = vi.hoisted(() => ({ select: vi.fn(), transaction: vi.fn() }))
 const metaCalls = vi.hoisted(() => ({ listAdAccounts: vi.fn(), buildMetaClient: vi.fn() }))
 const syncCalls = vi.hoisted(() => ({ triggerAgencyBackgroundSync: vi.fn() }))
 
@@ -72,7 +66,6 @@ vi.mock('../db', () => ({
 	db: {
 		select: dbCalls.select,
 		transaction: dbCalls.transaction,
-		update: dbCalls.update,
 	},
 }))
 
@@ -125,65 +118,10 @@ vi.mock('../logic/auth', () => ({
 beforeEach(() => {
 	dbCalls.select.mockReset()
 	dbCalls.transaction.mockReset()
-	dbCalls.update.mockReset()
 	metaCalls.listAdAccounts.mockReset()
 	metaCalls.buildMetaClient.mockReset()
 	metaCalls.buildMetaClient.mockReturnValue({ listAdAccounts: metaCalls.listAdAccounts })
 	syncCalls.triggerAgencyBackgroundSync.mockReset()
-})
-
-describe('POST /meta-accounts/resync-insights', () => {
-	function postResync(headers: Record<string, string> = {}) {
-		return import('../app').then(({ app }) =>
-			app.request('/meta-accounts/resync-insights', { method: 'POST', headers }),
-		)
-	}
-
-	it('rejects a non-owner member', async () => {
-		const res = await postResync({ 'x-test-role': 'member' })
-
-		expect(res.status).toBe(403)
-		expect(apiErrorSchema.parse(await res.json()).error.code).toBe('FORBIDDEN')
-		expect(dbCalls.update).not.toHaveBeenCalled()
-	})
-
-	it('resets only completed Insights Tier syncs in the calling Agency', async () => {
-		const from = vi.fn()
-		let whereCondition: SQL | undefined
-		const where = vi.fn((condition: SQL) => {
-			whereCondition = condition
-			return Promise.resolve(undefined)
-		})
-		const set = vi.fn(() => ({
-			from: (...args: unknown[]) => {
-				from(...args)
-				return { where }
-			},
-		}))
-		dbCalls.update.mockReturnValue({ set })
-
-		const res = await postResync()
-
-		expect(res.status).toBe(200)
-		expect(resyncMetaAccountsResponseSchema.parse(await res.json())).toEqual({ acknowledged: true })
-		expect(dbCalls.update).toHaveBeenCalledWith(adAccount)
-		expect(set).toHaveBeenCalledWith(
-			expect.objectContaining({
-				accountTierRefreshedAt: null,
-				insightsTierRefreshedAt: null,
-				insightsSuccessfulAt: null,
-				insightsNextDueAt: expect.any(Date),
-				updatedAt: expect.any(Date),
-			}),
-		)
-		expect(from).toHaveBeenCalledWith(client)
-		if (!whereCondition) throw new Error('Expected an update scope')
-		const scope = new PgDialect().sqlToQuery(whereCondition)
-		expect(scope.sql).toBe(
-			'("ad_account"."clientId" = "client"."id" and "client"."agencyId" = $1 and "ad_account"."insightsSuccessfulAt" is not null)',
-		)
-		expect(scope.params).toEqual(['org_1'])
-	})
 })
 
 describe('GET /meta-accounts', () => {

@@ -12,6 +12,9 @@ Read this before touching anything in production.
   Assets). Public origin: `https://app.adomata.com`. It is built with
   `VITE_API_URL=https://api.adomata.com` and talks to the API directly
   (cross-origin, bearer auth).
+- **Scheduler** (`apps/scheduler`) is the separate Cloudflare Worker
+  `adomata-scheduler-v1`. Its versioned `*/5 * * * *` Cron Trigger calls the
+  API's authenticated `/heartbeat` endpoint; it serves no public client traffic.
 - **TLS / routing** for the API is handled by Coolify's **Traefik** reverse
   proxy (`coolify-proxy`, ports 80/443), with Let's Encrypt certs. The API
   container also publishes `:3000` on the host, but public traffic comes through
@@ -30,7 +33,7 @@ Read this before touching anything in production.
 
 ## How deploys happen
 
-Both apps **auto-deploy on push to `main`**. There is no deploy step in CI
+The API and Client **auto-deploy on push to `main`**. There is no deploy step in CI
 (`.github/workflows/checks.yml` only runs lint / ts / unit tests / e2e).
 
 - **API:** Coolify watches `main` (git webhook) and on each push rebuilds the
@@ -46,6 +49,10 @@ Both apps **auto-deploy on push to `main`**. There is no deploy step in CI
   (runs the build with the production `VITE_API_URL`, per `apps/client/wrangler.jsonc`'s
   `build.command`). The manual fallback is `pnpm --filter client deploy`
   (`wrangler deploy`).
+- **Scheduler:** deploy independently after changing `apps/scheduler` with
+  `pnpm --filter @adomata/scheduler deploy`. This must be done by a human with
+  Cloudflare deployment access; the versioned Worker configuration and Cron
+  Trigger are committed in `apps/scheduler/wrangler.jsonc`.
 
 **Rollback:** "Redeploy" a previous deployment from the Coolify UI. This is a
 **human** action — agents do not deploy or roll back.
@@ -93,7 +100,7 @@ point-in-time recovery later. Do not approximate that with automatic dump
 restore.
 
 **Secrets / env vars** live in **Coolify** (for the API) and **Cloudflare** (for
-the client), not in the repo. The API container's env includes `DATABASE_URL`,
+the client and Scheduler), not in the repo. The API container's env includes `DATABASE_URL`,
 `POSTGRES_*`, `BETTER_AUTH_SECRET`, `SUPERADMIN_EMAIL`, `CLIENT_URL`, the
 Cloudflare Email Service credentials (`CLOUDFLARE_ACCOUNT_ID`,
 `CLOUDFLARE_EMAIL_API_TOKEN`, `EMAIL_FROM`), optional social sign-in
@@ -107,6 +114,22 @@ mode — each Agency's own token is stored in `organizationSettings` and set fro
 its Organization Settings page. Adomata has no `R2_*` or `VAPID_*` vars — there's
 no File/Avatar/Push domain yet. To read the live env on the box:
 `docker exec <api-container> env`.
+
+## Scheduler Worker
+
+The Scheduler's non-secret API origin is committed as `API_URL` in
+`apps/scheduler/wrangler.jsonc`. Before its first deployment, set its required
+Cloudflare Worker secret to the exact same value as the API's
+`HEARTBEAT_SECRET`; never add either value to Git:
+
+```sh
+pnpm --filter @adomata/scheduler exec wrangler secret put HEARTBEAT_SECRET
+pnpm --filter @adomata/scheduler deploy
+```
+
+The Worker throws when the API responds outside the 2xx range, which makes a
+rejected scheduling attempt visible in the Cloudflare invocation logs rather
+than silently accepting it.
 
 ## Accessing production to debug
 

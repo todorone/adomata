@@ -1,0 +1,14 @@
+{
+	"name": "@adomata/scheduler",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
+		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check",
+		"lint": "eslint src",
+		"test": "vitest run",
+		"ts": "tsc"
+	}
+}

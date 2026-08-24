@@ -1,0 +1,13 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "adomata-scheduler-v1",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-24",
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	},
+	"secrets": { "required": ["HEARTBEAT_SECRET"] },
+	"vars": {
+		"API_URL": "https://api.adomata.com"
+	}
+}

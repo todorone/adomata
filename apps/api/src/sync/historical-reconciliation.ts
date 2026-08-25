@@ -20,6 +20,7 @@ import { dateRangeForAccount, historicalReconciliationRangeForEndDate } from '..
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
+import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const runLeaseMilliseconds = 60 * 1000
 const reconciliationConcurrency = 1
@@ -204,6 +205,7 @@ export async function scheduleHistoricalReconciliationRunsForAgencies(
 export async function runHistoricalReconciliationGeneration({
 	agencyId,
 	runId,
+	trigger,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
@@ -222,16 +224,18 @@ export async function runHistoricalReconciliationGeneration({
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
 		.orderBy(asc(syncAccountOutcome.createdAt))
 	await mapWithConcurrency(outcomes, reconciliationConcurrency, async outcome =>
-		processOutcome({
-			agencyId,
-			runId,
-			outcomeId: outcome.id,
-			leaseOwner,
-			metaMode,
-			buildMetaClient,
-			now,
-			clock,
-		}),
+		runWithMetaCapacity(priorityForSyncWork(trigger, 'historical_reconciliation'), () =>
+			processOutcome({
+				agencyId,
+				runId,
+				outcomeId: outcome.id,
+				leaseOwner,
+				metaMode,
+				buildMetaClient,
+				now,
+				clock,
+			}),
+		),
 	)
 
 	await finishRun({ runId, leaseOwner, now: clock() })

@@ -20,6 +20,7 @@ import { dateRangeForAccount, firstConnectStart } from '../fleet-board/domain'
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
+import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const insightsIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -177,6 +178,7 @@ export async function scheduleInsightsRunsForAgencies(
 export async function runInsightsGeneration({
 	agencyId,
 	runId,
+	trigger,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
@@ -188,22 +190,24 @@ export async function runInsightsGeneration({
 	if (!claimed) return await readGenerationResult(runId)
 
 	const outcomes = await db
-		.select({ id: syncAccountOutcome.id })
+		.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'insights')))
 		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 	await mapWithConcurrency(outcomes, insightsConcurrency, async outcome => {
-		return processOutcome({
-			agencyId,
-			runId,
-			outcomeId: outcome.id,
-			leaseOwner,
-			metaMode,
-			buildMetaClient,
-			now,
-			clock,
-		})
+		return runWithMetaCapacity(priorityForSyncWork(trigger, 'insights', outcome.connectionStatus), () =>
+			processOutcome({
+				agencyId,
+				runId,
+				outcomeId: outcome.id,
+				leaseOwner,
+				metaMode,
+				buildMetaClient,
+				now,
+				clock,
+			}),
+		)
 	})
 
 	await finishRun({ runId, leaseOwner, now: clock() })

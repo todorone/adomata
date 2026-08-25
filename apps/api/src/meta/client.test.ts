@@ -81,6 +81,21 @@ describe('MetaClient', () => {
 		expect(new URL(fetch.mock.calls[1][0]).searchParams.get('fields')).toBe(prepayFields)
 	})
 
+	it('does not fall back to narrower Account fields after an exhausted throttle observation', async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({ error: { message: 'Permission denied', type: 'OAuthException', code: 10 } }),
+					{ status: 400, headers: { 'X-App-Usage': '{"call_count":100}' } },
+				),
+			)
+		const client = new MetaClient({ accessToken: 'access token', fetch })
+
+		await expect(client.getAccount('100000000000001')).rejects.toMatchObject({ code: 10 })
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
 	it('falls back to baseline fields when the prepay flag is also unavailable', async () => {
 		const fetch = vi
 			.fn()
@@ -155,6 +170,25 @@ describe('MetaClient', () => {
 		expect(new URL(firstUrl).pathname).toBe('/v25.0/act_100000000000001/campaigns')
 		expect(new URL(firstUrl).searchParams.get('fields')).toBe('id,name,effective_status,objective')
 		expect(new URL(firstUrl).searchParams.has('effective_status')).toBe(false)
+	})
+
+	it('stops pagination once Meta reports an exhausted budget', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					data: [{ id: 'campaign-1', name: 'Campaign 1', effective_status: 'ACTIVE', objective: 'OUTCOME_LEADS' }],
+					paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/campaigns?after=page-2' },
+				}),
+				{ status: 200, headers: { 'X-App-Usage': '{"call_count":100}' } },
+			),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.listCampaigns('100000000000001')).resolves.toMatchObject({
+			items: [{ id: 'campaign-1' }],
+			throttle: { exhausted: true },
+		})
+		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
 	it('lists Ad Accounts and normalizes missing timezones to null', async () => {
@@ -496,7 +530,7 @@ describe('MetaClient', () => {
 		expect(fetch).toHaveBeenCalledTimes(3)
 	})
 
-	it('retries a Meta rate limit exactly twice with exponential delays and retains usage headers', async () => {
+	it('stops retrying once Meta reports an exhausted budget and retains usage headers', async () => {
 		const fetch = vi.fn().mockImplementation(() =>
 			Promise.resolve(
 				new Response(
@@ -517,6 +551,22 @@ describe('MetaClient', () => {
 			code: 4,
 			appUsage: { callCount: 100, totalCpuTime: 100, totalTime: 100 },
 		})
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(sleep).not.toHaveBeenCalled()
+	})
+
+	it('retries transient Meta failures with bounded exponential jitter', async () => {
+		const fetch = vi.fn().mockImplementation(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ error: { message: 'upstream failure', type: 'OAuthException', code: 1 } }), {
+					status: 500,
+				}),
+			),
+		)
+		const sleep = vi.fn().mockResolvedValue(undefined)
+		const client = new MetaClient({ accessToken: 'token', fetch, sleep, random: () => 0.5 })
+
+		await expect(client.getAccount('100000000000005')).rejects.toMatchObject({ status: 500, code: 1 })
 		expect(fetch).toHaveBeenCalledTimes(3)
 		expect(sleep).toHaveBeenNthCalledWith(1, 1500)
 		expect(sleep).toHaveBeenNthCalledWith(2, 3000)

@@ -15,6 +15,7 @@ import {
 } from '../db/schema'
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
+import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const accountDataIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -160,6 +161,7 @@ export async function scheduleAccountDataRun(options: AccountDataRunOptions) {
 export async function runAccountDataGeneration({
 	agencyId,
 	runId,
+	trigger,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
@@ -172,23 +174,25 @@ export async function runAccountDataGeneration({
 	if (!claimed) return await readGenerationResult(runId)
 
 	const outcomes = await db
-		.select({ id: syncAccountOutcome.id })
+		.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(eq(syncAccountOutcome.runId, runId))
 		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 	await mapWithConcurrency(outcomes, 1, async outcome => {
-		return processOutcome({
-			agencyId,
-			runId,
-			outcomeId: outcome.id,
-			leaseOwner,
-			metaMode,
-			buildMetaClient,
-			now,
-			clock,
-			onAccountSynchronized,
-		})
+		return runWithMetaCapacity(priorityForSyncWork(trigger, 'account_data', outcome.connectionStatus), () =>
+			processOutcome({
+				agencyId,
+				runId,
+				outcomeId: outcome.id,
+				leaseOwner,
+				metaMode,
+				buildMetaClient,
+				now,
+				clock,
+				onAccountSynchronized,
+			}),
+		)
 	})
 
 	await finishRun({ runId, leaseOwner, now })

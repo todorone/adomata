@@ -224,13 +224,18 @@ export class MetaClient {
 			const { payload, throttle } = await this.request(url)
 			return normalizeAccount(payload, throttle)
 		} catch (error) {
-			if (!(error instanceof MetaApiError) || error.code !== 10) throw error
+			if (!(error instanceof MetaApiError) || error.code !== 10 || error.throttle?.exhausted) throw error
 			url.searchParams.set('fields', accountTierPrepayFields.join(','))
 			try {
 				const { payload, throttle } = await this.request(url)
 				return normalizeAccount(payload, throttle)
 			} catch (fallbackError) {
-				if (!(fallbackError instanceof MetaApiError) || fallbackError.code !== 10) throw fallbackError
+				if (
+					!(fallbackError instanceof MetaApiError) ||
+					fallbackError.code !== 10 ||
+					fallbackError.throttle?.exhausted
+				)
+					throw fallbackError
 				url.searchParams.set('fields', accountTierFallbackFields.join(','))
 				const { payload, throttle } = await this.request(url)
 				return normalizeAccount(payload, throttle)
@@ -306,7 +311,19 @@ export class MetaClient {
 		)
 		const { payload, throttle } = await this.request(url)
 		const ad = adResponseSchema.parse(payload)
-		if (!ad.creative) return null
+		if (!ad.creative) {
+			if (throttle.exhausted)
+				throw new MetaApiError(
+					'Meta throttle budget exhausted',
+					429,
+					undefined,
+					undefined,
+					undefined,
+					throttle.app,
+					throttle,
+				)
+			return null
+		}
 		const { id, name, ...payloadFields } = ad.creative
 		if (throttle.exhausted) return { id, adId: ad.id, name: name ?? null, throttle, payload: payloadFields }
 		const primaryVideoId = metaVideoId(ad.creative.video_id)
@@ -405,6 +422,7 @@ export class MetaClient {
 			const page = pageSchema(schema).parse(payload)
 			items.push(...page.data.map(normalize))
 			throttle = mergeThrottle(throttle, pageThrottle)
+			if (throttle.exhausted) break
 			nextUrl = page.paging?.next ? this.safeCursor(page.paging.next) : undefined
 		}
 		return { items, throttle }
@@ -422,7 +440,8 @@ export class MetaClient {
 			url.searchParams.set('fields', 'source')
 			const { payload } = await this.request(url)
 			return videoResponseSchema.parse(payload).source ?? null
-		} catch {
+		} catch (error) {
+			if (error instanceof MetaApiError && error.throttle?.exhausted) throw error
 			// The thumbnail remains useful when the token cannot read the video source.
 			return null
 		}
@@ -440,7 +459,8 @@ export class MetaClient {
 					.parse(payload)
 					.data.flatMap(image => (image.url ? ([[image.hash, image.url]] as const) : [])),
 			)
-		} catch {
+		} catch (error) {
+			if (error instanceof MetaApiError && error.throttle?.exhausted) throw error
 			// A missing image-library permission should not make the whole creative unavailable.
 			return new Map<string, string>()
 		}
@@ -465,11 +485,11 @@ export class MetaClient {
 				const response = await this.fetch(url.toString())
 				if (response.ok) return { payload: await response.json(), throttle: parseThrottle(response.headers) }
 				lastError = await parseMetaError(response)
-				if (!isRetryable(lastError) || attempt === 2) throw lastError
+				if (lastError.throttle?.exhausted || !isRetryable(lastError) || attempt === 2) throw lastError
 			} catch (error) {
 				if (!(error instanceof MetaApiError)) throw error
 				lastError = error
-				if (!isRetryable(error) || attempt === 2) throw error
+				if (error.throttle?.exhausted || !isRetryable(error) || attempt === 2) throw error
 			}
 			await this.sleep(this.retryDelay(attempt))
 		}

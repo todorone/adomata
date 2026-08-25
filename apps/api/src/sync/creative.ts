@@ -20,6 +20,7 @@ import { creativeHasVideo } from '../fleet-board/creative'
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaCreative } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
+import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const creativeIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -165,6 +166,7 @@ export async function scheduleCreativeRunsForAgencies(
 export async function runCreativeGeneration({
 	agencyId,
 	runId,
+	trigger,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
@@ -176,22 +178,24 @@ export async function runCreativeGeneration({
 	if (!claimed) return await readGenerationResult(runId)
 
 	const outcomes = await db
-		.select({ id: syncAccountOutcome.id })
+		.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
 		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 	await mapWithConcurrency(outcomes, 1, async outcome => {
-		return processOutcome({
-			agencyId,
-			runId,
-			outcomeId: outcome.id,
-			leaseOwner,
-			metaMode,
-			buildMetaClient,
-			now,
-			clock,
-		})
+		return runWithMetaCapacity(priorityForSyncWork(trigger, 'creative', outcome.connectionStatus), () =>
+			processOutcome({
+				agencyId,
+				runId,
+				outcomeId: outcome.id,
+				leaseOwner,
+				metaMode,
+				buildMetaClient,
+				now,
+				clock,
+			}),
+		)
 	})
 
 	await finishRun({ runId, leaseOwner, now: clock() })

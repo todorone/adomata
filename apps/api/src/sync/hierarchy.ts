@@ -18,6 +18,7 @@ import {
 import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
+import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const hierarchyIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -177,6 +178,7 @@ export async function scheduleHierarchyRunsForAgencies(
 export async function runHierarchyGeneration({
 	agencyId,
 	runId,
+	trigger,
 	metaMode,
 	buildMetaClient,
 	now = new Date(),
@@ -189,23 +191,25 @@ export async function runHierarchyGeneration({
 	if (!claimed) return await readGenerationResult(runId)
 
 	const outcomes = await db
-		.select({ id: syncAccountOutcome.id })
+		.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
 		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 	await mapWithConcurrency(outcomes, 1, async outcome => {
-		return processOutcome({
-			agencyId,
-			runId,
-			outcomeId: outcome.id,
-			leaseOwner,
-			metaMode,
-			buildMetaClient,
-			now,
-			clock,
-			onAccountSynchronized,
-		})
+		return runWithMetaCapacity(priorityForSyncWork(trigger, 'hierarchy', outcome.connectionStatus), () =>
+			processOutcome({
+				agencyId,
+				runId,
+				outcomeId: outcome.id,
+				leaseOwner,
+				metaMode,
+				buildMetaClient,
+				now,
+				clock,
+				onAccountSynchronized,
+			}),
+		)
 	})
 
 	await finishRun({ runId, leaseOwner, now })

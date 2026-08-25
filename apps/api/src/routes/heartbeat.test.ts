@@ -1,40 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MetaClient } from '../meta/client'
-import { configureHeartbeat } from '../sync/runtime'
 
-const sync = vi.hoisted(() => ({
-	scheduleAccountDataRunsForAgencies: vi.fn(),
-	scheduleHierarchyRunsForAgencies: vi.fn(),
-	scheduleInsightsRunsForAgencies: vi.fn(),
-	scheduleCreativeRunsForAgencies: vi.fn(),
-	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
-}))
+const runtime = vi.hoisted(() => {
+	let dependencies: { heartbeatSecret: string; metaMode: 'fake' | 'live'; buildMetaClient: () => unknown } | undefined
+	return {
+		triggerBackgroundSync: vi.fn(),
+		configureHeartbeat: vi.fn((value: typeof dependencies) => {
+			dependencies = value
+		}),
+		getHeartbeatDependencies: vi.fn(() => {
+			if (!dependencies) throw new Error('Heartbeat dependencies have not been configured')
+			return dependencies
+		}),
+	}
+})
 
-vi.mock('../sync/account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
-vi.mock('../sync/hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
-vi.mock('../sync/insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
-vi.mock('../sync/creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
-vi.mock('../sync/historical-reconciliation', () => ({
-	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
-}))
+vi.mock('../sync/runtime', () => runtime)
 
 const { heartbeatRoutes } = await import('./heartbeat')
+const { configureHeartbeat } = await import('../sync/runtime')
 
 describe('POST /heartbeat', () => {
 	beforeEach(() => {
-		sync.scheduleAccountDataRunsForAgencies.mockReset()
-		sync.scheduleHierarchyRunsForAgencies.mockReset()
-		sync.scheduleInsightsRunsForAgencies.mockReset()
-		sync.scheduleCreativeRunsForAgencies.mockReset()
-		sync.scheduleHistoricalReconciliationRunsForAgencies.mockReset()
-		sync.scheduleAccountDataRunsForAgencies.mockResolvedValue([
-			{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 },
-		])
-		sync.scheduleHierarchyRunsForAgencies.mockResolvedValue([])
-		sync.scheduleInsightsRunsForAgencies.mockResolvedValue([])
-		sync.scheduleCreativeRunsForAgencies.mockResolvedValue([])
-		sync.scheduleHistoricalReconciliationRunsForAgencies.mockResolvedValue([])
+		runtime.triggerBackgroundSync.mockReset()
 		configureHeartbeat({
 			heartbeatSecret: 'heartbeat-secret',
 			metaMode: 'fake',
@@ -47,67 +36,17 @@ describe('POST /heartbeat', () => {
 		await expect(
 			heartbeatRoutes.request('/', { method: 'POST', headers: { Authorization: 'Bearer wrong-secret' } }),
 		).resolves.toMatchObject({ status: 401 })
-		expect(sync.scheduleAccountDataRunsForAgencies).not.toHaveBeenCalled()
+		expect(runtime.triggerBackgroundSync).not.toHaveBeenCalled()
 	})
 
-	it('runs the heartbeat with the configured Meta client for valid credentials', async () => {
+	it('accepts valid credentials, confirms it started, and fires background sync without waiting on it', async () => {
 		const response = await heartbeatRoutes.request('/', {
 			method: 'POST',
 			headers: { Authorization: 'Bearer heartbeat-secret' },
 		})
 
 		expect(response.status).toBe(200)
-		expect(await response.json()).toEqual({
-			ok: true,
-			accountData: { processed: 2, failed: 1, skipped: 0, queued: 0 },
-			runs: [{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 }],
-		})
-		expect(sync.scheduleAccountDataRunsForAgencies).toHaveBeenCalledWith({
-			trigger: 'cron',
-			metaMode: 'fake',
-			buildMetaClient: expect.any(Function),
-		})
-		expect(sync.scheduleHierarchyRunsForAgencies).toHaveBeenCalledWith({
-			trigger: 'cron',
-			metaMode: 'fake',
-			buildMetaClient: expect.any(Function),
-		})
-		expect(sync.scheduleInsightsRunsForAgencies).toHaveBeenCalledWith({
-			trigger: 'cron',
-			metaMode: 'fake',
-			buildMetaClient: expect.any(Function),
-		})
-		expect(sync.scheduleCreativeRunsForAgencies).toHaveBeenCalledWith({
-			trigger: 'cron',
-			metaMode: 'fake',
-			buildMetaClient: expect.any(Function),
-		})
-		expect(sync.scheduleHistoricalReconciliationRunsForAgencies).toHaveBeenCalledWith({
-			trigger: 'cron',
-			metaMode: 'fake',
-			buildMetaClient: expect.any(Function),
-		})
-	})
-
-	it('keeps Account data scheduling independent when hierarchy scheduling fails', async () => {
-		const runs = [{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 }]
-		let finishAccountData: ((value: typeof runs) => void) | undefined
-		sync.scheduleAccountDataRunsForAgencies.mockReturnValue(
-			new Promise(resolve => {
-				finishAccountData = resolve
-			}),
-		)
-		sync.scheduleHierarchyRunsForAgencies.mockRejectedValue(new Error('hierarchy scheduler unavailable'))
-
-		const responsePromise = heartbeatRoutes.request('/', {
-			method: 'POST',
-			headers: { Authorization: 'Bearer heartbeat-secret' },
-		})
-		expect(sync.scheduleHierarchyRunsForAgencies).toHaveBeenCalled()
-
-		finishAccountData?.(runs)
-		const response = await responsePromise
-		expect(response.status).toBe(200)
-		expect(await response.json()).toMatchObject({ ok: true, accountData: { processed: 2, failed: 1 } })
+		expect(await response.json()).toEqual({ ok: true, started: true })
+		expect(runtime.triggerBackgroundSync).toHaveBeenCalledOnce()
 	})
 })

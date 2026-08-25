@@ -1,39 +1,16 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 
-import { logger } from '../core/logger'
-import { scheduleAccountDataRunsForAgencies } from '../sync/account-data'
-import { scheduleCreativeRunsForAgencies } from '../sync/creative'
-import { scheduleHierarchyRunsForAgencies } from '../sync/hierarchy'
-import { scheduleInsightsRunsForAgencies } from '../sync/insights'
-import { scheduleHistoricalReconciliationRunsForAgencies } from '../sync/historical-reconciliation'
-import { getHeartbeatDependencies, triggerPendingForceRefreshes } from '../sync/runtime'
+import { getHeartbeatDependencies, triggerBackgroundSync } from '../sync/runtime'
 
 const route = createRoute({
 	method: 'post',
 	path: '/',
 	responses: {
 		200: {
-			description: 'Heartbeat completed',
+			description: 'Heartbeat accepted; sync work continues in the background',
 			content: {
 				'application/json': {
-					schema: z.object({
-						ok: z.literal(true),
-						accountData: z.object({
-							processed: z.number(),
-							failed: z.number(),
-							skipped: z.number(),
-							queued: z.number(),
-						}),
-						runs: z.array(
-							z.object({
-								runId: z.string(),
-								status: z.enum(['queued', 'running', 'completed', 'failed']),
-								processed: z.number(),
-								failed: z.number(),
-								queued: z.number(),
-							}),
-						),
-					}),
+					schema: z.object({ ok: z.literal(true), started: z.literal(true) }),
 				},
 			},
 		},
@@ -42,47 +19,8 @@ const route = createRoute({
 })
 
 export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
-	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
+	const { heartbeatSecret } = getHeartbeatDependencies()
 	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
-	const [accountDataResult, hierarchyResult, insightsResult, creativeResult] = await Promise.allSettled([
-		scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-		scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-	])
-	if (accountDataResult.status === 'rejected') throw accountDataResult.reason
-	for (const [slice, result] of [
-		['hierarchy', hierarchyResult],
-		['insights', insightsResult],
-		['creative', creativeResult],
-	] as const) {
-		if (result.status === 'rejected') {
-			logger.warn(`Durable ${slice} scheduling failed`, {
-				category: result.reason instanceof Error ? result.reason.name : 'unknown',
-			})
-		}
-	}
-	const historicalReconciliationResult = await Promise.allSettled([
-		scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
-	])
-	if (historicalReconciliationResult[0]?.status === 'rejected') {
-		logger.warn('Durable historical reconciliation scheduling failed', {
-			category:
-				historicalReconciliationResult[0].reason instanceof Error
-					? historicalReconciliationResult[0].reason.name
-					: 'unknown',
-		})
-	}
-	triggerPendingForceRefreshes()
-	const runs = accountDataResult.value
-	const accountData = runs.reduce(
-		(counts, run) => ({
-			processed: counts.processed + run.processed,
-			failed: counts.failed + run.failed,
-			skipped: counts.skipped + run.skipped,
-			queued: counts.queued + run.queued,
-		}),
-		{ processed: 0, failed: 0, skipped: 0, queued: 0 },
-	)
-	return c.json({ ok: true as const, accountData, runs }, 200)
+	triggerBackgroundSync()
+	return c.json({ ok: true as const, started: true as const }, 200)
 })

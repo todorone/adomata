@@ -457,7 +457,7 @@ async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
 		return insights.throttle.exhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return false
+		return error instanceof MetaApiError && error.throttle?.exhausted === true
 	}
 }
 

@@ -17,6 +17,7 @@ export const accountTierFields = [...accountTierPrepayFields, 'funding_source_de
 const graphOrigin = 'https://graph.facebook.com'
 const graphVersion = 'v25.0'
 const maxCreativeVideoSources = 25
+const maxRetryDelayMilliseconds = 30 * 1000
 const metaInvalidParameterCode = 100
 const adPreviewFormats = [
 	'MOBILE_FEED_STANDARD',
@@ -135,7 +136,13 @@ export type MetaAdSet = {
 }
 export type MetaAd = { id: string; adSetId: string; name: string; effectiveStatus: string }
 export type MetaAdAccount = { id: string; name: string; currency: string; timezoneName: string | null }
-export type MetaCreative = { id: string; adId: string; name: string | null; payload: Record<string, unknown> }
+export type MetaCreative = {
+	id: string
+	adId: string
+	name: string | null
+	payload: Record<string, unknown>
+	throttle: MetaThrottleObservation
+}
 export type MetaAdPreview = { url: string; width: number | null; height: number | null }
 export type MetaAction = z.infer<typeof actionItemSchema>
 export type MetaDailyInsight = {
@@ -185,6 +192,7 @@ type MetaClientOptions = {
 	accessToken: string
 	fetch?: (input: string) => Promise<Response>
 	sleep?: (milliseconds: number) => Promise<void>
+	random?: () => number
 }
 
 export function formatAdAccountId(adAccountId: string) {
@@ -194,10 +202,12 @@ export function formatAdAccountId(adAccountId: string) {
 export class MetaClient {
 	private readonly fetch: (input: string) => Promise<Response>
 	private readonly sleep: (milliseconds: number) => Promise<void>
+	private readonly random: () => number
 
 	constructor(private readonly options: MetaClientOptions) {
 		this.fetch = options.fetch ?? (input => fetch(input))
 		this.sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)))
+		this.random = options.random ?? Math.random
 	}
 
 	async verifyToken(): Promise<{ id: string; name: string }> {
@@ -294,10 +304,11 @@ export class MetaClient {
 			'fields',
 			'creative{id,name,object_story_spec,asset_feed_spec,effective_object_story_id,effective_instagram_media_id,thumbnail_url,image_url,video_id,object_url}',
 		)
-		const { payload } = await this.request(url)
+		const { payload, throttle } = await this.request(url)
 		const ad = adResponseSchema.parse(payload)
 		if (!ad.creative) return null
 		const { id, name, ...payloadFields } = ad.creative
+		if (throttle.exhausted) return { id, adId: ad.id, name: name ?? null, throttle, payload: payloadFields }
 		const primaryVideoId = metaVideoId(ad.creative.video_id)
 		const videoIds = [...(primaryVideoId ? [primaryVideoId] : []), ...assetFeedVideoIds(ad.creative.asset_feed_spec)]
 		const videoSources = new Map(
@@ -317,6 +328,7 @@ export class MetaClient {
 			id,
 			adId: ad.id,
 			name: name ?? null,
+			throttle,
 			payload: {
 				...payloadFields,
 				...(videoUrl ? { video_url: videoUrl } : {}),
@@ -459,9 +471,14 @@ export class MetaClient {
 				lastError = error
 				if (!isRetryable(error) || attempt === 2) throw error
 			}
-			await this.sleep(1000 * 2 ** attempt)
+			await this.sleep(this.retryDelay(attempt))
 		}
 		throw lastError ?? new Error('Meta request failed without an error')
+	}
+
+	private retryDelay(attempt: number) {
+		const delay = Math.min(1000 * 2 ** attempt, maxRetryDelayMilliseconds)
+		return Math.min(Math.round(delay * (1 + this.random())), maxRetryDelayMilliseconds)
 	}
 }
 

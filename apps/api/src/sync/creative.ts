@@ -23,7 +23,6 @@ import { pruneSyncHistory } from './account-data'
 
 const creativeIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
-const creativeConcurrency = 3
 const noTokenMessage = 'No Meta token configured for this Agency'
 
 export type CreativeRunOptions = {
@@ -113,6 +112,7 @@ export async function enqueueCreativeRun({
 						or(isNull(adAccount.creativeSuccessfulAt), lte(adAccount.creativeNextDueAt, now)),
 					),
 				)
+				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
 			if (dueAccounts.length > 0) {
 				await transaction.insert(syncAccountOutcome).values(
@@ -178,10 +178,11 @@ export async function runCreativeGeneration({
 	const outcomes = await db
 		.select({ id: syncAccountOutcome.id })
 		.from(syncAccountOutcome)
+		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-		.orderBy(asc(syncAccountOutcome.createdAt))
-	await mapWithConcurrency(outcomes, creativeConcurrency, async outcome => {
-		await processOutcome({
+		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+	await mapWithConcurrency(outcomes, 1, async outcome => {
+		return processOutcome({
 			agencyId,
 			runId,
 			outcomeId: outcome.id,
@@ -296,7 +297,7 @@ async function processOutcome(params: CreativeOutcomeContext) {
 			),
 		)
 		.returning({ adAccountId: syncAccountOutcome.adAccountId })
-	if (!claimed[0]) return true
+	if (!claimed[0]) return false
 
 	await db
 		.update(adAccount)
@@ -331,13 +332,23 @@ async function processOutcome(params: CreativeOutcomeContext) {
 			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
 			.where(and(eq(campaign.adAccountId, account.adAccount.id), isNull(ad.deletedAt)))
 		const metaClient = params.buildMetaClient(account.metaAccessToken ?? undefined)
-		const results = await mapWithConcurrency(ads, creativeConcurrency, async row => {
+		const results: Array<{ creative: MetaCreative | null; error: unknown }> = []
+		for (const row of ads) {
 			try {
-				return { creative: await metaClient.getCreative(row.id, account.adAccount.id), error: null }
+				const creative = await metaClient.getCreative(row.id, account.adAccount.id)
+				results.push({ creative, error: null })
+				if (creative?.throttle.exhausted) {
+					await releaseOutcome(params)
+					return true
+				}
 			} catch (error) {
-				return { creative: null, error }
+				results.push({ creative: null, error })
+				if (error instanceof MetaApiError && error.throttle?.exhausted) {
+					await releaseOutcome(params)
+					return true
+				}
 			}
-		})
+		}
 		const failures = results.filter(result => result.error !== null)
 		const accessLost = failures.some(result => isMetaAccessLoss(result.error))
 		const committedAt = params.clock()
@@ -396,11 +407,24 @@ async function processOutcome(params: CreativeOutcomeContext) {
 				failedAds: failures.length,
 			})
 		}
-		return failures.length === 0
+		return false
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return false
+		return error instanceof MetaApiError && error.throttle?.exhausted === true
 	}
+}
+
+async function releaseOutcome(params: CreativeOutcomeContext) {
+	await db
+		.update(syncAccountOutcome)
+		.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.clock() })
+		.where(
+			and(
+				eq(syncAccountOutcome.id, params.outcomeId),
+				eq(syncAccountOutcome.leaseOwner, params.leaseOwner),
+				eq(syncAccountOutcome.status, 'running'),
+			),
+		)
 }
 
 async function upsertCreative(
@@ -556,18 +580,17 @@ async function readGenerationResult(runId: string): Promise<CreativeGenerationRe
 	}
 }
 
-async function mapWithConcurrency<T, R>(items: readonly T[], concurrency: number, task: (item: T) => Promise<R>) {
-	const results: R[] = []
+async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
 	let nextIndex = 0
+	let stopped = false
 	async function worker() {
-		while (nextIndex < items.length) {
+		while (!stopped && nextIndex < items.length) {
 			const item = items[nextIndex]
 			nextIndex += 1
-			results.push(await task(item))
+			if (await task(item)) stopped = true
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-	return results
 }
 
 function runDiagnosticReference(runId: string) {

@@ -6,7 +6,7 @@ import { db, sql } from '../db'
 import { ad, adAccount, adSet, campaign, organization, syncAccountOutcome, syncRun } from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
-import { fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
+import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
 import { enqueueAccountDataRun, runAccountDataGeneration, type AccountDataRunOptions } from '../sync/account-data'
 import {
 	enqueueHierarchyRun,
@@ -121,6 +121,34 @@ describe('durable hierarchy work', () => {
 		expect(rows.every(row => row.adDeletedAt?.getTime() === nextAt.getTime())).toBe(true)
 	})
 
+	it('stops new hierarchy work when Meta reports an exhausted budget', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'connected' })
+			.where(
+				inArray(
+					adAccount.id,
+					fakeMetaAccounts.filter(account => account.kind === 'success').map(account => account.id),
+				),
+			)
+		let lowerPriorityCalls = 0
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000005/campaigns', () =>
+				HttpResponse.json({ data: [] }, { headers: { 'X-App-Usage': '{"call_count":100}' } }),
+			),
+			http.get('https://graph.facebook.com/v25.0/act_100000000000006/campaigns', () => {
+				lowerPriorityCalls += 1
+				return HttpResponse.json({ data: [] })
+			}),
+		)
+
+		const result = await scheduleHierarchyRun(buildHierarchyOptions(now))
+
+		expect(result).toMatchObject({ status: 'running', processed: 5, failed: 0, queued: 2 })
+		expect(lowerPriorityCalls).toBe(0)
+	})
+
 	it('preserves the previous hierarchy and committed Account data after a partial enumeration failure', async () => {
 		const firstAt = new Date('2026-08-24T09:00:00.000Z')
 		const hierarchyOptions = buildHierarchyOptions(firstAt)
@@ -171,7 +199,7 @@ describe('durable hierarchy work', () => {
 
 		const failedAt = new Date(firstAt.getTime() + 5 * 60 * 1000 + 1)
 		const failed = await scheduleHierarchyRun({ ...buildHierarchyOptions(failedAt), clock: () => failedAt })
-		expect(failed).toMatchObject({ status: 'failed', processed: 5, failed: 1, queued: 0 })
+		expect(failed).toMatchObject({ status: 'failed', processed: 6, failed: 1, queued: 0 })
 
 		const [account] = await db
 			.select({

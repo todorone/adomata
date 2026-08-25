@@ -21,7 +21,6 @@ import { pruneSyncHistory } from './account-data'
 
 const hierarchyIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
-const hierarchyConcurrency = 3
 const noTokenMessage = 'No Meta token configured for this Agency'
 
 export type HierarchyRunOptions = {
@@ -122,6 +121,7 @@ export async function enqueueHierarchyRun({
 							: [or(isNull(adAccount.hierarchySuccessfulAt), lte(adAccount.hierarchyNextDueAt, now))]),
 					),
 				)
+				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
 			if (dueAccounts.length > 0) {
 				await transaction.insert(syncAccountOutcome).values(
@@ -191,10 +191,11 @@ export async function runHierarchyGeneration({
 	const outcomes = await db
 		.select({ id: syncAccountOutcome.id })
 		.from(syncAccountOutcome)
+		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
-		.orderBy(asc(syncAccountOutcome.createdAt))
-	await mapWithConcurrency(outcomes, hierarchyConcurrency, async outcome => {
-		await processOutcome({
+		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+	await mapWithConcurrency(outcomes, 1, async outcome => {
+		return processOutcome({
 			agencyId,
 			runId,
 			outcomeId: outcome.id,
@@ -340,11 +341,17 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 		}
 
 		const metaClient = params.buildMetaClient(account.metaAccessToken ?? undefined)
-		const [campaigns, adSets, ads] = await Promise.all([
-			metaClient.listCampaigns(account.adAccount.id),
-			metaClient.listAdSets(account.adAccount.id),
-			metaClient.listAds(account.adAccount.id),
-		])
+		const campaigns = await metaClient.listCampaigns(account.adAccount.id)
+		if (campaigns.throttle.exhausted) {
+			await releaseOutcome(params)
+			return true
+		}
+		const adSets = await metaClient.listAdSets(account.adAccount.id)
+		if (adSets.throttle.exhausted) {
+			await releaseOutcome(params)
+			return true
+		}
+		const ads = await metaClient.listAds(account.adAccount.id)
 
 		const committedAt = params.clock()
 		await db.transaction(async transaction => {
@@ -466,11 +473,24 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
 		params.onAccountSynchronized?.(account.adAccount.id)
-		return true
+		return ads.throttle.exhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return false
+		return error instanceof MetaApiError && error.throttle?.exhausted === true
 	}
+}
+
+async function releaseOutcome(params: HierarchyOutcomeContext) {
+	await db
+		.update(syncAccountOutcome)
+		.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.clock() })
+		.where(
+			and(
+				eq(syncAccountOutcome.id, params.outcomeId),
+				eq(syncAccountOutcome.leaseOwner, params.leaseOwner),
+				eq(syncAccountOutcome.status, 'running'),
+			),
+		)
 }
 
 async function softDeleteMissingHierarchy(
@@ -664,13 +684,14 @@ async function readGenerationResult(runId: string): Promise<HierarchyGenerationR
 	}
 }
 
-async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<void>) {
+async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
 	let nextIndex = 0
+	let stopped = false
 	async function worker() {
-		while (nextIndex < items.length) {
+		while (!stopped && nextIndex < items.length) {
 			const item = items[nextIndex]
 			nextIndex += 1
-			await task(item)
+			if (await task(item)) stopped = true
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))

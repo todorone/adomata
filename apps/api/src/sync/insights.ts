@@ -124,6 +124,7 @@ export async function enqueueInsightsRun({
 						...(force ? [] : [or(isNull(adAccount.insightsSuccessfulAt), lte(adAccount.insightsNextDueAt, now))]),
 					),
 				)
+				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
 			if (dueAccounts.length > 0) {
 				await transaction.insert(syncAccountOutcome).values(
@@ -189,8 +190,9 @@ export async function runInsightsGeneration({
 	const outcomes = await db
 		.select({ id: syncAccountOutcome.id })
 		.from(syncAccountOutcome)
+		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'insights')))
-		.orderBy(asc(syncAccountOutcome.createdAt))
+		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 	await mapWithConcurrency(outcomes, insightsConcurrency, async outcome => {
 		return processOutcome({
 			agencyId,
@@ -432,7 +434,7 @@ async function processOutcome(params: InsightsOutcomeContext) {
 		return insights.throttle.exhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return false
+		return error instanceof MetaApiError && error.throttle?.exhausted === true
 	}
 }
 

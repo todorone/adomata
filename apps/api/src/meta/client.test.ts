@@ -308,6 +308,18 @@ describe('MetaClient', () => {
 		)
 	})
 
+	it('returns throttle observations from Creative requests', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ id: 'ad-1', creative: { id: 'creative-1' } }), {
+				status: 200,
+				headers: { 'X-App-Usage': '{"call_count":100}' },
+			}),
+		)
+		const client = new MetaClient({ accessToken: 'token', fetch })
+
+		await expect(client.getCreative('ad-1')).resolves.toMatchObject({ throttle: { exhausted: true } })
+	})
+
 	it('stores a streamable source for video creatives', async () => {
 		const fetch = vi
 			.fn()
@@ -499,15 +511,15 @@ describe('MetaClient', () => {
 			),
 		)
 		const sleep = vi.fn().mockResolvedValue(undefined)
-		const client = new MetaClient({ accessToken: 'token', fetch, sleep })
+		const client = new MetaClient({ accessToken: 'token', fetch, sleep, random: () => 0.5 })
 
 		await expect(client.getAccount('100000000000005')).rejects.toMatchObject({
 			code: 4,
 			appUsage: { callCount: 100, totalCpuTime: 100, totalTime: 100 },
 		})
 		expect(fetch).toHaveBeenCalledTimes(3)
-		expect(sleep).toHaveBeenNthCalledWith(1, 1000)
-		expect(sleep).toHaveBeenNthCalledWith(2, 2000)
+		expect(sleep).toHaveBeenNthCalledWith(1, 1500)
+		expect(sleep).toHaveBeenNthCalledWith(2, 3000)
 	})
 
 	it('verifies a token against GET /me', async () => {

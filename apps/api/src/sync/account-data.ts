@@ -120,6 +120,7 @@ export async function enqueueAccountDataRun({
 							: [or(isNull(adAccount.accountDataSuccessfulAt), lte(adAccount.accountDataNextDueAt, now))]),
 					),
 				)
+				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
 			if (dueAccounts.length > 0) {
 				await transaction.insert(syncAccountOutcome).values(
@@ -173,10 +174,11 @@ export async function runAccountDataGeneration({
 	const outcomes = await db
 		.select({ id: syncAccountOutcome.id })
 		.from(syncAccountOutcome)
+		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(eq(syncAccountOutcome.runId, runId))
-		.orderBy(asc(syncAccountOutcome.createdAt))
-	await mapWithConcurrency(outcomes, 3, async outcome => {
-		await processOutcome({
+		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+	await mapWithConcurrency(outcomes, 1, async outcome => {
+		return processOutcome({
 			agencyId,
 			runId,
 			outcomeId: outcome.id,
@@ -407,10 +409,10 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
 		params.onAccountSynchronized?.(account.adAccount.id)
-		return true
+		return accountData.throttle.exhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return false
+		return error instanceof MetaApiError && error.throttle?.exhausted === true
 	}
 }
 
@@ -544,13 +546,14 @@ async function readGenerationResult(runId: string): Promise<AccountDataGeneratio
 	}
 }
 
-async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<void>) {
+async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
 	let nextIndex = 0
+	let stopped = false
 	async function worker() {
-		while (nextIndex < items.length) {
+		while (!stopped && nextIndex < items.length) {
 			const item = items[nextIndex]
 			nextIndex += 1
-			await task(item)
+			if (await task(item)) stopped = true
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))

@@ -39,6 +39,9 @@ export function triggerBackgroundSync() {
 							category: result.reason instanceof Error ? result.reason.name : 'unknown',
 						})
 				}
+				return triggerPendingForceRefreshes()
+			})
+			.then(() => {
 				return scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
 			})
 			.catch(error => {
@@ -104,17 +107,20 @@ export function triggerForceRefresh(agencyId: string, forceRefreshId: string) {
 	}
 }
 
-export function triggerPendingForceRefreshes() {
+export async function triggerPendingForceRefreshes() {
+	let dependencies: HeartbeatDependencies
 	try {
-		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
-		import('./force-refresh')
-			.then(({ resumeForceRefreshes }) => resumeForceRefreshes({ metaMode, buildMetaClient }))
-			.catch(error =>
-				logger.warn('Pending Force Refresh execution failed', {
-					category: error instanceof Error ? error.name : 'unknown',
-				}),
-			)
+		dependencies = getHeartbeatDependencies()
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
+		return
+	}
+	try {
+		const { resumeForceRefreshes } = await import('./force-refresh')
+		await resumeForceRefreshes({ metaMode: dependencies.metaMode, buildMetaClient: dependencies.buildMetaClient })
+	} catch (error) {
+		logger.warn('Pending Force Refresh execution failed', {
+			category: error instanceof Error ? error.name : 'unknown',
+		})
 	}
 }

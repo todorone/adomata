@@ -12,6 +12,7 @@ const sync = vi.hoisted(() => ({
 	scheduleCreativeRunsForAgencies: vi.fn(),
 	scheduleCreativeRun: vi.fn(),
 	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
+	resumeForceRefreshes: vi.fn(),
 }))
 
 vi.mock('./account-data', () => ({
@@ -33,6 +34,7 @@ vi.mock('./creative', () => ({
 vi.mock('./historical-reconciliation', () => ({
 	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
 }))
+vi.mock('./force-refresh', () => ({ resumeForceRefreshes: sync.resumeForceRefreshes }))
 
 const { configureHeartbeat, triggerAgencyBackgroundSync, triggerBackgroundSync } = await import('./runtime')
 
@@ -74,6 +76,27 @@ describe('triggerBackgroundSync', () => {
 
 		expect(() => triggerBackgroundSync()).not.toThrow()
 		await new Promise(resolve => setTimeout(resolve, 0))
+	})
+
+	it('runs pending Force Refreshes before Historical Reconciliation', async () => {
+		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
+		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		let resume: (() => void) | undefined
+		sync.resumeForceRefreshes.mockImplementation(() => new Promise<void>(resolve => (resume = resolve)))
+
+		triggerBackgroundSync()
+		await new Promise(resolve => setTimeout(resolve, 0))
+
+		expect(sync.resumeForceRefreshes).toHaveBeenCalledWith({ metaMode: 'fake', buildMetaClient })
+		expect(sync.scheduleHistoricalReconciliationRunsForAgencies).not.toHaveBeenCalled()
+		resume?.()
+		await new Promise(resolve => setTimeout(resolve, 0))
+
+		expect(sync.scheduleHistoricalReconciliationRunsForAgencies).toHaveBeenCalledWith({
+			trigger: 'cron',
+			metaMode: 'fake',
+			buildMetaClient,
+		})
 	})
 
 	it('waits for Account data and hierarchy before starting Initial Import insights', async () => {

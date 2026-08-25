@@ -1,32 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MetaClient } from '../meta/client'
-import { configureScheduler } from '../sync/runtime'
 
-const sync = vi.hoisted(() => ({
-	scheduleAccountDataRunsForAgencies: vi.fn(),
-	scheduleHierarchyRunsForAgencies: vi.fn(),
-	scheduleInsightsRunsForAgencies: vi.fn(),
-	scheduleCreativeRunsForAgencies: vi.fn(),
-	scheduleHistoricalReconciliationRunsForAgencies: vi.fn(),
-}))
+const runtime = vi.hoisted(() => {
+	let dependencies: { schedulerSecret: string; metaMode: 'fake' | 'live'; buildMetaClient: () => unknown } | undefined
+	return {
+		triggerBackgroundSync: vi.fn(),
+		configureScheduler: vi.fn((value: typeof dependencies) => {
+			dependencies = value
+		}),
+		getSchedulerDependencies: vi.fn(() => {
+			if (!dependencies) throw new Error('Scheduler dependencies have not been configured')
+			return dependencies
+		}),
+	}
+})
 
-vi.mock('../sync/account-data', () => ({ scheduleAccountDataRunsForAgencies: sync.scheduleAccountDataRunsForAgencies }))
-vi.mock('../sync/hierarchy', () => ({ scheduleHierarchyRunsForAgencies: sync.scheduleHierarchyRunsForAgencies }))
-vi.mock('../sync/insights', () => ({ scheduleInsightsRunsForAgencies: sync.scheduleInsightsRunsForAgencies }))
-vi.mock('../sync/creative', () => ({ scheduleCreativeRunsForAgencies: sync.scheduleCreativeRunsForAgencies }))
-vi.mock('../sync/historical-reconciliation', () => ({
-	scheduleHistoricalReconciliationRunsForAgencies: sync.scheduleHistoricalReconciliationRunsForAgencies,
-}))
+vi.mock('../sync/runtime', () => runtime)
 
 const { schedulerRoutes } = await import('./scheduler')
+const { configureScheduler } = await import('../sync/runtime')
 
 describe('POST /scheduler', () => {
 	beforeEach(() => {
-		for (const scheduler of Object.values(sync)) scheduler.mockReset().mockResolvedValue([])
-		sync.scheduleAccountDataRunsForAgencies.mockResolvedValue([
-			{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 },
-		])
+		runtime.triggerBackgroundSync.mockReset()
 		configureScheduler({
 			schedulerSecret: 'scheduler-secret',
 			metaMode: 'fake',
@@ -39,27 +36,17 @@ describe('POST /scheduler', () => {
 		await expect(
 			schedulerRoutes.request('/', { method: 'POST', headers: { Authorization: 'Bearer wrong-secret' } }),
 		).resolves.toMatchObject({ status: 401 })
-		expect(sync.scheduleAccountDataRunsForAgencies).not.toHaveBeenCalled()
+		expect(runtime.triggerBackgroundSync).not.toHaveBeenCalled()
 	})
 
-	it('creates or joins every durable slice with configured Meta access', async () => {
+	it('accepts valid credentials and wakes routine work without waiting for it', async () => {
 		const response = await schedulerRoutes.request('/', {
 			method: 'POST',
 			headers: { Authorization: 'Bearer scheduler-secret' },
 		})
 
 		expect(response.status).toBe(200)
-		expect(await response.json()).toEqual({
-			ok: true,
-			accountData: { processed: 2, failed: 1, skipped: 0, queued: 0 },
-			runs: [{ runId: 'run_1', status: 'completed', processed: 2, failed: 1, skipped: 0, queued: 0 }],
-		})
-		for (const scheduler of Object.values(sync)) {
-			expect(scheduler).toHaveBeenCalledWith({
-				trigger: 'cron',
-				metaMode: 'fake',
-				buildMetaClient: expect.any(Function),
-			})
-		}
+		expect(await response.json()).toEqual({ ok: true, started: true })
+		expect(runtime.triggerBackgroundSync).toHaveBeenCalledOnce()
 	})
 })

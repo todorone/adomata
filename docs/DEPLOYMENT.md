@@ -14,7 +14,7 @@ Read this before touching anything in production.
   (cross-origin, bearer auth).
 - **Scheduler** (`apps/scheduler`) is the separate Cloudflare Worker
   `adomata-scheduler-v1`. Its versioned `*/5 * * * *` Cron Trigger calls the
-  API's authenticated `/heartbeat` endpoint; it serves no public client traffic.
+  API's authenticated `/scheduler` endpoint; it serves no public client traffic.
 - **TLS / routing** for the API is handled by Coolify's **Traefik** reverse
   proxy (`coolify-proxy`, ports 80/443), with Let's Encrypt certs. The API
   container also publishes `:3000` on the host, but public traffic comes through
@@ -108,7 +108,7 @@ Cloudflare Email Service credentials (`CLOUDFLARE_ACCOUNT_ID`,
 and the `OTEL_*` exporter vars (`OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`) pointing at the external
 OpenObserve instance at `https://telemetry.fedir.net` — see `apps/api/.env.example`
-for the full list. Meta production uses `META_API_MODE=live` and `HEARTBEAT_SECRET`
+for the full list. Meta production uses `META_API_MODE=live` and `SCHEDULER_SECRET`
 (the API refuses to start without them); `META_ACCESS_TOKEN` is unused in live
 mode — each Agency's own token is stored in `organizationSettings` and set from
 its Organization Settings page. Adomata has no `R2_*` or `VAPID_*` vars — there's
@@ -120,10 +120,10 @@ no File/Avatar/Push domain yet. To read the live env on the box:
 The Scheduler's non-secret API origin is committed as `API_URL` in
 `apps/scheduler/wrangler.jsonc`. Before its first deployment, set its required
 Cloudflare Worker secret to the exact same value as the API's
-`HEARTBEAT_SECRET`; never add either value to Git:
+`SCHEDULER_SECRET`; never add either value to Git:
 
 ```sh
-pnpm --filter @adomata/scheduler exec wrangler secret put HEARTBEAT_SECRET
+pnpm --filter @adomata/scheduler exec wrangler secret put SCHEDULER_SECRET
 pnpm --filter @adomata/scheduler deploy
 ```
 

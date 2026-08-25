@@ -6,7 +6,7 @@
 	"triggers": {
 		"crons": ["*/5 * * * *"]
 	},
-	"secrets": { "required": ["HEARTBEAT_SECRET"] },
+	"secrets": { "required": ["SCHEDULER_SECRET"] },
 	"vars": {
 		"API_URL": "https://api.adomata.com"
 	}

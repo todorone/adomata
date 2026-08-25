@@ -14,7 +14,7 @@ import { adAccount, client, organizationSettings } from '../db/schema'
 import { apiError } from '../logic/apiError'
 import { isOwner, requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import { MetaApiError } from '../meta/client'
-import { getHeartbeatDependencies, triggerAgencyBackgroundSync } from '../sync/runtime'
+import { getSchedulerDependencies, triggerAgencyBackgroundSync } from '../sync/runtime'
 
 const getRoute = createRoute({
 	method: 'get',
@@ -67,7 +67,7 @@ export const metaAccountsRoutes = metaAccountsBase
 
 		let discovered
 		try {
-			const { buildMetaClient } = getHeartbeatDependencies()
+			const { buildMetaClient } = getSchedulerDependencies()
 			discovered = await buildMetaClient(token).listAdAccounts()
 		} catch (error) {
 			if (error instanceof MetaApiError) {

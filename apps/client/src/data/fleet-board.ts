@@ -76,6 +76,9 @@ export const fleetBoardQueries = {
 				),
 			select: selectFleetBoardSnapshot,
 			placeholderData: previous => previous,
+			refetchInterval: 60_000,
+			refetchIntervalInBackground: false,
+			refetchOnWindowFocus: 'always',
 		}),
 	creative: (adId: string) =>
 		queryOptions({

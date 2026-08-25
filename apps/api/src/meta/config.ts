@@ -12,8 +12,8 @@ export function parseMetaConfig(environment: MetaEnvironment = process.env): Met
 	return { mode, accessToken: accessToken || 'fake-meta-access-token' }
 }
 
-export function requireHeartbeatSecret(environment: MetaEnvironment = process.env) {
-	const heartbeatSecret = environment.HEARTBEAT_SECRET?.trim()
-	if (!heartbeatSecret) throw new Error('HEARTBEAT_SECRET must be set')
-	return heartbeatSecret
+export function requireSchedulerSecret(environment: MetaEnvironment = process.env) {
+	const schedulerSecret = environment.SCHEDULER_SECRET?.trim()
+	if (!schedulerSecret) throw new Error('SCHEDULER_SECRET must be set')
+	return schedulerSecret
 }

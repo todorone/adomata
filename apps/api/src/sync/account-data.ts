@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, asc, eq, inArray, isNull, isNotNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 
 import { logger } from '../core/logger'
 import { db } from '../db'
@@ -75,7 +75,6 @@ export async function enqueueAccountDataRun({
 
 	return db.transaction(async transaction => {
 		await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${agencyId}))`)
-		await initializeAccountDataFreshness(transaction, agencyId, now)
 
 		const [activeRun] = await transaction
 			.select({ id: syncRun.id })
@@ -232,28 +231,6 @@ export async function pruneSyncHistory(now = new Date()) {
 	await db.delete(forceRefresh).where(lte(forceRefresh.createdAt, cutoff))
 }
 
-async function initializeAccountDataFreshness(
-	transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
-	agencyId: string,
-	now: Date,
-) {
-	await transaction
-		.update(adAccount)
-		.set({
-			accountDataSuccessfulAt: sql`${adAccount.accountTierRefreshedAt}`,
-			accountDataNextDueAt: now,
-		})
-		.from(client)
-		.where(
-			and(
-				eq(adAccount.clientId, client.id),
-				eq(client.agencyId, agencyId),
-				isNull(adAccount.accountDataSuccessfulAt),
-				isNotNull(adAccount.accountTierRefreshedAt),
-			),
-		)
-}
-
 async function claimRun(params: {
 	agencyId: string
 	runId: string
@@ -398,7 +375,6 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 					balance: accountData.balance,
 					isPrepayAccount: accountData.isPrepayAccount,
 					fundingSourceType: accountData.fundingSourceType,
-					accountTierRefreshedAt: committedAt,
 					accountDataAttemptedAt: committedAt,
 					accountDataSuccessfulAt: committedAt,
 					accountDataError: null,
@@ -406,8 +382,6 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 					accountDataNextDueAt: new Date(committedAt.getTime() + accountDataIntervalMilliseconds),
 					accountDataLeaseOwner: null,
 					accountDataLeaseExpiresAt: null,
-					lastPollAttemptAt: committedAt,
-					lastPollError: null,
 					updatedAt: committedAt,
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
@@ -453,8 +427,6 @@ async function recordOutcomeSkipped(params: AccountDataOutcomeContext, accountId
 				accountDataNextDueAt: new Date(occurredAt.getTime() + accountDataIntervalMilliseconds),
 				accountDataLeaseOwner: null,
 				accountDataLeaseExpiresAt: null,
-				lastPollAttemptAt: occurredAt,
-				lastPollError: noTokenMessage,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))
@@ -497,8 +469,6 @@ async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: un
 				accountDataNextDueAt: new Date(occurredAt.getTime() + accountDataIntervalMilliseconds),
 				accountDataLeaseOwner: null,
 				accountDataLeaseExpiresAt: null,
-				lastPollAttemptAt: occurredAt,
-				lastPollError: message,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))

@@ -36,21 +36,21 @@ vi.mock('./historical-reconciliation', () => ({
 }))
 vi.mock('./force-refresh', () => ({ resumeForceRefreshes: sync.resumeForceRefreshes }))
 
-const { configureHeartbeat, triggerAgencyBackgroundSync, triggerBackgroundSync } = await import('./runtime')
+const { configureScheduler, triggerAgencyBackgroundSync, triggerBackgroundSync } = await import('./runtime')
 
 describe('triggerBackgroundSync', () => {
 	beforeEach(() => {
 		for (const scheduler of Object.values(sync)) scheduler.mockReset().mockResolvedValue([])
 	})
 
-	it('does nothing when heartbeat dependencies are not configured', () => {
+	it('does nothing when scheduler dependencies are not configured', () => {
 		expect(() => triggerBackgroundSync()).not.toThrow()
 		for (const scheduler of Object.values(sync)) expect(scheduler).not.toHaveBeenCalled()
 	})
 
 	it('fires every Operational Slice and Creative enrichment before reconciliation', async () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
-		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		configureScheduler({ schedulerSecret: 'secret', metaMode: 'fake', buildMetaClient })
 
 		triggerBackgroundSync()
 		await new Promise(resolve => setTimeout(resolve, 0))
@@ -68,8 +68,8 @@ describe('triggerBackgroundSync', () => {
 
 	it('swallows a rejected slice scheduler instead of throwing', async () => {
 		sync.scheduleInsightsRunsForAgencies.mockRejectedValue(new Error('boom'))
-		configureHeartbeat({
-			heartbeatSecret: 'secret',
+		configureScheduler({
+			schedulerSecret: 'secret',
 			metaMode: 'fake',
 			buildMetaClient: () => new MetaClient({ accessToken: 'test-token' }),
 		})
@@ -80,7 +80,7 @@ describe('triggerBackgroundSync', () => {
 
 	it('runs pending Force Refreshes before Historical Reconciliation', async () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
-		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		configureScheduler({ schedulerSecret: 'secret', metaMode: 'fake', buildMetaClient })
 		let resume: (() => void) | undefined
 		sync.resumeForceRefreshes.mockImplementation(() => new Promise<void>(resolve => (resume = resolve)))
 
@@ -101,7 +101,7 @@ describe('triggerBackgroundSync', () => {
 
 	it('waits for Account data and hierarchy before starting Initial Import insights', async () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
-		configureHeartbeat({ heartbeatSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		configureScheduler({ schedulerSecret: 'secret', metaMode: 'fake', buildMetaClient })
 		let finishAccountData: (() => void) | undefined
 		let finishHierarchy: (() => void) | undefined
 		sync.scheduleAccountDataRun.mockImplementation(() => new Promise<void>(resolve => (finishAccountData = resolve)))

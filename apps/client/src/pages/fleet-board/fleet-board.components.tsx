@@ -47,7 +47,6 @@ import {
 	flattenAccount,
 	flattenRows,
 	formatKpi,
-	freshnessText,
 	gridMinWidth,
 	gridTemplate,
 	healthColorClass,
@@ -56,7 +55,6 @@ import {
 	metaAdsManagerUrl,
 	nextMetrics,
 	reorderColumnIds,
-	syncNote,
 	type Account,
 	type BoardRow,
 	type Client,
@@ -86,7 +84,6 @@ const laneLabels = {
 	needs_attention: 'Потрібна увага',
 	postpay: 'Післяплата',
 	active: 'Активні',
-	awaiting_data: 'Очікують даних',
 } as const
 
 export type ViewProps = {
@@ -106,14 +103,12 @@ export function FleetToolbar({
 	header,
 	clients,
 	onRefresh,
-	isRefreshing,
 }: {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	header?: FleetBoardRoot['header']
 	clients: Client[]
 	onRefresh: () => void
-	isRefreshing: boolean
 }) {
 	const activeFilters =
 		Number(search.search.length > 0) + Number(search.needsAttention) + Number(Boolean(search.clientId))
@@ -139,38 +134,15 @@ export function FleetToolbar({
 				</div>
 
 				<p className="ml-auto truncate text-xs text-muted-foreground" aria-live="polite">
-					<span>
-						Операційні:{' '}
-						{freshnessText(
-							header?.accountTierRefreshedAt,
-							header?.accountTierStale ?? false,
-							header?.accountTierNeverSynced ?? 0,
-						)}
-					</span>
-					<span className="ml-3">
-						Показники:{' '}
-						{freshnessText(
-							header?.insightsTierRefreshedAt,
-							header?.insightsTierStale ?? false,
-							header?.insightsTierNeverSynced ?? 0,
-						)}
-					</span>
 					{header?.provisional ? (
-						<span className="ml-3 font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
+						<span className="font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
 					) : null}
 				</p>
 				<TooltipProvider delayDuration={0}>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								size="icon-xs"
-								variant="ghost"
-								aria-label="Оновити дані"
-								disabled={isRefreshing}
-								onClick={onRefresh}
-							>
-								<RefreshCw className={isRefreshing ? 'animate-spin' : undefined} />
+							<Button type="button" size="icon-xs" variant="ghost" aria-label="Оновити дані" onClick={onRefresh}>
+								<RefreshCw />
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>Оновити дані</TooltipContent>
@@ -981,7 +953,6 @@ function SignalLane({
 				<div className="mt-2 flex flex-col gap-2">
 					{items.map(account => {
 						const isOpen = expanded.has(fleetBoardParentKey('account', account.id))
-						const sync = syncNote(account)
 						return (
 							<article key={account.id} className="rounded-lg border bg-background p-2">
 								<button
@@ -996,11 +967,6 @@ function SignalLane({
 									<HealthLabel health={account.health} muted={account.signalsLane === lane} />
 								</button>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-									{/* A failed or missing sync is Adomata's reach, not Meta's verdict on the
-									    account — it gets its own wording so it is not escalated as ill health. */}
-									{sync ? (
-										<span className="rounded-full bg-muted px-2 py-0.5 text-foreground">{sync}</span>
-									) : null}
 									<MetaAdsManagerLink accountId={account.id} />
 								</div>
 								<KpiStrip kpis={account.kpis} metrics={search.metrics} currency={account.currency} />

@@ -42,10 +42,8 @@ const accountRow = (overrides: Record<string, unknown> = {}) =>
 		metaAccountStatus: 1,
 		metaDisableReason: 0,
 		isPrepayAccount: true,
-		lastPollError: null,
-		accountTierRefreshedAt: new Date('2026-01-03T00:00:00.000Z'),
-		insightsTierRefreshedAt: new Date('2026-01-03T00:00:00.000Z'),
-		insightsTierError: null,
+		accountDataSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
+		insightsSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
 		historicalReconciliationSuccessfulAt: null,
 		historicalReconciliationError: null,
 		...overrides,
@@ -209,21 +207,7 @@ describe('Fleet Board complete snapshot read model', () => {
 		})
 		expect(response.nodes.find(node => node.id === 'adset_empty')?.kpis.spend).toBe('0')
 		expect(response.accounts[0]?.kpis.spend).toBe('35')
-		expect(response.accounts[0]?.freshness.historicalReconciliation).toEqual({
-			refreshedAt: '2026-01-01T12:00:00.000Z',
-			stale: false,
-			failed: false,
-		})
-		expect(response.accounts[1]?.freshness.historicalReconciliation).toEqual({
-			refreshedAt: '2026-01-01T11:59:59.000Z',
-			stale: true,
-			failed: false,
-		})
-		expect(response.header).toMatchObject({
-			historicalReconciliationRefreshedAt: '2026-01-01T11:59:59.000Z',
-			historicalReconciliationStale: true,
-			historicalReconciliationNeverSynced: 0,
-		})
+		expect(response.header).toEqual({ provisional: true })
 		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('15')
 		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual([
 			'agency_1',

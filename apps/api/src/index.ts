@@ -1,18 +1,18 @@
 import './core/telemetry'
 import { MetaClient } from './meta/client'
-import { parseMetaConfig, requireHeartbeatSecret } from './meta/config'
-import { configureHeartbeat } from './sync/runtime'
+import { parseMetaConfig, requireSchedulerSecret } from './meta/config'
+import { configureScheduler } from './sync/runtime'
 
 const metaConfig = parseMetaConfig()
-const heartbeatSecret = requireHeartbeatSecret()
+const schedulerSecret = requireSchedulerSecret()
 
 if (metaConfig.mode === 'fake') {
 	const { fakeMetaServer, rejectUnhandledMetaRequest } = await import('./meta/fake/server')
 	fakeMetaServer.listen({ onUnhandledRequest: rejectUnhandledMetaRequest })
 }
 
-configureHeartbeat({
-	heartbeatSecret,
+configureScheduler({
+	schedulerSecret,
 	metaMode: metaConfig.mode,
 	buildMetaClient: accessToken => {
 		if (metaConfig.mode === 'fake') return new MetaClient({ accessToken: metaConfig.accessToken })

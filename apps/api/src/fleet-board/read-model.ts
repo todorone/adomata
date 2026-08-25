@@ -13,11 +13,9 @@ import {
 	classifyAccountHealth,
 	dateRangeForAccount,
 	isProvisional,
-	isStale,
 	rollupKpis,
 	signalLaneFor,
 	sumDecimalStrings,
-	summarizeFleetTier,
 } from './domain'
 import { logger } from '../core/logger'
 
@@ -29,9 +27,6 @@ export {
 	normalizeCreative,
 } from './creative'
 
-const accountStaleMilliseconds = 10 * 60 * 1000
-const insightsStaleMilliseconds = 10 * 60 * 1000
-const historicalReconciliationStaleMilliseconds = 36 * 60 * 60 * 1000
 const actionItemsSchema = z.array(z.object({ action_type: z.string(), value: z.string().regex(/^-?\d+(?:\.\d+)?$/) }))
 const purchaseActionTypes = new Set(['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase'])
 
@@ -93,7 +88,7 @@ export async function readFleetBoardRoot(
 		clients: visibleClients,
 		accounts: sortedAccounts,
 		nodes: model.nodes.filter(node => visibleAccountIds.has(node.accountId)).map(node => node.node),
-		header: headerFreshness(sortedAccounts, query.range, now),
+		header: header(sortedAccounts, query.range, now),
 	}
 }
 
@@ -243,7 +238,7 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	)
 
 	const accounts = accountRows.map(({ account, client: accountClient }) =>
-		accountView(account, accountClient, contributionsByAccount.get(account.id) ?? [], now),
+		accountView(account, accountClient, contributionsByAccount.get(account.id) ?? []),
 	)
 	const clients = [...new Map(accountRows.map(row => [row.client.id, row.client])).values()].map(client => ({
 		id: client.id,
@@ -305,12 +300,7 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	}
 }
 
-function accountView(
-	account: AccountRow,
-	accountClient: ClientRow,
-	contributions: Contribution[],
-	now: Date,
-): AccountView {
+function accountView(account: AccountRow, accountClient: ClientRow, contributions: Contribution[]): AccountView {
 	const health = classifyAccountHealth(
 		{
 			connectionStatus: account.connectionStatus,
@@ -332,26 +322,6 @@ function accountView(
 		health,
 		signalsLane: signalLaneFor(health),
 		kpis: toApiKpis(rollupKpis(contributions)),
-		freshness: {
-			accountTier: freshness(
-				account.accountTierRefreshedAt,
-				account.lastPollError !== null,
-				accountStaleMilliseconds,
-				now,
-			),
-			insightsTier: freshness(
-				account.insightsSuccessfulAt ?? account.insightsTierRefreshedAt,
-				(account.insightsError ?? account.insightsTierError ?? null) !== null,
-				insightsStaleMilliseconds,
-				now,
-			),
-			historicalReconciliation: freshness(
-				account.historicalReconciliationSuccessfulAt,
-				account.historicalReconciliationError !== null,
-				historicalReconciliationStaleMilliseconds,
-				now,
-			),
-		},
 	}
 }
 
@@ -406,26 +376,8 @@ function toApiKpis(kpis: ReturnType<typeof rollupKpis>) {
 	return kpis
 }
 
-function freshness(refreshedAt: Date | null, failed: boolean, threshold: number, now: Date) {
-	return { refreshedAt: refreshedAt?.toISOString() ?? null, stale: isStale(refreshedAt, threshold, now), failed }
-}
-
-function headerFreshness(accounts: AccountView[], range: FleetBoardRange, now: Date) {
-	const accountTier = summarizeFleetTier(accounts.map(account => account.freshness.accountTier))
-	const insightsTier = summarizeFleetTier(accounts.map(account => account.freshness.insightsTier))
-	const historicalReconciliation = summarizeFleetTier(
-		accounts.map(account => account.freshness.historicalReconciliation),
-	)
+function header(accounts: AccountView[], range: FleetBoardRange, now: Date) {
 	return {
-		accountTierRefreshedAt: accountTier.refreshedAt,
-		insightsTierRefreshedAt: insightsTier.refreshedAt,
-		historicalReconciliationRefreshedAt: historicalReconciliation.refreshedAt,
-		accountTierStale: accountTier.stale,
-		insightsTierStale: insightsTier.stale,
-		historicalReconciliationStale: historicalReconciliation.stale,
-		accountTierNeverSynced: accountTier.neverSynced,
-		insightsTierNeverSynced: insightsTier.neverSynced,
-		historicalReconciliationNeverSynced: historicalReconciliation.neverSynced,
 		provisional: accounts.some(account =>
 			isProvisional(dateRangeForAccount(range, account.timezoneName, now), account.timezoneName, now),
 		),

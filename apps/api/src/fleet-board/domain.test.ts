@@ -9,7 +9,6 @@ import {
 	reconciliationWindow,
 	rollupKpis,
 	signalLaneFor,
-	summarizeFleetTier,
 } from './domain'
 
 describe('Fleet Board domain rules', () => {
@@ -45,7 +44,7 @@ describe('Fleet Board domain rules', () => {
 		expect(signalLaneFor({ color: 'grey', needsAttention: true })).toBe('needs_attention')
 		expect(signalLaneFor({ color: 'yellow', needsAttention: false })).toBe('postpay')
 		expect(signalLaneFor({ color: 'green', needsAttention: false })).toBe('active')
-		expect(signalLaneFor({ color: 'grey', needsAttention: false })).toBe('awaiting_data')
+		expect(signalLaneFor({ color: 'grey', needsAttention: false })).toBe('active')
 	})
 
 	it('uses every account local timezone for ranges across opposite sides of midnight and DST', () => {
@@ -81,33 +80,6 @@ describe('Fleet Board domain rules', () => {
 		expect(isProvisional({ start: '2026-06-01', end: '2026-07-04' }, 'Europe/Kyiv', now)).toBe(true)
 		expect(isStale(new Date('2026-08-01T00:19:59.999Z'), 10 * 60 * 1000, now)).toBe(true)
 		expect(isStale(new Date('2026-08-01T00:20:00.000Z'), 10 * 60 * 1000, now)).toBe(false)
-	})
-
-	it('reports the oldest successful refresh and counts never-synced accounts separately', () => {
-		const neverSynced = { refreshedAt: null, stale: true }
-		const oldest = { refreshedAt: '2026-07-30T08:00:00.000Z', stale: true }
-		const newest = { refreshedAt: '2026-07-30T09:30:00.000Z', stale: false }
-
-		expect(summarizeFleetTier([newest, oldest])).toEqual({
-			refreshedAt: oldest.refreshedAt,
-			stale: true,
-			neverSynced: 0,
-		})
-		// A never-synced account is excluded rather than nulling the tier, and does not
-		// change the stale flag the synced accounts already produced.
-		expect(summarizeFleetTier([newest, oldest, neverSynced])).toEqual({
-			refreshedAt: oldest.refreshedAt,
-			stale: true,
-			neverSynced: 1,
-		})
-		expect(summarizeFleetTier([newest, neverSynced, neverSynced])).toEqual({
-			refreshedAt: newest.refreshedAt,
-			stale: false,
-			neverSynced: 2,
-		})
-		// Null only when no visible Ad Account has ever synced this tier.
-		expect(summarizeFleetTier([neverSynced])).toEqual({ refreshedAt: null, stale: false, neverSynced: 1 })
-		expect(summarizeFleetTier([])).toEqual({ refreshedAt: null, stale: false, neverSynced: 0 })
 	})
 
 	it('derives rollup KPIs from additive values with exact decimal arithmetic', () => {

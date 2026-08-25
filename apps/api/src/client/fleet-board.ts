@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-const nullableIsoDateTimeSchema = z.string().datetime({ offset: true }).nullable()
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
 export const fleetBoardRangePresetSchema = z.enum([
@@ -47,7 +46,7 @@ export const fleetBoardSortSchema = z.enum([
 export const fleetBoardDirectionSchema = z.enum(['asc', 'desc'])
 export const fleetBoardNodeTypeSchema = z.enum(['account', 'campaign', 'adset', 'ad'])
 export const fleetBoardHealthColorSchema = z.enum(['green', 'yellow', 'red', 'grey'])
-export const fleetBoardSignalsLaneSchema = z.enum(['needs_attention', 'postpay', 'active', 'awaiting_data'])
+export const fleetBoardSignalsLaneSchema = z.enum(['needs_attention', 'postpay', 'active'])
 export const fleetBoardCpaReasonSchema = z.enum(['mixed_result_types', 'unresolved_result_type'])
 
 export const fleetBoardHealthReasonSchema = z.discriminatedUnion('code', [
@@ -71,12 +70,6 @@ export const fleetBoardKpisSchema = z.object({
 	running: z.boolean(),
 })
 
-const freshnessSchema = z.object({
-	refreshedAt: nullableIsoDateTimeSchema,
-	stale: z.boolean(),
-	failed: z.boolean(),
-})
-
 export const fleetBoardAccountSchema = z.object({
 	id: z.string(),
 	type: z.literal('account'),
@@ -93,11 +86,6 @@ export const fleetBoardAccountSchema = z.object({
 	}),
 	signalsLane: fleetBoardSignalsLaneSchema,
 	kpis: fleetBoardKpisSchema,
-	freshness: z.object({
-		accountTier: freshnessSchema,
-		insightsTier: freshnessSchema,
-		historicalReconciliation: freshnessSchema,
-	}),
 })
 
 export const fleetBoardNodeSchema = z.object({
@@ -142,17 +130,6 @@ export const fleetBoardRootResponseSchema = z.object({
 	accounts: z.array(fleetBoardAccountSchema),
 	nodes: z.array(fleetBoardNodeSchema),
 	header: z.object({
-		accountTierRefreshedAt: nullableIsoDateTimeSchema,
-		insightsTierRefreshedAt: nullableIsoDateTimeSchema,
-		historicalReconciliationRefreshedAt: nullableIsoDateTimeSchema,
-		accountTierStale: z.boolean(),
-		insightsTierStale: z.boolean(),
-		historicalReconciliationStale: z.boolean(),
-		// Visible Ad Accounts with no successful refresh for the tier — reported as their own
-		// fact so «ще не синхронізовано» never stands in for the whole fleet.
-		accountTierNeverSynced: z.number().int(),
-		insightsTierNeverSynced: z.number().int(),
-		historicalReconciliationNeverSynced: z.number().int(),
 		provisional: z.boolean(),
 	}),
 })

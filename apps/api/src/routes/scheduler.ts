@@ -6,14 +6,14 @@ import { scheduleCreativeRunsForAgencies } from '../sync/creative'
 import { scheduleHierarchyRunsForAgencies } from '../sync/hierarchy'
 import { scheduleInsightsRunsForAgencies } from '../sync/insights'
 import { scheduleHistoricalReconciliationRunsForAgencies } from '../sync/historical-reconciliation'
-import { getHeartbeatDependencies, triggerPendingForceRefreshes } from '../sync/runtime'
+import { getSchedulerDependencies, triggerPendingForceRefreshes } from '../sync/runtime'
 
 const route = createRoute({
 	method: 'post',
 	path: '/',
 	responses: {
 		200: {
-			description: 'Heartbeat completed',
+			description: 'Routine scheduling completed',
 			content: {
 				'application/json': {
 					schema: z.object({
@@ -37,13 +37,13 @@ const route = createRoute({
 				},
 			},
 		},
-		401: { description: 'Missing or invalid heartbeat secret' },
+		401: { description: 'Missing or invalid scheduler secret' },
 	},
 })
 
-export const heartbeatRoutes = new OpenAPIHono().openapi(route, async c => {
-	const { heartbeatSecret, metaMode, buildMetaClient } = getHeartbeatDependencies()
-	if (c.req.header('authorization') !== `Bearer ${heartbeatSecret}`) return c.text('Несанкціонований доступ', 401)
+export const schedulerRoutes = new OpenAPIHono().openapi(route, async c => {
+	const { schedulerSecret, metaMode, buildMetaClient } = getSchedulerDependencies()
+	if (c.req.header('authorization') !== `Bearer ${schedulerSecret}`) return c.text('Несанкціонований доступ', 401)
 	const [accountDataResult, hierarchyResult, insightsResult, creativeResult] = await Promise.allSettled([
 		scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 		scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),

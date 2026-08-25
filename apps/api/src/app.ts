@@ -9,7 +9,7 @@ import { authRoutes } from './routes/auth'
 import { healthRoutes } from './routes/health'
 import { invitationRoutes } from './routes/invitation'
 import { meRoutes } from './routes/me'
-import { heartbeatRoutes } from './routes/heartbeat'
+import { schedulerRoutes } from './routes/scheduler'
 import { fleetBoardRoutes } from './routes/fleet-board'
 import { organizationSettingsRoutes } from './routes/organization-settings'
 import { metaAccountsRoutes } from './routes/meta-accounts'
@@ -66,8 +66,8 @@ const withAuthRoutes = withHealthRoutes.route('/auth', authRoutes)
 const withMeRoutes = withAuthRoutes.route('/me', meRoutes)
 const withAdminRoutes = withMeRoutes.route('/admin', adminRoutes)
 const withInvitationRoutes = withAdminRoutes.route('/invitation', invitationRoutes)
-const withHeartbeatRoutes = withInvitationRoutes.route('/heartbeat', heartbeatRoutes)
-const withFleetBoardRoutes = withHeartbeatRoutes.route('/fleet-board', fleetBoardRoutes)
+const withSchedulerRoutes = withInvitationRoutes.route('/scheduler', schedulerRoutes)
+const withFleetBoardRoutes = withSchedulerRoutes.route('/fleet-board', fleetBoardRoutes)
 const withOrganizationSettingsRoutes = withFleetBoardRoutes.route('/organization-settings', organizationSettingsRoutes)
 const withMetaAccountsRoutes = withOrganizationSettingsRoutes.route('/meta-accounts', metaAccountsRoutes)
 const withForceRefreshRoutes = withMetaAccountsRoutes.route('/force-refresh', forceRefreshRoutes)

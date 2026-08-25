@@ -22,7 +22,7 @@ import {
 	needsCreativeMediaRefresh,
 } from '../fleet-board/read-model'
 import { fetchCreativeMedia, mediaRange } from '../fleet-board/media'
-import { getHeartbeatDependencies } from '../sync/runtime'
+import { getSchedulerDependencies } from '../sync/runtime'
 
 const rootRoute = createRoute({
 	method: 'get',
@@ -181,7 +181,7 @@ async function loadAdPreview(agencyId: string, adId: string) {
 }
 
 async function resolveMetaClient(agencyId: string) {
-	const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+	const { metaMode, buildMetaClient } = getSchedulerDependencies()
 	if (metaMode === 'fake') return buildMetaClient()
 	const [row] = await db
 		.select({ metaAccessToken: organizationSettings.metaAccessToken })

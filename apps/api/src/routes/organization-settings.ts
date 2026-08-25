@@ -11,7 +11,7 @@ import { apiError } from '../logic/apiError'
 import { isOwner, requireAuth, requireOrg, requireVerifiedAuth } from '../logic/auth'
 import { MetaApiError } from '../meta/client'
 import { replaceMetaAccessTokenAndRecoverAccounts } from '../sync/access-recovery'
-import { getHeartbeatDependencies, triggerAgencyBackgroundSync } from '../sync/runtime'
+import { getSchedulerDependencies, triggerAgencyBackgroundSync } from '../sync/runtime'
 
 const getRoute = createRoute({
 	method: 'get',
@@ -73,7 +73,7 @@ export const organizationSettingsRoutes = organizationSettingsBase
 		const { metaAccessToken } = c.req.valid('json')
 
 		try {
-			const { buildMetaClient } = getHeartbeatDependencies()
+			const { buildMetaClient } = getSchedulerDependencies()
 			await buildMetaClient(metaAccessToken).verifyToken()
 		} catch (error) {
 			if (error instanceof MetaApiError) {

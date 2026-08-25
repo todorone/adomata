@@ -428,9 +428,6 @@ async function processOutcome(params: InsightsOutcomeContext) {
 					insightsNextDueAt: new Date(committedAt.getTime() + insightsIntervalMilliseconds),
 					insightsLeaseOwner: null,
 					insightsLeaseExpiresAt: null,
-					insightsTierAttemptAt: committedAt,
-					insightsTierRefreshedAt: committedAt,
-					insightsTierError: null,
 					updatedAt: committedAt,
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
@@ -506,8 +503,6 @@ async function recordOutcomeSkipped(params: InsightsOutcomeContext, accountId: s
 				insightsNextDueAt: new Date(occurredAt.getTime() + insightsIntervalMilliseconds),
 				insightsLeaseOwner: null,
 				insightsLeaseExpiresAt: null,
-				insightsTierAttemptAt: occurredAt,
-				insightsTierError: noTokenMessage,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))
@@ -550,8 +545,6 @@ async function recordOutcomeFailure(params: InsightsOutcomeContext, error: unkno
 				insightsNextDueAt: new Date(occurredAt.getTime() + insightsIntervalMilliseconds),
 				insightsLeaseOwner: null,
 				insightsLeaseExpiresAt: null,
-				insightsTierAttemptAt: occurredAt,
-				insightsTierError: message,
 				updatedAt: occurredAt,
 			})
 			.where(eq(adAccount.id, accountId))

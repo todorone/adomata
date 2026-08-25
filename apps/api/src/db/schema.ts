@@ -291,14 +291,6 @@ export const adAccount = pgTable(
 		connectionStatus: text({ enum: ['pending', 'connected', 'access_lost'] })
 			.notNull()
 			.default('pending'),
-		// Set on any failed poll; does not by itself change connectionStatus — only a real
-		// auth/permission failure does. Distinguishes a rate-limit/5xx hiccup from access loss.
-		lastPollAttemptAt: timestamp({ withTimezone: true }),
-		lastPollError: text(),
-		insightsTierAttemptAt: timestamp({ withTimezone: true }),
-		insightsTierError: text(),
-		accountTierRefreshedAt: timestamp({ withTimezone: true }),
-		insightsTierRefreshedAt: timestamp({ withTimezone: true }),
 		insightsAttemptedAt: timestamp({ withTimezone: true }),
 		insightsSuccessfulAt: timestamp({ withTimezone: true }),
 		insightsError: text(),

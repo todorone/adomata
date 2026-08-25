@@ -1,15 +1,15 @@
 type SchedulerEnvironment = {
 	API_URL: string
-	HEARTBEAT_SECRET: string
+	SCHEDULER_SECRET: string
 }
 
 const worker = {
 	async scheduled(_controller: unknown, environment: SchedulerEnvironment) {
-		const response = await fetch(new URL('/heartbeat', environment.API_URL), {
+		const response = await fetch(new URL('/scheduler', environment.API_URL), {
 			method: 'POST',
-			headers: { Authorization: `Bearer ${environment.HEARTBEAT_SECRET}` },
+			headers: { Authorization: `Bearer ${environment.SCHEDULER_SECRET}` },
 		})
-		if (!response.ok) throw new Error(`Heartbeat scheduler request failed with status ${response.status}`)
+		if (!response.ok) throw new Error(`Scheduler request failed with status ${response.status}`)
 	},
 }
 

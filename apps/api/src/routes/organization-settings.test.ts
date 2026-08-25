@@ -40,8 +40,8 @@ vi.mock('../db', () => ({
 }))
 
 vi.mock('../sync/runtime', () => ({
-	getHeartbeatDependencies: () => ({
-		heartbeatSecret: 'secret',
+	getSchedulerDependencies: () => ({
+		schedulerSecret: 'secret',
 		metaMode: 'live' as const,
 		buildMetaClient: metaCalls.buildMetaClient,
 	}),

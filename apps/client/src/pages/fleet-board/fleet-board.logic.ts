@@ -229,24 +229,6 @@ export function metaAdsManagerUrl(accountId: string) {
 	return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actId)}`
 }
 
-export function syncNote(account: Account) {
-	const tiers = [account.freshness.accountTier, account.freshness.insightsTier]
-	const failed = tiers.filter(tier => tier.failed)
-	if (failed.length > 0) return 'Помилка синхронізації Meta'
-	const neverSynced = tiers.filter(tier => tier.refreshedAt === null)
-	if (neverSynced.length > 0) return 'Ще не синхронізовано'
-	const stale = tiers.filter(tier => tier.stale)
-	if (stale.length > 0) return 'Дані застаріли'
-	return null
-}
-
-export function freshnessText(value: string | null | undefined, stale: boolean, neverSynced: number) {
-	const pending = neverSynced > 0 ? ` · без синхр.: ${neverSynced}` : ''
-	if (!value) return `ще не синхронізовано${neverSynced > 1 ? ` (${neverSynced})` : ''}`
-	const time = new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-	return `${stale ? `застаріло, ${time}` : time}${pending}`
-}
-
 export function mediaUrl(creativeId: string, key: string) {
 	const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
 	return `${base}/fleet-board/creatives/${encodeURIComponent(creativeId)}/media/${encodeURIComponent(key)}`

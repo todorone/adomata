@@ -112,7 +112,6 @@ export function FleetBoard({
 				header={root.data?.header}
 				clients={root.data?.clients ?? []}
 				onRefresh={refresh}
-				isRefreshing={forceRefreshId !== null}
 			/>
 			{(root.isPending && !root.data) || waitingForColumnLayoutIdentity ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}

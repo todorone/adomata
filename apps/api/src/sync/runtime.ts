@@ -6,26 +6,26 @@ import { scheduleHistoricalReconciliationRunsForAgencies } from './historical-re
 import { scheduleHierarchyRun, scheduleHierarchyRunsForAgencies } from './hierarchy'
 import { scheduleInsightsRun, scheduleInsightsRunsForAgencies } from './insights'
 
-type HeartbeatDependencies = {
-	heartbeatSecret: string
+type SchedulerDependencies = {
+	schedulerSecret: string
 	metaMode: 'fake' | 'live'
 	buildMetaClient: (accessToken?: string) => MetaClient
 }
 
-let heartbeatDependencies: HeartbeatDependencies | undefined
+let schedulerDependencies: SchedulerDependencies | undefined
 
-export function configureHeartbeat(dependencies: HeartbeatDependencies) {
-	heartbeatDependencies = dependencies
+export function configureScheduler(dependencies: SchedulerDependencies) {
+	schedulerDependencies = dependencies
 }
 
-export function getHeartbeatDependencies() {
-	if (!heartbeatDependencies) throw new Error('Heartbeat dependencies have not been configured')
-	return heartbeatDependencies
+export function getSchedulerDependencies() {
+	if (!schedulerDependencies) throw new Error('Scheduler dependencies have not been configured')
+	return schedulerDependencies
 }
 
 export function triggerBackgroundSync() {
 	try {
-		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		const { metaMode, buildMetaClient } = getSchedulerDependencies()
 		Promise.allSettled([
 			scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
@@ -57,7 +57,7 @@ export function triggerBackgroundSync() {
 
 export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect' | 'manual' = 'connect') {
 	try {
-		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		const { metaMode, buildMetaClient } = getSchedulerDependencies()
 		Promise.all([
 			scheduleAccountDataRun({
 				agencyId,
@@ -92,7 +92,7 @@ export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect'
 
 export function triggerForceRefresh(agencyId: string, forceRefreshId: string) {
 	try {
-		const { metaMode, buildMetaClient } = getHeartbeatDependencies()
+		const { metaMode, buildMetaClient } = getSchedulerDependencies()
 		import('./force-refresh')
 			.then(({ runForceRefresh }) => runForceRefresh({ agencyId, forceRefreshId, metaMode, buildMetaClient }))
 			.catch(error =>
@@ -108,9 +108,9 @@ export function triggerForceRefresh(agencyId: string, forceRefreshId: string) {
 }
 
 export async function triggerPendingForceRefreshes() {
-	let dependencies: HeartbeatDependencies
+	let dependencies: SchedulerDependencies
 	try {
-		dependencies = getHeartbeatDependencies()
+		dependencies = getSchedulerDependencies()
 	} catch {
 		// Runtime configuration is intentionally absent in isolated API route tests.
 		return

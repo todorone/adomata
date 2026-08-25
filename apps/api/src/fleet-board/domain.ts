@@ -1,6 +1,6 @@
 export type ConnectionStatus = 'pending' | 'connected' | 'access_lost'
 export type HealthColor = 'green' | 'yellow' | 'red' | 'grey'
-export type SignalsLane = 'needs_attention' | 'postpay' | 'active' | 'awaiting_data'
+export type SignalsLane = 'needs_attention' | 'postpay' | 'active'
 export type TimeRangePreset =
 	'today' | 'yesterday' | 'last7' | 'last14' | 'last30' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth'
 export type CpaReason = 'mixed_result_types' | 'unresolved_result_type'
@@ -68,8 +68,7 @@ export function classifyAccountHealth(
 export function signalLaneFor(health: Pick<HealthState, 'color' | 'needsAttention'>): SignalsLane {
 	if (health.needsAttention) return 'needs_attention'
 	if (health.color === 'yellow') return 'postpay'
-	if (health.color === 'green') return 'active'
-	return 'awaiting_data'
+	return 'active'
 }
 
 export type AccountDateRange = { start: string; end: string }
@@ -170,25 +169,6 @@ export function isProvisional(range: AccountDateRange, timezoneName: string, now
 
 export function isStale(refreshedAt: Date | null, thresholdMilliseconds: number, now = new Date()) {
 	return refreshedAt === null || now.getTime() - refreshedAt.getTime() > thresholdMilliseconds
-}
-
-export type TierFreshness = { refreshedAt: string | null; stale: boolean }
-export type FleetTierFreshness = TierFreshness & { neverSynced: number }
-
-/**
- * The fleet-wide readout for one freshness tier: the oldest *successful* refresh among the
- * visible Ad Accounts, so one failed account cannot hide behind a newer fleet timestamp.
- * Accounts that have never synced the tier are counted as their own fact instead of nulling
- * the timestamp — `refreshedAt` is null only when none of them has ever synced it.
- * ISO-8601 UTC timestamps sort lexicographically, which is why no date parsing is needed.
- */
-export function summarizeFleetTier(tiers: readonly TierFreshness[]): FleetTierFreshness {
-	const synced = tiers.flatMap(tier => (tier.refreshedAt === null ? [] : [tier]))
-	return {
-		refreshedAt: synced.map(tier => tier.refreshedAt).sort()[0] ?? null,
-		stale: synced.some(tier => tier.stale),
-		neverSynced: tiers.length - synced.length,
-	}
 }
 
 type Decimal = { coefficient: bigint; scale: number }

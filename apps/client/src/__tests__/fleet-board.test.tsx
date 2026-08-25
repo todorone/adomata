@@ -26,12 +26,6 @@ function kpis(overrides: Partial<Kpis> = {}): Kpis {
 	}
 }
 
-const freshness = {
-	accountTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
-	insightsTier: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
-	historicalReconciliation: { refreshedAt: '2026-07-30T08:00:00.000Z', stale: false, failed: false },
-}
-
 const soloAccount: Account = {
 	id: 'act_100000000000001',
 	type: 'account',
@@ -45,7 +39,6 @@ const soloAccount: Account = {
 	signalsLane: 'active',
 	// No purchase value recorded anywhere on this lead-generation account.
 	kpis: kpis({ spend: '1234.50', roas: '0' }),
-	freshness,
 }
 
 const duoFirst: Account = {
@@ -161,15 +154,6 @@ const rootResponse: FleetBoardRoot = {
 	nodes: snapshotNodes,
 	nodeIndex: snapshotNodeIndex,
 	header: {
-		accountTierRefreshedAt: '2026-07-30T08:00:00.000Z',
-		insightsTierRefreshedAt: '2026-07-30T08:00:00.000Z',
-		historicalReconciliationRefreshedAt: '2026-07-30T08:00:00.000Z',
-		accountTierStale: false,
-		insightsTierStale: false,
-		historicalReconciliationStale: false,
-		accountTierNeverSynced: 0,
-		insightsTierNeverSynced: 0,
-		historicalReconciliationNeverSynced: 0,
 		provisional: false,
 	},
 }
@@ -293,6 +277,7 @@ describe('Fleet Board', () => {
 		refetchSpy.mockClear()
 		requestForceRefreshSpy.mockClear()
 		readForceRefreshSpy.mockClear()
+		rootResponse.header.provisional = false
 	})
 
 	it('renders Spend and CPA below Ad Account level in the ancestor Ad Account currency', async () => {
@@ -310,9 +295,22 @@ describe('Fleet Board', () => {
 		expect(screen.getByText('Northstar Prepay')).toBeTruthy()
 	})
 
+	it('keeps routine synchronization invisible while retaining the Provisional notice', () => {
+		rootResponse.header.provisional = true
+		renderBoard({ view: 'signals' })
+
+		expect(screen.getByText('Уточнюється Meta.')).toBeTruthy()
+		expect(screen.queryByText(/Операційні:/)).toBeNull()
+		expect(screen.queryByText(/Показники:/)).toBeNull()
+		expect(screen.queryByText('Очікують даних')).toBeNull()
+		expect(screen.queryByText('Помилка синхронізації Meta')).toBeNull()
+	})
+
 	it('waits for persisted Force Refresh completion before rereading the snapshot', async () => {
 		renderBoard({ depth: 'ad' })
-		fireEvent.click(screen.getByRole('button', { name: 'Оновити дані' }))
+		const refreshButton = screen.getByRole('button', { name: 'Оновити дані' })
+		fireEvent.click(refreshButton)
+		expect(refreshButton.hasAttribute('disabled')).toBe(false)
 		await waitFor(() => expect(requestForceRefreshSpy).toHaveBeenCalledTimes(1))
 		await waitFor(() => expect(readForceRefreshSpy).toHaveBeenCalledWith('refresh_1'))
 		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))

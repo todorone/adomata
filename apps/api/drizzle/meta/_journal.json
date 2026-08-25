@@ -113,6 +113,13 @@
       "when": 1787594109020,
       "tag": "0015_daily_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787634097177,
+      "tag": "0016_chief_jane_foster",
+      "breakpoints": true
     }
   ]
 }

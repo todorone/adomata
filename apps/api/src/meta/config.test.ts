@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseMetaConfig, requireHeartbeatSecret } from './config'
+import { parseMetaConfig, requireSchedulerSecret } from './config'
 
 describe('parseMetaConfig', () => {
 	it('defaults to live mode when META_API_MODE is unset or not "fake"', () => {
@@ -33,9 +33,9 @@ describe('parseMetaConfig', () => {
 		})
 	})
 
-	it('requires a non-blank heartbeat secret in every mode', () => {
-		expect(() => requireHeartbeatSecret({})).toThrow('HEARTBEAT_SECRET must be set')
-		expect(() => requireHeartbeatSecret({ HEARTBEAT_SECRET: '  ' })).toThrow('HEARTBEAT_SECRET must be set')
-		expect(requireHeartbeatSecret({ HEARTBEAT_SECRET: ' secret ' })).toBe('secret')
+	it('requires a non-blank scheduler secret in every mode', () => {
+		expect(() => requireSchedulerSecret({})).toThrow('SCHEDULER_SECRET must be set')
+		expect(() => requireSchedulerSecret({ SCHEDULER_SECRET: '  ' })).toThrow('SCHEDULER_SECRET must be set')
+		expect(requireSchedulerSecret({ SCHEDULER_SECRET: ' secret ' })).toBe('secret')
 	})
 })

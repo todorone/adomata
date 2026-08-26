@@ -1,8 +1,8 @@
-import { and, eq, gte, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../db'
-import { ad, adAccount, adCreative, adInsight, adSet, campaign, client } from '../db/schema'
+import { ad, adAccount, adCreative, adInsight, adSet, campaign, client, forceRefresh } from '../db/schema'
 import type {
 	FleetBoardNode,
 	FleetBoardRange,
@@ -11,11 +11,13 @@ import type {
 } from '../client/fleet-board'
 import {
 	classifyAccountHealth,
+	classifySyncHealth,
 	dateRangeForAccount,
 	isProvisional,
 	rollupKpis,
 	signalLaneFor,
 	sumDecimalStrings,
+	type SyncSliceInput,
 } from './domain'
 import { logger } from '../core/logger'
 
@@ -146,8 +148,8 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 		.map(value => value.end)
 		.sort()
 		.at(-1)!
-	// Independent given `accountIds`: this is the only board read, so pay one round-trip, not five.
-	const [campaignRows, adSetRows, hierarchyRows, creativeRows, insightRows] = await Promise.all([
+	// Independent given `accountIds`: this is the only board read, so pay one round-trip, not six.
+	const [campaignRows, adSetRows, hierarchyRows, creativeRows, insightRows, latestForceRefresh] = await Promise.all([
 		db.select({ campaign: campaignNodeFields }).from(campaign).where(inArray(campaign.adAccountId, accountIds)),
 		db
 			.select({
@@ -192,8 +194,15 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 					lte(adInsight.date, rangeEnd),
 				),
 			),
+		db
+			.select({ requestedAt: forceRefresh.requestedAt })
+			.from(forceRefresh)
+			.where(eq(forceRefresh.agencyId, agencyId))
+			.orderBy(desc(forceRefresh.requestedAt))
+			.limit(1),
 	])
 	const creativeByAd = new Map(creativeRows.map(row => [row.adId, row]))
+	const latestForceRefreshRequestedAt = latestForceRefresh[0]?.requestedAt ?? null
 
 	const contributionsByAd = new Map<string, Contribution[]>()
 	for (const row of hierarchyRows) {
@@ -238,7 +247,13 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	)
 
 	const accounts = accountRows.map(({ account, client: accountClient }) =>
-		accountView(account, accountClient, contributionsByAccount.get(account.id) ?? []),
+		accountView(
+			account,
+			accountClient,
+			contributionsByAccount.get(account.id) ?? [],
+			latestForceRefreshRequestedAt,
+			now,
+		),
 	)
 	const clients = [...new Map(accountRows.map(row => [row.client.id, row.client])).values()].map(client => ({
 		id: client.id,
@@ -300,7 +315,13 @@ async function loadFleetBoardModel(agencyId: string, range: FleetBoardRange, now
 	}
 }
 
-function accountView(account: AccountRow, accountClient: ClientRow, contributions: Contribution[]): AccountView {
+function accountView(
+	account: AccountRow,
+	accountClient: ClientRow,
+	contributions: Contribution[],
+	latestForceRefreshRequestedAt: Date | null,
+	now: Date,
+): AccountView {
 	const health = classifyAccountHealth(
 		{
 			connectionStatus: account.connectionStatus,
@@ -322,7 +343,66 @@ function accountView(account: AccountRow, accountClient: ClientRow, contribution
 		health,
 		signalsLane: signalLaneFor(health),
 		kpis: toApiKpis(rollupKpis(contributions)),
+		syncHealth: toApiSyncHealth(
+			classifySyncHealth({
+				connectionStatus: account.connectionStatus,
+				slices: syncSlices(account),
+				latestForceRefreshRequestedAt,
+				now,
+			}),
+		),
 	}
+}
+
+function toApiSyncHealth(health: ReturnType<typeof classifySyncHealth>): AccountView['syncHealth'] {
+	if (!health) return null
+	return {
+		severity: health.severity,
+		findings: health.findings.map(finding => ({
+			...finding,
+			lastSuccessAt: finding.lastSuccessAt?.toISOString() ?? null,
+		})),
+	}
+}
+
+function syncSlices(account: AccountRow): SyncSliceInput[] {
+	return [
+		{
+			slice: 'account_data',
+			successfulAt: account.accountDataSuccessfulAt,
+			attemptedAt: account.accountDataAttemptedAt,
+			error: account.accountDataError,
+			diagnosticReference: account.accountDataDiagnosticReference,
+			metaErrorCode: account.accountDataMetaErrorCode,
+		},
+		{
+			slice: 'hierarchy',
+			successfulAt: account.hierarchySuccessfulAt,
+			attemptedAt: account.hierarchyAttemptedAt,
+			error: account.hierarchyError,
+			diagnosticReference: account.hierarchyDiagnosticReference,
+			metaErrorCode: account.hierarchyMetaErrorCode,
+		},
+		{
+			slice: 'insights',
+			successfulAt: account.insightsSuccessfulAt,
+			attemptedAt: account.insightsAttemptedAt,
+			error: account.insightsError,
+			diagnosticReference: account.insightsDiagnosticReference,
+			metaErrorCode: account.insightsMetaErrorCode,
+		},
+		{
+			slice: 'historical_reconciliation',
+			// The 90-day Initial Import already gives this account a usable historical snapshot;
+			// nightly reconciliation only refines it. Until reconciliation runs for the first
+			// time, that import's completion — not `null` — is the last-known-good timestamp.
+			successfulAt: account.historicalReconciliationSuccessfulAt ?? account.initialImportHistoryCompletedAt,
+			attemptedAt: account.historicalReconciliationAttemptedAt,
+			error: account.historicalReconciliationError,
+			diagnosticReference: account.historicalReconciliationDiagnosticReference,
+			metaErrorCode: account.historicalReconciliationMetaErrorCode,
+		},
+	]
 }
 
 function appendContributions(target: Map<string, Contribution[]>, key: string, contributions: Contribution[]) {
@@ -377,10 +457,20 @@ function toApiKpis(kpis: ReturnType<typeof rollupKpis>) {
 }
 
 function header(accounts: AccountView[], range: FleetBoardRange, now: Date) {
+	const affected = accounts.filter(account => account.syncHealth !== null)
 	return {
 		provisional: accounts.some(account =>
 			isProvisional(dateRangeForAccount(range, account.timezoneName, now), account.timezoneName, now),
 		),
+		syncHealth:
+			affected.length === 0
+				? null
+				: {
+						severity: affected.some(account => account.syncHealth?.severity === 'red')
+							? ('red' as const)
+							: ('yellow' as const),
+						affectedAccountCount: affected.length,
+					},
 	}
 }
 

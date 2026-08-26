@@ -100,6 +100,7 @@ export function FleetBoard({
 		expanded,
 		creativeAdId,
 		onToggle: toggle,
+		onRefresh: refresh,
 	}
 	const waitingForColumnLayoutIdentity = Boolean(root.data && !columnLayoutReady)
 	const hasRows = Boolean(root.data && root.data.accounts.length > 0 && columnLayoutReady)
@@ -111,6 +112,7 @@ export function FleetBoard({
 				setSearch={setSearch}
 				header={root.data?.header}
 				clients={root.data?.clients ?? []}
+				accounts={root.data?.accounts ?? []}
 				onRefresh={refresh}
 			/>
 			{(root.isPending && !root.data) || waitingForColumnLayoutIdentity ? <LoadingState /> : null}

@@ -2,6 +2,8 @@ import { fleetBoardParentKey, type FleetBoardNodeIndex, type FleetBoardRoot } fr
 import type { FleetBoardMetricKey, FleetBoardSearch } from '@/data/fleet-board-search'
 
 export type Account = FleetBoardRoot['accounts'][number]
+export type SyncHealth = NonNullable<Account['syncHealth']>
+export type SyncFinding = SyncHealth['findings'][number]
 export type Client = FleetBoardRoot['clients'][number]
 export type FleetBoardNode = FleetBoardRoot['nodes'][number]
 export type Node = Account | FleetBoardNode
@@ -155,6 +157,81 @@ export function healthText(code: string) {
 			} as Record<string, string>
 		)[code] ?? 'Стан Meta невідомий'
 	)
+}
+
+// Issue #58: synchronization health is a second, independent icon from the Health Color/Reason
+// traffic light above (ADR 0018) — it answers whether Adomata's own copy of the data is fresh and
+// trustworthy, not whether Meta reports the Ad Account itself as healthy.
+export function syncSeverityIconColorClass(severity: string) {
+	return severity === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-500'
+}
+
+export function syncSliceText(slice: string) {
+	return (
+		(
+			{
+				account_data: 'Дані кабінету',
+				hierarchy: 'Структура кампаній',
+				insights: 'Показники за сьогодні',
+				historical_reconciliation: 'Історична звірка',
+			} as Record<string, string>
+		)[slice] ?? slice
+	)
+}
+
+// One entry per SyncFindingReason so cause and action can't drift apart into mismatched tables.
+const syncFindingCopy: Record<string, { cause: string; action: string }> = {
+	access_lost: {
+		cause: 'Немає доступу до Meta: термін дії токена сплив або дозволи відкликано.',
+		action: 'Перепідключіть Meta, оновивши токен доступу в налаштуваннях агенції.',
+	},
+	no_snapshot: {
+		cause: 'Ще немає жодного успішного знімка цих даних.',
+		action: 'Натисніть «Оновити дані» або зачекайте на першу синхронізацію.',
+	},
+	stale: {
+		cause: 'Дані не оновлювалися успішно понад 10 хвилин.',
+		action: 'Натисніть «Оновити дані», щоб спробувати негайно.',
+	},
+	reconciliation_overdue: {
+		cause: 'Історична звірка не виконувалася успішно понад 36 годин.',
+		action: 'Звірка повториться найближчої ночі; за потреби зверніться до підтримки.',
+	},
+	force_refresh_failed: {
+		cause: 'Останнє примусове оновлення для цих даних не вдалося.',
+		action: 'Спробуйте «Оновити дані» ще раз або зверніться до підтримки.',
+	},
+	validation_failure: {
+		cause: 'Meta відхиляє цей запит; потрібне втручання команди підтримки.',
+		action: 'Зверніться до підтримки Adomata з діагностичним кодом нижче.',
+	},
+}
+
+export function syncFindingCauseText(finding: SyncFinding) {
+	return syncFindingCopy[finding.reason]?.cause ?? 'Причина невідома.'
+}
+
+export function syncFindingActionText(finding: SyncFinding) {
+	return syncFindingCopy[finding.reason]?.action ?? ''
+}
+
+export function syncFindingAvailabilityText(finding: SyncFinding) {
+	if (finding.lastSuccessAt === null) return 'Дані недоступні.'
+	return `Показані значення — останні відомі, від ${formatSyncTimestamp(finding.lastSuccessAt)}.`
+}
+
+export function formatSyncTimestamp(value: string) {
+	return new Date(value).toLocaleString('uk-UA', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+const forceRefreshReasons = new Set(['no_snapshot', 'stale', 'force_refresh_failed'])
+
+export function syncFindingShowsForceRefresh(finding: SyncFinding) {
+	return finding.slice !== 'historical_reconciliation' && forceRefreshReasons.has(finding.reason)
+}
+
+export function syncFindingShowsReconnect(finding: SyncFinding) {
+	return finding.reason === 'access_lost'
 }
 
 export function effectiveStatusText(status: string) {

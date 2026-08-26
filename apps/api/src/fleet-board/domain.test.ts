@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	classifyAccountHealth,
+	classifySyncHealth,
 	dateRangeForAccount,
 	firstConnectStart,
 	isProvisional,
@@ -9,6 +10,7 @@ import {
 	reconciliationWindow,
 	rollupKpis,
 	signalLaneFor,
+	type SyncSliceInput,
 } from './domain'
 
 describe('Fleet Board domain rules', () => {
@@ -152,5 +154,194 @@ describe('Fleet Board domain rules', () => {
 				},
 			]),
 		).toMatchObject({ cpa: null, cpaReason: 'unresolved_result_type', results: null })
+	})
+
+	describe('classifySyncHealth', () => {
+		const now = new Date('2026-08-01T12:00:00.000Z')
+		const fresh = new Date('2026-08-01T11:58:00.000Z') // 2 minutes ago
+		const staleSince = new Date('2026-08-01T11:00:00.000Z') // 60 minutes ago
+
+		function slice(overrides: Partial<SyncSliceInput> = {}): SyncSliceInput {
+			return {
+				slice: 'account_data',
+				successfulAt: fresh,
+				attemptedAt: fresh,
+				error: null,
+				diagnosticReference: null,
+				metaErrorCode: null,
+				...overrides,
+			}
+		}
+
+		it('reports no synchronization health issue when every slice is fresh', () => {
+			expect(
+				classifySyncHealth({
+					connectionStatus: 'connected',
+					slices: [slice({ slice: 'account_data' }), slice({ slice: 'hierarchy' }), slice({ slice: 'insights' })],
+					latestForceRefreshRequestedAt: null,
+					now,
+				}),
+			).toBeNull()
+		})
+
+		it('marks every slice red for access_lost regardless of individual slice freshness', () => {
+			const health = classifySyncHealth({
+				connectionStatus: 'access_lost',
+				slices: [slice({ slice: 'account_data' }), slice({ slice: 'hierarchy' })],
+				latestForceRefreshRequestedAt: null,
+				now,
+			})
+			expect(health).toMatchObject({
+				severity: 'red',
+				findings: [
+					{ slice: 'account_data', severity: 'red', reason: 'access_lost' },
+					{ slice: 'hierarchy', severity: 'red', reason: 'access_lost' },
+				],
+			})
+		})
+
+		it('hides a scheduled failure while the last-known snapshot is still fresh', () => {
+			expect(
+				classifySyncHealth({
+					connectionStatus: 'connected',
+					slices: [slice({ successfulAt: fresh, attemptedAt: now, error: 'transient upstream error' })],
+					latestForceRefreshRequestedAt: null,
+					now,
+				}),
+			).toBeNull()
+		})
+
+		it('surfaces a yellow triangle once an operational slice goes stale past 10 minutes', () => {
+			const health = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [slice({ successfulAt: staleSince, attemptedAt: staleSince })],
+				latestForceRefreshRequestedAt: null,
+				now,
+			})
+			expect(health).toMatchObject({ severity: 'yellow', findings: [{ reason: 'stale', severity: 'yellow' }] })
+		})
+
+		it('surfaces a red circle when a slice has no usable last-known snapshot at all', () => {
+			const health = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [slice({ successfulAt: null, attemptedAt: staleSince, error: 'never synced' })],
+				latestForceRefreshRequestedAt: null,
+				now,
+			})
+			expect(health).toMatchObject({ severity: 'red', findings: [{ reason: 'no_snapshot', severity: 'red' }] })
+		})
+
+		it('leaves Historical Reconciliation fresh under 36 hours and stale past it', () => {
+			const thirtyFiveHoursAgo = new Date(now.getTime() - 35 * 60 * 60 * 1000)
+			const thirtySevenHoursAgo = new Date(now.getTime() - 37 * 60 * 60 * 1000)
+			expect(
+				classifySyncHealth({
+					connectionStatus: 'connected',
+					slices: [slice({ slice: 'historical_reconciliation', successfulAt: thirtyFiveHoursAgo })],
+					latestForceRefreshRequestedAt: null,
+					now,
+				}),
+			).toBeNull()
+			expect(
+				classifySyncHealth({
+					connectionStatus: 'connected',
+					slices: [slice({ slice: 'historical_reconciliation', successfulAt: thirtySevenHoursAgo })],
+					latestForceRefreshRequestedAt: null,
+					now,
+				}),
+			).toMatchObject({ severity: 'yellow', findings: [{ reason: 'reconciliation_overdue' }] })
+		})
+
+		it('shows a failed Force Refresh immediately, yellow with usable data and red without it', () => {
+			const requestedAt = new Date('2026-08-01T11:59:00.000Z')
+			const attemptedAfterRequest = new Date('2026-08-01T11:59:30.000Z')
+			const withUsableData = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [
+					slice({
+						successfulAt: staleSince, // old, but still a usable last-known snapshot
+						attemptedAt: attemptedAfterRequest,
+						error: 'Force Refresh attempt failed',
+					}),
+				],
+				latestForceRefreshRequestedAt: requestedAt,
+				now,
+			})
+			expect(withUsableData).toMatchObject({
+				severity: 'yellow',
+				findings: [{ reason: 'force_refresh_failed', severity: 'yellow' }],
+			})
+
+			const withoutUsableData = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [
+					slice({
+						successfulAt: null,
+						attemptedAt: attemptedAfterRequest,
+						error: 'Force Refresh attempt failed',
+					}),
+				],
+				latestForceRefreshRequestedAt: requestedAt,
+				now,
+			})
+			expect(withoutUsableData).toMatchObject({
+				severity: 'red',
+				findings: [{ reason: 'force_refresh_failed', severity: 'red' }],
+			})
+		})
+
+		it('does not treat a stale attempt that predates the latest Force Refresh as a Force Refresh failure', () => {
+			const requestedAt = new Date('2026-08-01T11:59:00.000Z')
+			const health = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [slice({ successfulAt: staleSince, attemptedAt: staleSince, error: 'an older scheduled failure' })],
+				latestForceRefreshRequestedAt: requestedAt,
+				now,
+			})
+			expect(health).toMatchObject({ findings: [{ reason: 'stale' }] })
+		})
+
+		it('surfaces an unrecoverable Meta validation failure as red immediately, bypassing the staleness grace period', () => {
+			const health = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [slice({ successfulAt: fresh, attemptedAt: now, error: 'Invalid parameter', metaErrorCode: 100 })],
+				latestForceRefreshRequestedAt: null,
+				now,
+			})
+			expect(health).toMatchObject({
+				severity: 'red',
+				findings: [{ reason: 'validation_failure', severity: 'red', metaErrorCode: 100 }],
+			})
+		})
+
+		it('treats a rate-limit code as self-healing rather than an unrecoverable validation failure', () => {
+			expect(
+				classifySyncHealth({
+					connectionStatus: 'connected',
+					slices: [slice({ successfulAt: fresh, attemptedAt: now, error: 'Throttled', metaErrorCode: 4 })],
+					latestForceRefreshRequestedAt: null,
+					now,
+				}),
+			).toBeNull()
+		})
+
+		it('escalates the account to red when any one slice is red even if others are only yellow', () => {
+			const health = classifySyncHealth({
+				connectionStatus: 'connected',
+				slices: [
+					slice({ slice: 'account_data', successfulAt: staleSince, attemptedAt: staleSince }),
+					slice({ slice: 'insights', successfulAt: null, attemptedAt: staleSince, error: 'never synced' }),
+				],
+				latestForceRefreshRequestedAt: null,
+				now,
+			})
+			expect(health).toMatchObject({
+				severity: 'red',
+				findings: [
+					{ slice: 'account_data', reason: 'stale', severity: 'yellow' },
+					{ slice: 'insights', reason: 'no_snapshot', severity: 'red' },
+				],
+			})
+		})
 	})
 })

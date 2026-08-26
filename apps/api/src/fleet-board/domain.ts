@@ -171,6 +171,108 @@ export function isStale(refreshedAt: Date | null, thresholdMilliseconds: number,
 	return refreshedAt === null || now.getTime() - refreshedAt.getTime() > thresholdMilliseconds
 }
 
+// Issue #58: one highest-severity icon per affected Ad Account, built from the durable per-slice
+// facts already persisted by the sync runners (ADR 0032). Creative is excluded: it is best-effort
+// and never gates KPI freshness, so it carries no error icon of its own.
+export type SyncSlice = 'account_data' | 'hierarchy' | 'insights' | 'historical_reconciliation'
+export type SyncSeverity = 'yellow' | 'red'
+export type SyncFindingReason =
+	'access_lost' | 'no_snapshot' | 'stale' | 'reconciliation_overdue' | 'force_refresh_failed' | 'validation_failure'
+
+export type SyncFinding = {
+	slice: SyncSlice
+	severity: SyncSeverity
+	reason: SyncFindingReason
+	lastSuccessAt: Date | null
+	diagnosticReference: string | null
+	metaErrorCode: number | null
+}
+
+export type SyncHealth = { severity: SyncSeverity; findings: SyncFinding[] } | null
+
+export type SyncSliceInput = {
+	slice: SyncSlice
+	successfulAt: Date | null
+	attemptedAt: Date | null
+	error: string | null
+	diagnosticReference: string | null
+	metaErrorCode: number | null
+}
+
+const operationalStaleMilliseconds = 10 * 60 * 1000
+const reconciliationStaleMilliseconds = 36 * 60 * 60 * 1000
+// Meta's own access-loss codes (mirrors isMetaAccessLoss in meta/client.ts) and the rate-limit
+// code are treated as self-healing; every other structured Meta error code is a rejection no
+// amount of retrying will fix on its own.
+const rateLimitedMetaErrorCode = 4
+const accessLossMetaErrorCodes = new Set([10, 190])
+
+export function classifySyncHealth(input: {
+	connectionStatus: ConnectionStatus
+	slices: readonly SyncSliceInput[]
+	latestForceRefreshRequestedAt: Date | null
+	now?: Date
+}): SyncHealth {
+	const now = input.now ?? new Date()
+	if (input.connectionStatus === 'access_lost') {
+		return {
+			severity: 'red',
+			findings: input.slices.map(slice => sliceFinding(slice, 'red', 'access_lost')),
+		}
+	}
+
+	const findings = input.slices.flatMap(slice => {
+		const finding = classifySlice(slice, input.latestForceRefreshRequestedAt, now)
+		return finding ? [finding] : []
+	})
+	if (findings.length === 0) return null
+	return { severity: findings.some(finding => finding.severity === 'red') ? 'red' : 'yellow', findings }
+}
+
+function classifySlice(
+	slice: SyncSliceInput,
+	latestForceRefreshRequestedAt: Date | null,
+	now: Date,
+): SyncFinding | null {
+	const threshold =
+		slice.slice === 'historical_reconciliation' ? reconciliationStaleMilliseconds : operationalStaleMilliseconds
+	const noSnapshot = slice.successfulAt === null
+	const failed = slice.error !== null
+	const isUnrecoverableValidation =
+		failed &&
+		slice.metaErrorCode !== null &&
+		slice.metaErrorCode !== rateLimitedMetaErrorCode &&
+		!accessLossMetaErrorCodes.has(slice.metaErrorCode)
+	if (isUnrecoverableValidation) return sliceFinding(slice, 'red', 'validation_failure')
+
+	const isForceRefreshFailure =
+		failed &&
+		slice.slice !== 'historical_reconciliation' &&
+		latestForceRefreshRequestedAt !== null &&
+		slice.attemptedAt !== null &&
+		slice.attemptedAt.getTime() >= latestForceRefreshRequestedAt.getTime()
+	if (isForceRefreshFailure) return sliceFinding(slice, noSnapshot ? 'red' : 'yellow', 'force_refresh_failed')
+
+	if (!isStale(slice.successfulAt, threshold, now)) return null
+	if (noSnapshot) return sliceFinding(slice, 'red', 'no_snapshot')
+	return sliceFinding(
+		slice,
+		'yellow',
+		slice.slice === 'historical_reconciliation' ? 'reconciliation_overdue' : 'stale',
+	)
+}
+
+function sliceFinding(slice: SyncSliceInput, severity: SyncSeverity, reason: SyncFindingReason): SyncFinding {
+	return {
+		slice: slice.slice,
+		severity,
+		reason,
+		lastSuccessAt: slice.successfulAt,
+		diagnosticReference: slice.diagnosticReference,
+		metaErrorCode: slice.metaErrorCode,
+	}
+}
+
 type Decimal = { coefficient: bigint; scale: number }
 
 function parseDecimal(value: string): Decimal {

@@ -53,6 +53,7 @@ describe('Fleet Board snapshot contract', () => {
 			],
 			header: {
 				provisional: false,
+				syncHealth: null,
 			},
 		})
 

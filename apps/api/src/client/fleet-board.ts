@@ -49,6 +49,31 @@ export const fleetBoardHealthColorSchema = z.enum(['green', 'yellow', 'red', 'gr
 export const fleetBoardSignalsLaneSchema = z.enum(['needs_attention', 'postpay', 'active'])
 export const fleetBoardCpaReasonSchema = z.enum(['mixed_result_types', 'unresolved_result_type'])
 
+export const fleetBoardSyncSeveritySchema = z.enum(['yellow', 'red'])
+export const fleetBoardSyncSliceSchema = z.enum(['account_data', 'hierarchy', 'insights', 'historical_reconciliation'])
+export const fleetBoardSyncFindingReasonSchema = z.enum([
+	'access_lost',
+	'no_snapshot',
+	'stale',
+	'reconciliation_overdue',
+	'force_refresh_failed',
+	'validation_failure',
+])
+export const fleetBoardSyncFindingSchema = z.object({
+	slice: fleetBoardSyncSliceSchema,
+	severity: fleetBoardSyncSeveritySchema,
+	reason: fleetBoardSyncFindingReasonSchema,
+	lastSuccessAt: z.string().nullable(),
+	diagnosticReference: z.string().nullable(),
+	metaErrorCode: z.number().int().nullable(),
+})
+export const fleetBoardSyncHealthSchema = z
+	.object({
+		severity: fleetBoardSyncSeveritySchema,
+		findings: z.array(fleetBoardSyncFindingSchema),
+	})
+	.nullable()
+
 export const fleetBoardHealthReasonSchema = z.discriminatedUnion('code', [
 	z.object({ code: z.literal('connection_pending') }),
 	z.object({ code: z.literal('connection_access_lost') }),
@@ -86,6 +111,7 @@ export const fleetBoardAccountSchema = z.object({
 	}),
 	signalsLane: fleetBoardSignalsLaneSchema,
 	kpis: fleetBoardKpisSchema,
+	syncHealth: fleetBoardSyncHealthSchema,
 })
 
 export const fleetBoardNodeSchema = z.object({
@@ -131,6 +157,12 @@ export const fleetBoardRootResponseSchema = z.object({
 	nodes: z.array(fleetBoardNodeSchema),
 	header: z.object({
 		provisional: z.boolean(),
+		syncHealth: z
+			.object({
+				severity: fleetBoardSyncSeveritySchema,
+				affectedAccountCount: z.number().int(),
+			})
+			.nullable(),
 	}),
 })
 
@@ -166,6 +198,10 @@ export const fleetBoardAdPreviewResponseSchema = z.object({
 		.nullable(),
 })
 
+export type FleetBoardSyncSeverity = z.infer<typeof fleetBoardSyncSeveritySchema>
+export type FleetBoardSyncSlice = z.infer<typeof fleetBoardSyncSliceSchema>
+export type FleetBoardSyncFinding = z.infer<typeof fleetBoardSyncFindingSchema>
+export type FleetBoardSyncHealth = z.infer<typeof fleetBoardSyncHealthSchema>
 export type FleetBoardRangePreset = z.infer<typeof fleetBoardRangePresetSchema>
 export type FleetBoardCustomRange = { start: string; end: string }
 export type FleetBoardRange = Exclude<FleetBoardRangePreset, 'custom'> | FleetBoardCustomRange

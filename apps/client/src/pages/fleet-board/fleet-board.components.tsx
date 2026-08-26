@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEventHandler, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
 	flexRender,
@@ -17,6 +18,7 @@ import {
 	ArrowUp,
 	Check,
 	ChevronRight,
+	CircleAlert,
 	Columns3,
 	Copy,
 	ExternalLink,
@@ -27,6 +29,7 @@ import {
 	Search,
 	Settings2,
 	SlidersHorizontal,
+	TriangleAlert,
 	Video,
 } from 'lucide-react'
 
@@ -34,6 +37,7 @@ import { DateRangePicker } from '@/components/date-range-picker'
 import { Lightbox } from '@/components/lightbox'
 import { fleetBoardParentKey, fleetBoardQueries, type FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardMetricKeys, type FleetBoardMetricKey, type FleetBoardSearch } from '@/data/fleet-board-search'
+import { useMe } from '@/data/me'
 import { useColumnLayoutPersistence, type ColumnLayoutColumn } from '@/lib/column-layout-persistence'
 import { Button } from '@/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover'
@@ -55,12 +59,21 @@ import {
 	metaAdsManagerUrl,
 	nextMetrics,
 	reorderColumnIds,
+	syncFindingActionText,
+	syncFindingAvailabilityText,
+	syncFindingCauseText,
+	syncFindingShowsForceRefresh,
+	syncFindingShowsReconnect,
+	syncSeverityIconColorClass,
+	syncSliceText,
 	type Account,
 	type BoardRow,
 	type Client,
 	type NodeIndex,
 	type Node,
 	type SortKey,
+	type SyncFinding,
+	type SyncHealth,
 	type TreeRow,
 } from './fleet-board.logic'
 
@@ -95,6 +108,7 @@ export type ViewProps = {
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
+	onRefresh: () => void
 }
 
 export function FleetToolbar({
@@ -102,12 +116,14 @@ export function FleetToolbar({
 	setSearch,
 	header,
 	clients,
+	accounts,
 	onRefresh,
 }: {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	header?: FleetBoardRoot['header']
 	clients: Client[]
+	accounts: Account[]
 	onRefresh: () => void
 }) {
 	const activeFilters =
@@ -138,6 +154,7 @@ export function FleetToolbar({
 						<span className="font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
 					) : null}
 				</p>
+				<FleetSyncHealthAggregate syncHealth={header?.syncHealth} accounts={accounts} onRefresh={onRefresh} />
 				<TooltipProvider delayDuration={0}>
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -286,6 +303,7 @@ export function TreeView({
 	expanded,
 	creativeAdId,
 	onToggle,
+	onRefresh,
 }: ViewProps) {
 	const rows = flattenRows(accounts, search, nodeIndex, expanded)
 	const columns = createFleetColumns({
@@ -293,6 +311,7 @@ export function TreeView({
 		search,
 		setSearch,
 		onToggle,
+		onRefresh,
 		isExpanded: node =>
 			node.type === 'ad' ? creativeAdId === node.id : expanded.has(fleetBoardParentKey(node.type, node.id)),
 	})
@@ -322,6 +341,7 @@ type FleetTableColumnOptions = {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	onToggle: (node: Node) => void
+	onRefresh: () => void
 	isExpanded: (node: Node) => boolean
 }
 
@@ -330,6 +350,7 @@ function createFleetColumns({
 	search,
 	setSearch,
 	onToggle,
+	onRefresh,
 	isExpanded,
 }: FleetTableColumnOptions): ColumnDef<BoardRow>[] {
 	function sortBy(sort: SortKey) {
@@ -358,7 +379,7 @@ function createFleetColumns({
 			minSize: 132,
 			maxSize: 320,
 			header: () => <SortableHeader label="Здоров’я" sort="attention" search={search} onSort={sortBy} />,
-			cell: ({ row }) => <NodeHealthCell node={row.original.node} />,
+			cell: ({ row }) => <NodeHealthCell node={row.original.node} onRefresh={onRefresh} />,
 		},
 		{
 			id: 'status',
@@ -833,6 +854,7 @@ export function ControlRoom({
 	expanded,
 	creativeAdId,
 	onToggle,
+	onRefresh,
 }: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
 	const railItems = accounts
@@ -855,14 +877,23 @@ export function ControlRoom({
 							const account = railItems[item.index]!
 							const isSelected = account.id === selected.id
 							return (
-								<button
+								// A real <button> can't nest the sync-health icon's own <button> trigger, so this
+								// is a div with button semantics instead (matches the row-click pattern used
+								// elsewhere in this file for the same reason).
+								<div
 									key={account.id}
-									type="button"
+									role="button"
+									tabIndex={0}
 									ref={rail.measureElement}
 									data-index={item.index}
 									aria-current={isSelected ? 'true' : undefined}
 									onClick={() => setSearch({ account: account.id })}
-									className={`absolute flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm ${
+									onKeyDown={event => {
+										if (event.key !== 'Enter' && event.key !== ' ') return
+										event.preventDefault()
+										setSearch({ account: account.id })
+									}}
+									className={`absolute flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm ${
 										isSelected
 											? 'border-l-2 border-primary bg-background font-medium shadow-sm'
 											: 'border-l-2 border-transparent hover:bg-background/60'
@@ -871,7 +902,10 @@ export function ControlRoom({
 								>
 									{/* The name leads and must not be the element that truncates away. */}
 									<span className="w-full truncate">{account.name}</span>
-									<HealthLabel health={account.health} />
+									<span className="flex items-center gap-1.5">
+										<HealthLabel health={account.health} />
+										<AccountSyncHealthIndicator account={account} onRefresh={onRefresh} />
+									</span>
 									<span className="flex w-full flex-wrap gap-x-2 text-xs text-muted-foreground">
 										{search.metrics.map(metric => (
 											<span key={metric}>
@@ -882,7 +916,7 @@ export function ControlRoom({
 											</span>
 										))}
 									</span>
-								</button>
+								</div>
 							)
 						})}
 					</div>
@@ -899,13 +933,14 @@ export function ControlRoom({
 					expanded={expanded}
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
+					onRefresh={onRefresh}
 				/>
 			</div>
 		</section>
 	)
 }
 
-export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdId, onToggle }: ViewProps) {
+export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdId, onToggle, onRefresh }: ViewProps) {
 	return (
 		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
@@ -918,6 +953,7 @@ export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdI
 					expanded={expanded}
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
+					onRefresh={onRefresh}
 				/>
 			))}
 		</div>
@@ -932,6 +968,7 @@ function SignalLane({
 	expanded,
 	creativeAdId,
 	onToggle,
+	onRefresh,
 }: {
 	lane: keyof typeof laneLabels
 	items: Account[]
@@ -940,6 +977,7 @@ function SignalLane({
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
+	onRefresh: () => void
 }) {
 	return (
 		<section className="rounded-xl border border-border bg-card p-2 shadow-sm" aria-labelledby={`lane-${lane}`}>
@@ -955,17 +993,28 @@ function SignalLane({
 						const isOpen = expanded.has(fleetBoardParentKey('account', account.id))
 						return (
 							<article key={account.id} className="rounded-lg border bg-background p-2">
-								<button
-									type="button"
-									className="flex w-full items-start justify-between gap-3 text-left"
+								{/* A div with button semantics, not a real <button>: the sync-health icon
+									below renders its own <button> trigger and cannot nest inside one. */}
+								<div
+									role="button"
+									tabIndex={0}
+									className="flex w-full cursor-pointer items-start justify-between gap-3 text-left"
 									onClick={() => onToggle(account)}
+									onKeyDown={event => {
+										if (event.key !== 'Enter' && event.key !== ' ') return
+										event.preventDefault()
+										onToggle(account)
+									}}
 								>
 									<span className="min-w-0">
 										<span className="block truncate text-sm font-medium">{account.name}</span>
 										<span className="block truncate text-xs text-muted-foreground">{account.clientName}</span>
 									</span>
-									<HealthLabel health={account.health} muted={account.signalsLane === lane} />
-								</button>
+									<span className="flex shrink-0 items-center gap-1.5">
+										<HealthLabel health={account.health} muted={account.signalsLane === lane} />
+										<AccountSyncHealthIndicator account={account} onRefresh={onRefresh} />
+									</span>
+								</div>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 									<MetaAdsManagerLink accountId={account.id} />
 								</div>
@@ -980,6 +1029,7 @@ function SignalLane({
 												expanded={expanded}
 												creativeAdId={creativeAdId}
 												onToggle={onToggle}
+												onRefresh={onRefresh}
 											/>
 										))}
 									</div>
@@ -999,12 +1049,14 @@ function NodeRow({
 	expanded,
 	creativeAdId,
 	onToggle,
+	onRefresh,
 }: {
 	row: TreeRow
 	metrics: FleetBoardMetricKey[]
 	expanded: Set<string>
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
+	onRefresh: () => void
 }) {
 	const { node } = row
 	const isExpandable = node.type !== 'ad'
@@ -1027,7 +1079,7 @@ function NodeRow({
 				style={{ gridTemplateColumns: gridTemplate(metrics) }}
 			>
 				<NodeNameCell row={row} onToggle={onToggle} isExpanded={isExpanded} />
-				<NodeHealthCell node={node} />
+				<NodeHealthCell node={node} onRefresh={onRefresh} />
 				<NodeStateCell node={node} />
 				{metrics.map(metric => (
 					<KpiCell key={metric} metric={metric} kpis={node.kpis} currency={row.currency} />
@@ -1091,8 +1143,14 @@ function NodeNameCell({
 	)
 }
 
-function NodeHealthCell({ node }: { node: Node }) {
-	return 'health' in node ? <HealthLabel health={node.health} /> : <span />
+function NodeHealthCell({ node, onRefresh }: { node: Node; onRefresh: () => void }) {
+	if (!('health' in node)) return <span />
+	return (
+		<span className="flex min-w-0 items-center gap-1.5">
+			<HealthLabel health={node.health} />
+			<AccountSyncHealthIndicator account={node} onRefresh={onRefresh} />
+		</span>
+	)
 }
 
 function NodeStateCell({ node }: { node: Node }) {
@@ -1264,6 +1322,148 @@ function HealthLabel({
 			<HealthDot color={health.color} />
 			<span className="truncate">{healthText(health.reason.code)}</span>
 		</span>
+	)
+}
+
+// Issue #58: synchronization health is a second, independent icon beside Health Color/Reason
+// above — it answers whether Adomata's own copy of the data is fresh, not whether Meta reports
+// the Ad Account itself as healthy (ADR 0018 vs ADR 0032).
+function SyncHealthGlyph({ severity }: { severity: SyncHealth['severity'] }) {
+	const Icon = severity === 'red' ? CircleAlert : TriangleAlert
+	return <Icon size={16} className={syncSeverityIconColorClass(severity)} aria-hidden />
+}
+
+// A controlled-but-hands-off popover: base-ui's PopoverTrigger already opens on hover, click, and
+// tap (with `stickIfOpen` so a click after a hover doesn't immediately toggle it shut). Keyboard
+// focus is the one interaction it doesn't cover on its own, so a focus handler opens it the same
+// way a real click would, while an outside click, Escape, or a second click still closes it
+// through base-ui's own dismissal logic — nothing here fights that.
+function SyncHealthTrigger({
+	label,
+	triggerContent,
+	children,
+}: {
+	label: string
+	triggerContent: ReactNode
+	children: ReactNode
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null)
+	const openRef = useRef(false)
+	return (
+		<Popover
+			onOpenChange={next => {
+				openRef.current = next
+			}}
+		>
+			<PopoverTrigger
+				ref={triggerRef}
+				openOnHover
+				aria-label={label}
+				onClick={event => event.stopPropagation()}
+				onFocus={() => {
+					if (!openRef.current) triggerRef.current?.click()
+				}}
+				className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+			>
+				{triggerContent}
+			</PopoverTrigger>
+			<PopoverContent
+				className="flex w-80 flex-col gap-3 text-sm"
+				align="start"
+				onClick={event => event.stopPropagation()}
+			>
+				{children}
+			</PopoverContent>
+		</Popover>
+	)
+}
+
+function SyncHealthFindingDetail({ finding, onRefresh }: { finding: SyncFinding; onRefresh: () => void }) {
+	const { data: me } = useMe()
+	const isOwner = me?.activeOrgMember?.role === 'owner'
+	const showForceRefresh = syncFindingShowsForceRefresh(finding)
+	const showReconnect = syncFindingShowsReconnect(finding) && isOwner
+	return (
+		<div className="flex flex-col gap-1 border-t border-border pt-2 first:border-t-0 first:pt-0">
+			<p className="flex items-center gap-1.5 text-xs font-semibold">
+				<SyncHealthGlyph severity={finding.severity} />
+				{syncSliceText(finding.slice)}
+			</p>
+			<p className="text-xs text-muted-foreground">{syncFindingAvailabilityText(finding)}</p>
+			<p className="text-xs text-muted-foreground">{syncFindingCauseText(finding)}</p>
+			<p className="text-xs text-muted-foreground">{syncFindingActionText(finding)}</p>
+			{showForceRefresh || showReconnect ? (
+				<div className="flex flex-wrap items-center gap-2 pt-1">
+					{showForceRefresh ? (
+						<Button type="button" size="xs" variant="outline" onClick={onRefresh}>
+							Оновити дані
+						</Button>
+					) : null}
+					{showReconnect ? (
+						<Button type="button" size="xs" variant="outline" asChild>
+							<Link to="/organization/settings">Перепідключити Meta</Link>
+						</Button>
+					) : null}
+				</div>
+			) : null}
+			{finding.diagnosticReference ? (
+				<p className="text-[11px] text-muted-foreground/70">
+					Діагностичний код: {finding.diagnosticReference}
+					{me?.isSuperadmin && finding.metaErrorCode !== null ? ` · Код Meta: ${finding.metaErrorCode}` : ''}
+				</p>
+			) : null}
+		</div>
+	)
+}
+
+function AccountSyncHealthIndicator({ account, onRefresh }: { account: Account; onRefresh: () => void }) {
+	const syncHealth = account.syncHealth
+	if (!syncHealth) return null
+	const label = `${syncHealth.severity === 'red' ? 'Потрібна дія' : 'Синхронізація застаріла'}: ${account.name}`
+	return (
+		<SyncHealthTrigger label={label} triggerContent={<SyncHealthGlyph severity={syncHealth.severity} />}>
+			<p className="text-sm font-semibold">{account.name}</p>
+			{syncHealth.findings.map(finding => (
+				<SyncHealthFindingDetail key={finding.slice} finding={finding} onRefresh={onRefresh} />
+			))}
+		</SyncHealthTrigger>
+	)
+}
+
+function FleetSyncHealthAggregate({
+	syncHealth,
+	accounts,
+	onRefresh,
+}: {
+	syncHealth: FleetBoardRoot['header']['syncHealth'] | undefined
+	accounts: Account[]
+	onRefresh: () => void
+}) {
+	if (!syncHealth) return null
+	const affected = accounts.filter(account => account.syncHealth !== null)
+	return (
+		<SyncHealthTrigger
+			label={`Потребують уваги: ${syncHealth.affectedAccountCount}`}
+			triggerContent={
+				<>
+					<SyncHealthGlyph severity={syncHealth.severity} />
+					<span className="text-xs font-medium tabular-nums">{syncHealth.affectedAccountCount}</span>
+				</>
+			}
+		>
+			<p className="text-sm font-semibold">Кабінети, що потребують уваги ({syncHealth.affectedAccountCount})</p>
+			<ul className="flex flex-col gap-1">
+				{affected.map(account => (
+					<li key={account.id} className="flex items-center gap-1.5 text-xs">
+						<SyncHealthGlyph severity={account.syncHealth!.severity} />
+						<span className="truncate">{account.name}</span>
+					</li>
+				))}
+			</ul>
+			<Button type="button" size="xs" variant="outline" className="self-start" onClick={onRefresh}>
+				Оновити дані
+			</Button>
+		</SyncHealthTrigger>
 	)
 }
 

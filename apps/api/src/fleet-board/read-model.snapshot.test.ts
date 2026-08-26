@@ -8,6 +8,8 @@ type QueryChain = PromiseLike<unknown> & {
 	from: (...args: unknown[]) => QueryChain
 	innerJoin: (...args: unknown[]) => QueryChain
 	where: (...args: unknown[]) => QueryChain
+	orderBy: (...args: unknown[]) => QueryChain
+	limit: (...args: unknown[]) => QueryChain
 }
 
 const dbSelect = vi.hoisted(() => vi.fn())
@@ -25,9 +27,37 @@ function chain(result: unknown): QueryChain {
 			whereConditions.push(condition)
 			return self
 		},
+		orderBy: () => self,
+		limit: () => self,
 		then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
 	}
 	return self
+}
+
+// Every slice defaults to "just succeeded, no error" so a test that only cares about KPIs or
+// hierarchy shape does not incidentally trip a synchronization-health finding (issue #58).
+const freshSyncDefaults = {
+	accountDataAttemptedAt: new Date('2026-01-03T00:00:00.000Z'),
+	accountDataSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
+	accountDataError: null,
+	accountDataDiagnosticReference: null,
+	accountDataMetaErrorCode: null,
+	hierarchyAttemptedAt: new Date('2026-01-03T00:00:00.000Z'),
+	hierarchySuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
+	hierarchyError: null,
+	hierarchyDiagnosticReference: null,
+	hierarchyMetaErrorCode: null,
+	insightsAttemptedAt: new Date('2026-01-03T00:00:00.000Z'),
+	insightsSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
+	insightsError: null,
+	insightsDiagnosticReference: null,
+	insightsMetaErrorCode: null,
+	initialImportHistoryCompletedAt: new Date('2026-01-03T00:00:00.000Z'),
+	historicalReconciliationAttemptedAt: new Date('2026-01-03T00:00:00.000Z'),
+	historicalReconciliationSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
+	historicalReconciliationError: null,
+	historicalReconciliationDiagnosticReference: null,
+	historicalReconciliationMetaErrorCode: null,
 }
 
 const accountRow = (overrides: Record<string, unknown> = {}) =>
@@ -42,10 +72,7 @@ const accountRow = (overrides: Record<string, unknown> = {}) =>
 		metaAccountStatus: 1,
 		metaDisableReason: 0,
 		isPrepayAccount: true,
-		accountDataSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
-		insightsSuccessfulAt: new Date('2026-01-03T00:00:00.000Z'),
-		historicalReconciliationSuccessfulAt: null,
-		historicalReconciliationError: null,
+		...freshSyncDefaults,
 		...overrides,
 	}) as typeof adAccount.$inferSelect
 
@@ -181,6 +208,7 @@ describe('Fleet Board complete snapshot read model', () => {
 					},
 				]),
 			)
+			.mockReturnValueOnce(chain([]))
 
 		const response = await readFleetBoardRoot(
 			'agency_1',
@@ -207,14 +235,24 @@ describe('Fleet Board complete snapshot read model', () => {
 		})
 		expect(response.nodes.find(node => node.id === 'adset_empty')?.kpis.spend).toBe('0')
 		expect(response.accounts[0]?.kpis.spend).toBe('35')
-		expect(response.header).toEqual({ provisional: true })
+		// secondAccount's Historical Reconciliation last succeeded one second past the 36-hour
+		// mark, so it is the one account still contributing to the aggregate.
+		expect(response.header).toEqual({
+			provisional: true,
+			syncHealth: { severity: 'yellow', affectedAccountCount: 1 },
+		})
+		expect(response.accounts.find(account => account.id === 'act_2')?.syncHealth).toMatchObject({
+			severity: 'yellow',
+			findings: [{ slice: 'historical_reconciliation', reason: 'reconciliation_overdue' }],
+		})
+		expect(response.accounts.find(account => account.id === 'act_1')?.syncHealth).toBeNull()
 		expect(response.nodes.find(node => node.id === 'campaign_1')?.kpis.spend).toBe('15')
 		expect(new PgDialect().sqlToQuery(whereConditions[0] as never).params).toEqual([
 			'agency_1',
 			'connected',
 			'access_lost',
 		])
-		expect(dbSelect).toHaveBeenCalledTimes(6)
+		expect(dbSelect).toHaveBeenCalledTimes(7)
 	})
 
 	it('accumulates an ancestor rollup across every descendant branch, not just the last one', async () => {
@@ -255,6 +293,7 @@ describe('Fleet Board complete snapshot read model', () => {
 					},
 				]),
 			)
+			.mockReturnValueOnce(chain([]))
 
 		const response = await readFleetBoardRoot(
 			'agency_1',
@@ -291,6 +330,7 @@ describe('Fleet Board complete snapshot read model', () => {
 					},
 				]),
 			)
+			.mockReturnValueOnce(chain([]))
 
 		const response = await readFleetBoardRoot(
 			'agency_1',

@@ -295,6 +295,7 @@ export const adAccount = pgTable(
 		insightsSuccessfulAt: timestamp({ withTimezone: true }),
 		insightsError: text(),
 		insightsDiagnosticReference: text(),
+		insightsMetaErrorCode: integer(),
 		// An Initial Import has one 90-day history pull. It is distinct from the ongoing
 		// five-minute Insights freshness timestamp, which later covers only today.
 		initialImportHistoryCompletedAt: timestamp({ withTimezone: true }),
@@ -305,6 +306,7 @@ export const adAccount = pgTable(
 		accountDataSuccessfulAt: timestamp({ withTimezone: true }),
 		accountDataError: text(),
 		accountDataDiagnosticReference: text(),
+		accountDataMetaErrorCode: integer(),
 		accountDataNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		accountDataLeaseOwner: text(),
 		accountDataLeaseExpiresAt: timestamp({ withTimezone: true }),
@@ -312,6 +314,7 @@ export const adAccount = pgTable(
 		hierarchySuccessfulAt: timestamp({ withTimezone: true }),
 		hierarchyError: text(),
 		hierarchyDiagnosticReference: text(),
+		hierarchyMetaErrorCode: integer(),
 		hierarchyNextDueAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 		hierarchyLeaseOwner: text(),
 		hierarchyLeaseExpiresAt: timestamp({ withTimezone: true }),
@@ -328,6 +331,7 @@ export const adAccount = pgTable(
 		historicalReconciliationPendingDate: date(),
 		historicalReconciliationError: text(),
 		historicalReconciliationDiagnosticReference: text(),
+		historicalReconciliationMetaErrorCode: integer(),
 		historicalReconciliationLeaseOwner: text(),
 		historicalReconciliationLeaseExpiresAt: timestamp({ withTimezone: true }),
 		// Raw Meta account-health fields, vendor-mirrored (null until the first successful poll)

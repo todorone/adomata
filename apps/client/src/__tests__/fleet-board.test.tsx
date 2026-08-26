@@ -1,7 +1,8 @@
+import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FleetBoardNode } from '@adomata/api/client'
+import type { FleetBoardNode, FleetBoardSyncFinding } from '@adomata/api/client'
 
 import type { FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardSearchSchema, type FleetBoardSearch } from '@/data/fleet-board-search'
@@ -10,6 +11,7 @@ type Account = FleetBoardRoot['accounts'][number]
 type Client = FleetBoardRoot['clients'][number]
 type BoardNode = FleetBoardNode
 type Kpis = Account['kpis']
+type Me = { isSuperadmin: boolean; activeOrgMember: { role: 'owner' | 'admin' | 'member' } | null }
 
 function kpis(overrides: Partial<Kpis> = {}): Kpis {
 	return {
@@ -22,6 +24,18 @@ function kpis(overrides: Partial<Kpis> = {}): Kpis {
 		results: '4',
 		roas: '2',
 		running: true,
+		...overrides,
+	}
+}
+
+function syncFinding(overrides: Partial<FleetBoardSyncFinding> = {}): FleetBoardSyncFinding {
+	return {
+		slice: 'account_data',
+		severity: 'yellow',
+		reason: 'stale',
+		lastSuccessAt: '2026-01-01T11:00:00.000Z',
+		diagnosticReference: 'sync-run/run_1/account-data/act_1',
+		metaErrorCode: null,
 		...overrides,
 	}
 }
@@ -39,6 +53,7 @@ const soloAccount: Account = {
 	signalsLane: 'active',
 	// No purchase value recorded anywhere on this lead-generation account.
 	kpis: kpis({ spend: '1234.50', roas: '0' }),
+	syncHealth: null,
 }
 
 const duoFirst: Account = {
@@ -142,10 +157,11 @@ const snapshotNodeIndex = {
 	'adset:adset-1': snapshotNodes.slice(3),
 }
 
-const { refetchSpy, requestForceRefreshSpy, readForceRefreshSpy } = vi.hoisted(() => ({
+const { refetchSpy, requestForceRefreshSpy, readForceRefreshSpy, meState } = vi.hoisted(() => ({
 	refetchSpy: vi.fn(() => Promise.resolve()),
 	requestForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'queued' as const })),
 	readForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'completed' as const })),
+	meState: { current: { isSuperadmin: false, activeOrgMember: { role: 'member' } } as Me },
 }))
 
 const rootResponse: FleetBoardRoot = {
@@ -155,6 +171,7 @@ const rootResponse: FleetBoardRoot = {
 	nodeIndex: snapshotNodeIndex,
 	header: {
 		provisional: false,
+		syncHealth: null,
 	},
 }
 
@@ -235,6 +252,16 @@ vi.mock('@/data/force-refresh', () => ({
 	readForceRefresh: readForceRefreshSpy,
 }))
 
+vi.mock('@/data/me', () => ({
+	useMe: () => ({ data: meState.current }),
+}))
+
+// The sync-health popover's Reconnect Meta action is a plain navigation link; these tests only
+// need to assert it renders (and where it points), not exercise real client-side routing.
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a>,
+}))
+
 const { FleetBoard } = await import('@/pages/fleet-board/fleet-board')
 
 function money(value: string, currency: string) {
@@ -278,6 +305,11 @@ describe('Fleet Board', () => {
 		requestForceRefreshSpy.mockClear()
 		readForceRefreshSpy.mockClear()
 		rootResponse.header.provisional = false
+		rootResponse.header.syncHealth = null
+		soloAccount.syncHealth = null
+		duoFirst.syncHealth = null
+		duoSecond.syncHealth = null
+		meState.current = { isSuperadmin: false, activeOrgMember: { role: 'member' } }
 	})
 
 	it('renders Spend and CPA below Ad Account level in the ancestor Ad Account currency', async () => {
@@ -532,5 +564,130 @@ describe('Fleet Board', () => {
 		await renderToAdDepth({ ad: 'ad-disapproved' })
 		const dialog = await screen.findByRole('dialog')
 		expect(within(dialog).getByLabelText('Відео')).toBeInstanceOf(HTMLVideoElement)
+	})
+
+	describe('synchronization health icons', () => {
+		it.each(['tree', 'control', 'signals'])(
+			'shows one highest-severity icon per affected account in the %s view, and none for a healthy account',
+			view => {
+				soloAccount.syncHealth = null
+				duoFirst.syncHealth = { severity: 'yellow', findings: [syncFinding({ slice: 'hierarchy' })] }
+				duoSecond.syncHealth = {
+					severity: 'red',
+					findings: [
+						syncFinding({ slice: 'insights', severity: 'red', reason: 'no_snapshot', lastSuccessAt: null }),
+					],
+				}
+				renderBoard({ view })
+
+				expect(screen.queryByLabelText(/^(Синхронізація застаріла|Потрібна дія): DeviAcademy Ad$/)).toBeNull()
+				expect(screen.getByLabelText('Синхронізація застаріла: Northstar Prepay')).toBeTruthy()
+				expect(screen.getByLabelText('Потрібна дія: Northstar Postpay')).toBeTruthy()
+			},
+		)
+
+		it('aggregates the highest-severity icon and the affected-account count in the toolbar', () => {
+			duoFirst.syncHealth = { severity: 'yellow', findings: [syncFinding()] }
+			duoSecond.syncHealth = {
+				severity: 'red',
+				findings: [syncFinding({ severity: 'red', reason: 'no_snapshot', lastSuccessAt: null })],
+			}
+			rootResponse.header.syncHealth = { severity: 'red', affectedAccountCount: 2 }
+			renderBoard()
+
+			const aggregate = screen.getByLabelText('Потребують уваги: 2')
+			expect(aggregate.textContent).toContain('2')
+		})
+
+		it('opens the account popover on keyboard focus, click, and tap, and lists the affected slice', async () => {
+			duoFirst.syncHealth = {
+				severity: 'yellow',
+				findings: [
+					syncFinding({
+						slice: 'hierarchy',
+						diagnosticReference: 'sync-run/run_42/hierarchy/act_200000000000001',
+					}),
+				],
+			}
+			renderBoard()
+			const trigger = screen.getByLabelText('Синхронізація застаріла: Northstar Prepay')
+
+			// Hover is provided by base-ui's `openOnHover` (a pointer "rest" timer over real
+			// pointermove/mousemove physics) and is verified against the real dev server, not
+			// here — jsdom has no pointer/geometry model to drive that timer deterministically.
+			// Keyboard focus opens it the same way a real click does (see SyncHealthTrigger).
+			fireEvent.focus(trigger)
+			await waitFor(() => expect(screen.getByText('Структура кампаній')).toBeTruthy())
+			fireEvent.blur(trigger)
+
+			// Click and tap both resolve to a DOM click in the browser.
+			fireEvent.click(trigger)
+			await waitFor(() =>
+				expect(screen.getByText('sync-run/run_42/hierarchy/act_200000000000001', { exact: false })).toBeTruthy(),
+			)
+			expect(screen.getByText('Дані не оновлювалися успішно понад 10 хвилин.')).toBeTruthy()
+		})
+
+		it('offers Force Refresh for a stale slice, wired to the same refresh action as the toolbar button', async () => {
+			duoFirst.syncHealth = { severity: 'yellow', findings: [syncFinding()] }
+			renderBoard()
+
+			fireEvent.click(screen.getByLabelText('Синхронізація застаріла: Northstar Prepay'))
+			// Two "Оновити дані" buttons exist once the popover opens: the always-present toolbar
+			// one, and this finding's own — both call the identical shared refresh action.
+			await waitFor(() => expect(screen.getAllByRole('button', { name: 'Оновити дані' })).toHaveLength(2))
+			fireEvent.click(screen.getAllByRole('button', { name: 'Оновити дані' })[1]!)
+
+			await waitFor(() => expect(requestForceRefreshSpy).toHaveBeenCalledTimes(1))
+		})
+
+		it('shows Reconnect Meta only to the Agency owner, and the Meta error code only to superadmins', async () => {
+			duoFirst.syncHealth = {
+				severity: 'red',
+				findings: [
+					syncFinding({
+						severity: 'red',
+						reason: 'access_lost',
+						metaErrorCode: 190,
+						diagnosticReference: 'sync-run/run_9/account-data/act_200000000000001',
+					}),
+				],
+			}
+			renderBoard()
+			const trigger = screen.getByLabelText('Потрібна дія: Northstar Prepay')
+
+			fireEvent.click(trigger)
+			await waitFor(() => expect(screen.getByText(/Немає доступу до Meta/)).toBeTruthy())
+			expect(screen.queryByRole('link', { name: 'Перепідключити Meta' })).toBeNull()
+			expect(screen.queryByText(/Код Meta/)).toBeNull()
+			fireEvent.click(trigger)
+
+			meState.current = { isSuperadmin: true, activeOrgMember: { role: 'owner' } }
+			fireEvent.click(trigger)
+			await waitFor(() => expect(screen.getByRole('link', { name: 'Перепідключити Meta' })).toBeTruthy())
+			expect(screen.getByRole('link', { name: 'Перепідключити Meta' }).getAttribute('href')).toBe(
+				'/organization/settings',
+			)
+			expect(screen.getByText('Код Meta: 190', { exact: false })).toBeTruthy()
+		})
+
+		it('clears the icon once the affected slice recovers, leaving no dismiss control while it persists', async () => {
+			duoFirst.syncHealth = { severity: 'yellow', findings: [syncFinding()] }
+			rootResponse.header.syncHealth = { severity: 'yellow', affectedAccountCount: 1 }
+			renderBoard()
+
+			fireEvent.click(screen.getByLabelText('Синхронізація застаріла: Northstar Prepay'))
+			await waitFor(() => expect(screen.getByText('Дані кабінету')).toBeTruthy())
+			expect(screen.queryByRole('button', { name: /Закрити|Приховати|Позначити/ })).toBeNull()
+			expect(screen.getByLabelText('Потребують уваги: 1')).toBeTruthy()
+
+			cleanup()
+			duoFirst.syncHealth = null
+			rootResponse.header.syncHealth = null
+			renderBoard()
+			expect(screen.queryByLabelText('Синхронізація застаріла: Northstar Prepay')).toBeNull()
+			expect(screen.queryByLabelText('Потрібна дія: Northstar Prepay')).toBeNull()
+			expect(screen.queryByLabelText(/Потребують уваги/)).toBeNull()
+		})
 	})
 })

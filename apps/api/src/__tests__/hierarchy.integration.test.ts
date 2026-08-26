@@ -147,6 +147,16 @@ describe('durable hierarchy work', () => {
 
 		expect(result).toMatchObject({ status: 'running', processed: 5, failed: 0, queued: 2 })
 		expect(lowerPriorityCalls).toBe(0)
+
+		// The paused generation is only durable if a later one drains what it left behind. Without
+		// this the slice wedges: the run keeps a queued outcome, so it never leaves 'running', and
+		// the active-run index then blocks every replacement run for the Agency.
+		fakeMetaServer.resetHandlers()
+		const afterLeaseAt = new Date(now.getTime() + 61 * 1000)
+		const resumed = await scheduleHierarchyRun({ ...buildHierarchyOptions(afterLeaseAt), clock: () => afterLeaseAt })
+
+		expect(resumed.runId).toBe(result.runId)
+		expect(resumed).toMatchObject({ status: 'completed', processed: 7, failed: 0, queued: 0 })
 	})
 
 	it('preserves the previous hierarchy and committed Account data after a partial enumeration failure', async () => {

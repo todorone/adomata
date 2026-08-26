@@ -182,7 +182,13 @@ export async function runCreativeGeneration({
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+		// Least-recently-attempted first so a resumed generation rotates past the account that
+		// exhausted Meta's budget last time instead of stalling on it and starving the rest.
+		.orderBy(
+			asc(adAccount.connectionStatus),
+			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
+			asc(adAccount.id),
+		)
 	await mapWithConcurrency(outcomes, 1, async outcome => {
 		return runWithMetaCapacity(priorityForSyncWork(trigger, 'creative', outcome.connectionStatus), () =>
 			processOutcome({

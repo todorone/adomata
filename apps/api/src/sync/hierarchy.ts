@@ -195,7 +195,13 @@ export async function runHierarchyGeneration({
 		.from(syncAccountOutcome)
 		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
 		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'hierarchy')))
-		.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+		// Least-recently-attempted first so a resumed generation rotates past the account that
+		// exhausted Meta's budget last time instead of stalling on it and starving the rest.
+		.orderBy(
+			asc(adAccount.connectionStatus),
+			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
+			asc(adAccount.id),
+		)
 	await mapWithConcurrency(outcomes, 1, async outcome => {
 		return runWithMetaCapacity(priorityForSyncWork(trigger, 'hierarchy', outcome.connectionStatus), () =>
 			processOutcome({
@@ -316,7 +322,10 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 			),
 		)
 		.returning({ adAccountId: syncAccountOutcome.adAccountId })
-	if (!claimed[0]) return true
+	// The return value means "Meta's budget is gone, stop the run". An outcome a previous
+	// generation already finished is not that signal: reporting it as one halts every account
+	// behind it, and since the run then never leaves 'running' the slice wedges for good.
+	if (!claimed[0]) return false
 
 	await db
 		.update(adAccount)

@@ -1,6 +1,9 @@
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "adomata-scheduler-v1",
+	// The maintainer's Cloudflare login can see several accounts, and wrangler refuses to guess
+	// non-interactively. Pinning Adomata's own account id keeps `deploy` runnable from CI or a script.
+	"account_id": "3a1d7c1556e16babeb41e8677fa02feb",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-08-24",
 	"triggers": {

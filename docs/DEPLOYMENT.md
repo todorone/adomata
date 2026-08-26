@@ -54,6 +54,15 @@ The API and Client **auto-deploy on push to `main`**. There is no deploy step in
   Cloudflare deployment access; the versioned Worker configuration and Cron
   Trigger are committed in `apps/scheduler/wrangler.jsonc`.
 
+  > ⚠️ The Worker does **not** auto-deploy, so a change to the endpoint it calls
+  > or the secret it sends is only half-shipped until someone runs that command.
+  > On 2026-08-25 the API renamed `/heartbeat` to `/scheduler` and
+  > `HEARTBEAT_SECRET` to `SCHEDULER_SECRET`; the Worker was not redeployed, so
+  > every scheduled invocation 404'd and production ran with **no scheduled
+  > synchronization at all** until it was noticed. The API deploy and the Worker
+  > deploy have to land together whenever that contract moves — and after either,
+  > confirm a real invocation arrives (see "Verifying the scheduler chain").
+
 **Rollback:** "Redeploy" a previous deployment from the Coolify UI. This is a
 **human** action — agents do not deploy or roll back.
 
@@ -126,6 +135,21 @@ Cloudflare Worker secret to the exact same value as the API's
 pnpm --filter @adomata/scheduler exec wrangler secret put SCHEDULER_SECRET
 pnpm --filter @adomata/scheduler deploy
 ```
+
+### Verifying the scheduler chain
+
+A failed scheduled invocation is silent from the outside — the API stays healthy
+and the board simply stops getting fresher. After deploying either side, confirm
+an invocation actually lands rather than trusting `/health`:
+
+```sh
+ssh root@78.46.206.9 'docker exec -i $(docker ps -q --filter name=^db-i11au6d81dnkewufg0hu91vx) \
+  psql -U adomata -d adomata -c "SELECT max(received_at) FROM sync_invocation;"'
+```
+
+Cron fires every five minutes, so that timestamp should never be more than a few
+minutes old. If it is stale while `/health` returns 200, the Worker is failing —
+check its route and secret against the API before looking anywhere else.
 
 The Worker throws when the API responds outside the 2xx range, which makes a
 rejected scheduling attempt visible in the Cloudflare invocation logs rather

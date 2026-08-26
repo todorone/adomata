@@ -33,7 +33,7 @@ const e2eEnvironment = {
 	E2E_SUPERADMIN_EMAIL: e2eSuperadminEmail,
 	E2E_SUPERADMIN_PASSWORD: e2eSuperadminPassword,
 	META_API_MODE: process.env['META_API_MODE'] ?? 'fake',
-	HEARTBEAT_SECRET: process.env['HEARTBEAT_SECRET'] ?? 'e2e-heartbeat-secret',
+	SCHEDULER_SECRET: process.env['SCHEDULER_SECRET'] ?? 'e2e-scheduler-secret',
 }
 
 export default defineConfig({

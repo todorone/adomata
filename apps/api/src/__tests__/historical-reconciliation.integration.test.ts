@@ -147,4 +147,48 @@ describe('durable Historical Reconciliation', () => {
 			insightsAt: nextDay,
 		})
 	})
+
+	it('preserves stored history absent from a throttle-truncated page set', async () => {
+		const now = new Date('2026-07-26T01:25:00.000Z')
+		await prepareConnectedAccount(now)
+		await db.insert(adInsight).values({
+			adId: 'ad-002',
+			date: '2026-07-25',
+			spend: '7.00',
+			impressions: 70,
+			inlineLinkClicks: 7,
+			clicks: 0,
+			actions: [],
+			actionValues: [],
+		})
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000001/insights', () =>
+				HttpResponse.json(
+					{
+						data: [
+							{
+								ad_id: 'ad-001',
+								date_start: '2026-07-25',
+								spend: '1.00',
+								impressions: '10',
+								inline_link_clicks: '1',
+								actions: [],
+								action_values: [],
+							},
+						],
+						paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/insights?after=1' },
+					},
+					{ headers: { 'X-App-Usage': '{"call_count":100}' } },
+				),
+			),
+		)
+
+		await scheduleHistoricalReconciliationRun(buildOptions(now))
+
+		const [stored] = await db
+			.select({ adId: adInsight.adId, date: adInsight.date })
+			.from(adInsight)
+			.where(and(eq(adInsight.adId, 'ad-002'), eq(adInsight.date, '2026-07-25')))
+		expect(stored).toEqual({ adId: 'ad-002', date: '2026-07-25' })
+	})
 })

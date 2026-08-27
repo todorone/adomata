@@ -237,4 +237,32 @@ describe('durable hierarchy work', () => {
 			.where(inArray(syncAccountOutcome.runId, [failed.runId]))
 		expect(hierarchyOutcome.find(outcome => outcome.status === 'failed')?.error).toContain('temporary Meta failure')
 	})
+
+	it('does not soft-delete Ads when pagination is truncated by Meta throttling', async () => {
+		const initialAt = new Date('2026-08-24T10:00:00.000Z')
+		await scheduleHierarchyRun(buildHierarchyOptions(initialAt))
+		const truncatedAt = new Date(initialAt.getTime() + 5 * 60 * 1000 + 1)
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000001/ads', () =>
+				HttpResponse.json(
+					{
+						data: [{ id: 'ad-001', adset_id: 'adset-001', name: 'Image lead', effective_status: 'ACTIVE' }],
+						paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/ads?after=1' },
+					},
+					{ headers: { 'X-App-Usage': '{"call_count":100}' } },
+				),
+			),
+		)
+
+		await scheduleHierarchyRun(buildHierarchyOptions(truncatedAt))
+
+		const rows = await db
+			.select({ deletedAt: ad.deletedAt })
+			.from(ad)
+			.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+			.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+			.where(eq(campaign.adAccountId, 'act_100000000000001'))
+		expect(rows).toHaveLength(3)
+		expect(rows.every(row => row.deletedAt === null)).toBe(true)
+	})
 })

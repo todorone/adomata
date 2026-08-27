@@ -420,7 +420,7 @@ async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
 				if (knownAdIds.has(insight.adId)) await upsertInsight(transaction, insight, committedAt)
 			}
 
-			if (knownAdIds.size > 0) {
+			if (insights.complete && knownAdIds.size > 0) {
 				const stored = await transaction
 					.select({ adId: adInsight.adId, date: adInsight.date })
 					.from(adInsight)

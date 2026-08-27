@@ -395,36 +395,39 @@ async function processOutcome(params: InsightsOutcomeContext) {
 				if (!knownAdIds.has(insight.adId)) continue
 				await upsertInsight(transaction, insight, committedAt)
 			}
-			const stored = await transaction
-				.select({ adId: adInsight.adId, date: adInsight.date })
-				.from(adInsight)
-				.innerJoin(ad, eq(adInsight.adId, ad.id))
-				.innerJoin(adSet, eq(ad.adSetId, adSet.id))
-				.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
-				.where(
-					and(
-						eq(campaign.adAccountId, account.adAccount.id),
-						gte(adInsight.date, range.start),
-						lte(adInsight.date, range.end),
-					),
-				)
-			for (const row of stored) {
-				if (!received.has(`${row.adId}\u0000${row.date}`)) {
-					await transaction
-						.delete(adInsight)
-						.where(and(eq(adInsight.adId, row.adId), eq(adInsight.date, row.date)))
+			if (insights.complete) {
+				const stored = await transaction
+					.select({ adId: adInsight.adId, date: adInsight.date })
+					.from(adInsight)
+					.innerJoin(ad, eq(adInsight.adId, ad.id))
+					.innerJoin(adSet, eq(ad.adSetId, adSet.id))
+					.innerJoin(campaign, eq(adSet.campaignId, campaign.id))
+					.where(
+						and(
+							eq(campaign.adAccountId, account.adAccount.id),
+							gte(adInsight.date, range.start),
+							lte(adInsight.date, range.end),
+						),
+					)
+				for (const row of stored) {
+					if (!received.has(`${row.adId}\u0000${row.date}`)) {
+						await transaction
+							.delete(adInsight)
+							.where(and(eq(adInsight.adId, row.adId), eq(adInsight.date, row.date)))
+					}
 				}
 			}
 
 			await transaction
 				.update(adAccount)
 				.set({
-					...(account.adAccount.connectionStatus === 'pending' &&
+					...(insights.complete &&
+					account.adAccount.connectionStatus === 'pending' &&
 					account.adAccount.accountDataSuccessfulAt &&
 					account.adAccount.hierarchySuccessfulAt
 						? { connectionStatus: 'connected' as const }
 						: {}),
-					...(account.adAccount.connectionStatus === 'pending'
+					...(insights.complete && account.adAccount.connectionStatus === 'pending'
 						? { initialImportHistoryCompletedAt: committedAt }
 						: {}),
 					insightsAttemptedAt: committedAt,

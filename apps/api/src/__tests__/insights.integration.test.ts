@@ -200,4 +200,85 @@ describe('durable Insights and Creative work', () => {
 			.where(and(eq(adInsight.adId, 'ad-001'), eq(adInsight.date, '2026-07-26')))
 		expect(insight?.date).toBe('2026-07-26')
 	})
+
+	it('preserves stored Insights absent from a throttle-truncated page set', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await prepareOperationalAccounts(now)
+		await db.insert(adInsight).values({
+			adId: 'ad-002',
+			date: '2026-07-26',
+			spend: '7.00',
+			impressions: 70,
+			inlineLinkClicks: 7,
+			clicks: 0,
+			actions: [],
+			actionValues: [],
+		})
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000001/insights', () =>
+				HttpResponse.json(
+					{
+						data: [
+							{
+								ad_id: 'ad-001',
+								date_start: '2026-07-26',
+								spend: '1.00',
+								impressions: '10',
+								inline_link_clicks: '1',
+								actions: [],
+								action_values: [],
+							},
+						],
+						paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/insights?after=1' },
+					},
+					{ headers: { 'X-App-Usage': '{"call_count":100}' } },
+				),
+			),
+		)
+
+		await scheduleInsightsRun(buildInsightsOptions(now))
+
+		const [stored] = await db
+			.select({ adId: adInsight.adId, date: adInsight.date })
+			.from(adInsight)
+			.where(and(eq(adInsight.adId, 'ad-002'), eq(adInsight.date, '2026-07-26')))
+		expect(stored).toEqual({ adId: 'ad-002', date: '2026-07-26' })
+	})
+
+	it('keeps a pending Ad Account outside the Fleet Board after a throttle-truncated import', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await prepareOperationalAccounts(now, 'pending')
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000001/insights', () =>
+				HttpResponse.json(
+					{
+						data: [
+							{
+								ad_id: 'ad-001',
+								date_start: '2026-07-26',
+								spend: '1.00',
+								impressions: '10',
+								inline_link_clicks: '1',
+								actions: [],
+								action_values: [],
+							},
+						],
+						paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/insights?after=1' },
+					},
+					{ headers: { 'X-App-Usage': '{"call_count":100}' } },
+				),
+			),
+		)
+
+		await scheduleInsightsRun(buildInsightsOptions(now))
+
+		const [account] = await db
+			.select({
+				connectionStatus: adAccount.connectionStatus,
+				initialImportHistoryCompletedAt: adAccount.initialImportHistoryCompletedAt,
+			})
+			.from(adAccount)
+			.where(eq(adAccount.id, 'act_100000000000001'))
+		expect(account).toEqual({ connectionStatus: 'pending', initialImportHistoryCompletedAt: null })
+	})
 })

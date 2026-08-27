@@ -186,6 +186,7 @@ describe('MetaClient', () => {
 
 		await expect(client.listCampaigns('100000000000001')).resolves.toMatchObject({
 			items: [{ id: 'campaign-1' }],
+			complete: false,
 			throttle: { exhausted: true },
 		})
 		expect(fetch).toHaveBeenCalledTimes(1)

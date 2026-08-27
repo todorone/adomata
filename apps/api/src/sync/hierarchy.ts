@@ -365,6 +365,10 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 			return true
 		}
 		const ads = await metaClient.listAds(account.adAccount.id)
+		if (!ads.complete) {
+			await releaseOutcome(params)
+			return true
+		}
 
 		const committedAt = params.clock()
 		await db.transaction(async transaction => {

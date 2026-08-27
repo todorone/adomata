@@ -167,7 +167,7 @@ export type MetaThrottleObservation = {
 	insights?: MetaAppUsage
 	exhausted: boolean
 }
-export type MetaPageResult<T> = { items: T[]; throttle: MetaThrottleObservation }
+export type MetaPageResult<T> = { items: T[]; complete: boolean; throttle: MetaThrottleObservation }
 
 export class MetaApiError extends Error {
 	constructor(
@@ -417,15 +417,20 @@ export class MetaClient {
 		let nextUrl: URL | undefined = firstUrl
 		const items: U[] = []
 		let throttle: MetaThrottleObservation = { exhausted: false }
+		let complete = true
 		while (nextUrl) {
 			const { payload, throttle: pageThrottle } = await this.request(nextUrl)
 			const page = pageSchema(schema).parse(payload)
 			items.push(...page.data.map(normalize))
 			throttle = mergeThrottle(throttle, pageThrottle)
-			if (throttle.exhausted) break
-			nextUrl = page.paging?.next ? this.safeCursor(page.paging.next) : undefined
+			const nextPage = page.paging?.next ? this.safeCursor(page.paging.next) : undefined
+			if (throttle.exhausted && nextPage) {
+				complete = false
+				break
+			}
+			nextUrl = nextPage
 		}
-		return { items, throttle }
+		return { items, complete, throttle }
 	}
 
 	private graphUrl(path: string) {

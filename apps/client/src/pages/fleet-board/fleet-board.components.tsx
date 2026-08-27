@@ -109,6 +109,8 @@ export type ViewProps = {
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
 }
 
 export function FleetToolbar({
@@ -163,12 +165,14 @@ export function FleetToolbar({
 					) : null}
 					{forceRefreshCooldownMessage ? <span>{forceRefreshCooldownMessage}</span> : null}
 				</p>
-				<FleetSyncHealthAggregate syncHealth={header?.syncHealth} accounts={accounts} onRefresh={onRefresh} />
-				{forceRefreshError ? (
-					<span className="text-destructive" aria-label="Не вдалося оновити дані" title={forceRefreshError}>
-						<CircleAlert size={16} aria-hidden />
-					</span>
-				) : null}
+				<FleetSyncHealthAggregate
+					syncHealth={header?.syncHealth}
+					accounts={accounts}
+					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
+				/>
+				{forceRefreshError ? <ForceRefreshErrorIndicator message={forceRefreshError} /> : null}
 				<TooltipProvider delayDuration={0}>
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -325,6 +329,8 @@ export function TreeView({
 	creativeAdId,
 	onToggle,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 }: ViewProps) {
 	const rows = flattenRows(accounts, search, nodeIndex, expanded)
 	const columns = createFleetColumns({
@@ -333,6 +339,8 @@ export function TreeView({
 		setSearch,
 		onToggle,
 		onRefresh,
+		refreshDisabled,
+		refreshPending,
 		isExpanded: node =>
 			node.type === 'ad' ? creativeAdId === node.id : expanded.has(fleetBoardParentKey(node.type, node.id)),
 	})
@@ -363,6 +371,8 @@ type FleetTableColumnOptions = {
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
 	onToggle: (node: Node) => void
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
 	isExpanded: (node: Node) => boolean
 }
 
@@ -372,6 +382,8 @@ function createFleetColumns({
 	setSearch,
 	onToggle,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 	isExpanded,
 }: FleetTableColumnOptions): ColumnDef<BoardRow>[] {
 	function sortBy(sort: SortKey) {
@@ -400,7 +412,14 @@ function createFleetColumns({
 			minSize: 132,
 			maxSize: 320,
 			header: () => <SortableHeader label="Здоров’я" sort="attention" search={search} onSort={sortBy} />,
-			cell: ({ row }) => <NodeHealthCell node={row.original.node} onRefresh={onRefresh} />,
+			cell: ({ row }) => (
+				<NodeHealthCell
+					node={row.original.node}
+					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
+				/>
+			),
 		},
 		{
 			id: 'status',
@@ -876,6 +895,8 @@ export function ControlRoom({
 	creativeAdId,
 	onToggle,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 }: ViewProps) {
 	const selected = accounts.find(account => account.id === search.account) ?? accounts[0]!
 	const railItems = accounts
@@ -925,7 +946,12 @@ export function ControlRoom({
 									<span className="w-full truncate">{account.name}</span>
 									<span className="flex items-center gap-1.5">
 										<HealthLabel health={account.health} />
-										<AccountSyncHealthIndicator account={account} onRefresh={onRefresh} />
+										<AccountSyncHealthIndicator
+											account={account}
+											onRefresh={onRefresh}
+											refreshDisabled={refreshDisabled}
+											refreshPending={refreshPending}
+										/>
 									</span>
 									<span className="flex w-full flex-wrap gap-x-2 text-xs text-muted-foreground">
 										{search.metrics.map(metric => (
@@ -955,13 +981,25 @@ export function ControlRoom({
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
 					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
 				/>
 			</div>
 		</section>
 	)
 }
 
-export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdId, onToggle, onRefresh }: ViewProps) {
+export function SignalsView({
+	accounts,
+	search,
+	nodeIndex,
+	expanded,
+	creativeAdId,
+	onToggle,
+	onRefresh,
+	refreshDisabled,
+	refreshPending,
+}: ViewProps) {
 	return (
 		<div className="grid min-h-0 min-w-0 flex-1 content-start items-start gap-3 overflow-y-auto xl:grid-cols-2">
 			{(Object.keys(laneLabels) as Array<keyof typeof laneLabels>).map(lane => (
@@ -975,6 +1013,8 @@ export function SignalsView({ accounts, search, nodeIndex, expanded, creativeAdI
 					creativeAdId={creativeAdId}
 					onToggle={onToggle}
 					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
 				/>
 			))}
 		</div>
@@ -990,6 +1030,8 @@ function SignalLane({
 	creativeAdId,
 	onToggle,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 }: {
 	lane: keyof typeof laneLabels
 	items: Account[]
@@ -999,6 +1041,8 @@ function SignalLane({
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
 }) {
 	return (
 		<section className="rounded-xl border border-border bg-card p-2 shadow-sm" aria-labelledby={`lane-${lane}`}>
@@ -1033,7 +1077,12 @@ function SignalLane({
 									</span>
 									<span className="flex shrink-0 items-center gap-1.5">
 										<HealthLabel health={account.health} muted={account.signalsLane === lane} />
-										<AccountSyncHealthIndicator account={account} onRefresh={onRefresh} />
+										<AccountSyncHealthIndicator
+											account={account}
+											onRefresh={onRefresh}
+											refreshDisabled={refreshDisabled}
+											refreshPending={refreshPending}
+										/>
 									</span>
 								</div>
 								<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -1051,6 +1100,8 @@ function SignalLane({
 												creativeAdId={creativeAdId}
 												onToggle={onToggle}
 												onRefresh={onRefresh}
+												refreshDisabled={refreshDisabled}
+												refreshPending={refreshPending}
 											/>
 										))}
 									</div>
@@ -1071,6 +1122,8 @@ function NodeRow({
 	creativeAdId,
 	onToggle,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 }: {
 	row: TreeRow
 	metrics: FleetBoardMetricKey[]
@@ -1078,6 +1131,8 @@ function NodeRow({
 	creativeAdId: string | null
 	onToggle: (node: Node) => void
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
 }) {
 	const { node } = row
 	const isExpandable = node.type !== 'ad'
@@ -1100,7 +1155,12 @@ function NodeRow({
 				style={{ gridTemplateColumns: gridTemplate(metrics) }}
 			>
 				<NodeNameCell row={row} onToggle={onToggle} isExpanded={isExpanded} />
-				<NodeHealthCell node={node} onRefresh={onRefresh} />
+				<NodeHealthCell
+					node={node}
+					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
+				/>
 				<NodeStateCell node={node} />
 				{metrics.map(metric => (
 					<KpiCell key={metric} metric={metric} kpis={node.kpis} currency={row.currency} />
@@ -1164,12 +1224,27 @@ function NodeNameCell({
 	)
 }
 
-function NodeHealthCell({ node, onRefresh }: { node: Node; onRefresh: () => void }) {
+function NodeHealthCell({
+	node,
+	onRefresh,
+	refreshDisabled,
+	refreshPending,
+}: {
+	node: Node
+	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
+}) {
 	if (!('health' in node)) return <span />
 	return (
 		<span className="flex min-w-0 items-center gap-1.5">
 			<HealthLabel health={node.health} />
-			<AccountSyncHealthIndicator account={node} onRefresh={onRefresh} />
+			<AccountSyncHealthIndicator
+				account={node}
+				onRefresh={onRefresh}
+				refreshDisabled={refreshDisabled}
+				refreshPending={refreshPending}
+			/>
 		</span>
 	)
 }
@@ -1399,7 +1474,17 @@ function SyncHealthTrigger({
 	)
 }
 
-function SyncHealthFindingDetail({ finding, onRefresh }: { finding: SyncFinding; onRefresh: () => void }) {
+function SyncHealthFindingDetail({
+	finding,
+	onRefresh,
+	refreshDisabled,
+	refreshPending,
+}: {
+	finding: SyncFinding
+	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
+}) {
 	const { data: me } = useMe()
 	const isOwner = me?.activeOrgMember?.role === 'owner'
 	const showForceRefresh = syncFindingShowsForceRefresh(finding)
@@ -1416,9 +1501,7 @@ function SyncHealthFindingDetail({ finding, onRefresh }: { finding: SyncFinding;
 			{showForceRefresh || showReconnect ? (
 				<div className="flex flex-wrap items-center gap-2 pt-1">
 					{showForceRefresh ? (
-						<Button type="button" size="xs" variant="outline" onClick={onRefresh}>
-							Оновити дані
-						</Button>
+						<ForceRefreshButton onRefresh={onRefresh} disabled={refreshDisabled} pending={refreshPending} />
 					) : null}
 					{showReconnect ? (
 						<Button type="button" size="xs" variant="outline" asChild>
@@ -1437,7 +1520,17 @@ function SyncHealthFindingDetail({ finding, onRefresh }: { finding: SyncFinding;
 	)
 }
 
-function AccountSyncHealthIndicator({ account, onRefresh }: { account: Account; onRefresh: () => void }) {
+function AccountSyncHealthIndicator({
+	account,
+	onRefresh,
+	refreshDisabled,
+	refreshPending,
+}: {
+	account: Account
+	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
+}) {
 	const syncHealth = account.syncHealth
 	if (!syncHealth) return null
 	const label = `${syncHealth.severity === 'red' ? 'Потрібна дія' : 'Синхронізація застаріла'}: ${account.name}`
@@ -1445,7 +1538,13 @@ function AccountSyncHealthIndicator({ account, onRefresh }: { account: Account; 
 		<SyncHealthTrigger label={label} triggerContent={<SyncHealthGlyph severity={syncHealth.severity} />}>
 			<p className="text-sm font-semibold">{account.name}</p>
 			{syncHealth.findings.map(finding => (
-				<SyncHealthFindingDetail key={finding.slice} finding={finding} onRefresh={onRefresh} />
+				<SyncHealthFindingDetail
+					key={finding.slice}
+					finding={finding}
+					onRefresh={onRefresh}
+					refreshDisabled={refreshDisabled}
+					refreshPending={refreshPending}
+				/>
 			))}
 		</SyncHealthTrigger>
 	)
@@ -1455,10 +1554,14 @@ function FleetSyncHealthAggregate({
 	syncHealth,
 	accounts,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
 }: {
 	syncHealth: FleetBoardRoot['header']['syncHealth'] | undefined
 	accounts: Account[]
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
 }) {
 	if (!syncHealth) return null
 	const affected = accounts.filter(account => account.syncHealth !== null)
@@ -1481,9 +1584,40 @@ function FleetSyncHealthAggregate({
 					</li>
 				))}
 			</ul>
-			<Button type="button" size="xs" variant="outline" className="self-start" onClick={onRefresh}>
-				Оновити дані
-			</Button>
+			<ForceRefreshButton
+				onRefresh={onRefresh}
+				disabled={refreshDisabled}
+				pending={refreshPending}
+				className="self-start"
+			/>
+		</SyncHealthTrigger>
+	)
+}
+
+function ForceRefreshButton({
+	onRefresh,
+	disabled,
+	pending,
+	className,
+}: {
+	onRefresh: () => void
+	disabled: boolean
+	pending: boolean
+	className?: string
+}) {
+	return (
+		<Button type="button" size="xs" variant="outline" className={className} onClick={onRefresh} disabled={disabled}>
+			{pending ? 'Оновлюємо дані…' : 'Оновити дані'}
+		</Button>
+	)
+}
+
+function ForceRefreshErrorIndicator({ message }: { message: string }) {
+	return (
+		<SyncHealthTrigger label="Не вдалося оновити дані" triggerContent={<SyncHealthGlyph severity="red" />}>
+			<p className="text-sm font-semibold">Не вдалося оновити дані</p>
+			<p className="text-xs text-muted-foreground">{message}</p>
+			<p className="text-xs text-muted-foreground">Спробуйте оновити дані ще раз.</p>
 		</SyncHealthTrigger>
 	)
 }

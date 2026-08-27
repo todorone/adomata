@@ -381,6 +381,36 @@ describe('Fleet Board', () => {
 		expect(screen.getByLabelText('Не вдалося оновити дані')).toBeTruthy()
 	})
 
+	it('keeps the Force Refresh deadline when the selected Creative changes', async () => {
+		vi.useFakeTimers()
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'running' })
+		renderBoard({ depth: 'ad' })
+
+		await vi.advanceTimersByTimeAsync(4 * 60 * 1000)
+		fireEvent.click(screen.getByRole('button', { name: 'Відкрити креатив Оголошення що працює' }))
+		await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+
+		expect(screen.getByLabelText('Не вдалося оновити дані')).toBeTruthy()
+	})
+
+	it('aborts a Force Refresh status request that outlives the deadline', async () => {
+		vi.useFakeTimers()
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockImplementationOnce(
+			(_, signal) =>
+				new Promise((resolve, reject) => {
+					signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+				}),
+		)
+		renderBoard()
+
+		await vi.advanceTimersByTimeAsync(6 * 60 * 1000)
+
+		expect(readForceRefreshSpy).toHaveBeenCalledTimes(1)
+		expect(screen.getByLabelText('Не вдалося оновити дані')).toBeTruthy()
+	})
+
 	it('stops Force Refresh polling when the board unmounts', async () => {
 		vi.useFakeTimers()
 		sessionStorage.setItem('force-refresh-id', 'refresh_1')
@@ -415,6 +445,19 @@ describe('Fleet Board', () => {
 
 		await waitFor(() => expect(readForceRefreshSpy.mock.calls.some(([id]) => id === 'refresh_1')).toBe(true))
 		expect(screen.getByRole('button', { name: 'Оновити дані' }).hasAttribute('disabled')).toBe(true)
+	})
+
+	it('disables every visible Force Refresh action while a persisted refresh is in flight', async () => {
+		rootResponse.header.syncHealth = { severity: 'yellow', affectedAccountCount: 1 }
+		duoFirst.syncHealth = { severity: 'yellow', findings: [syncFinding()] }
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'running' })
+		renderBoard()
+
+		await waitFor(() => expect(readForceRefreshSpy.mock.calls.length).toBeGreaterThan(0))
+		fireEvent.click(screen.getByLabelText('Потребують уваги: 1'))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Оновлюємо дані…' })).toBeTruthy())
+		expect(screen.getByRole('button', { name: 'Оновлюємо дані…' }).hasAttribute('disabled')).toBe(true)
 	})
 
 	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiClientError } from '@adomata/api/client'
 
@@ -42,6 +42,7 @@ export function FleetBoard({
 	const queryClient = useQueryClient()
 	const [expanded, setExpanded] = useState<Set<string>>(new Set())
 	const [creativeAdId, setCreativeAdId] = useState<string | null>(search.ad ?? null)
+	const creativeAdIdRef = useRef(creativeAdId)
 	const [forceRefreshId, setForceRefreshId] = useState(() => sessionStorage.getItem('force-refresh-id'))
 	const [isRequestingForceRefresh, setIsRequestingForceRefresh] = useState(false)
 	const [forceRefreshCooldownUntil, setForceRefreshCooldownUntil] = useState<number | null>(null)
@@ -53,7 +54,6 @@ export function FleetBoard({
 	function refresh() {
 		if (forceRefreshDisabled) return
 		setIsRequestingForceRefresh(true)
-		setForceRefreshError(null)
 		requestForceRefresh()
 			.then(requested => {
 				sessionStorage.setItem('force-refresh-id', requested.id)
@@ -81,15 +81,20 @@ export function FleetBoard({
 	const forceRefreshCooldownMessage = forceRefreshCooldownUntil ? 'Оновлення даних доступне раз на хвилину.' : null
 
 	useEffect(() => {
+		creativeAdIdRef.current = creativeAdId
+	}, [creativeAdId])
+
+	useEffect(() => {
 		if (!forceRefreshId) return
 		const controller = new AbortController()
 		waitForForceRefresh(forceRefreshId, controller.signal)
-			.then(async () => {
+			.then(async refresh => {
 				if (controller.signal.aborted) return
 				const tasks: Promise<unknown>[] = [refetch()]
-				if (creativeAdId)
-					tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
+				if (creativeAdIdRef.current)
+					tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdIdRef.current) }))
 				await Promise.all(tasks)
+				if (refresh.status === 'completed') setForceRefreshError(null)
 			})
 			.catch(() => {
 				if (!controller.signal.aborted) setForceRefreshError('Не вдалося завершити оновлення даних.')
@@ -102,7 +107,7 @@ export function FleetBoard({
 		return () => {
 			controller.abort()
 		}
-	}, [creativeAdId, forceRefreshId, queryClient, refetch])
+	}, [forceRefreshId, queryClient, refetch])
 
 	const nodeIndex = root.data?.nodeIndex ?? {}
 
@@ -134,6 +139,8 @@ export function FleetBoard({
 		creativeAdId,
 		onToggle: toggle,
 		onRefresh: refresh,
+		refreshDisabled: forceRefreshDisabled,
+		refreshPending: forceRefreshPending,
 	}
 	const waitingForColumnLayoutIdentity = Boolean(root.data && !columnLayoutReady)
 	const hasRows = Boolean(root.data && root.data.accounts.length > 0 && columnLayoutReady)
@@ -163,16 +170,27 @@ export function FleetBoard({
 }
 
 async function waitForForceRefresh(forceRefreshId: string, signal: AbortSignal) {
-	const deadline = Date.now() + forceRefreshDeadlineMilliseconds
+	const deadlineController = new AbortController()
+	const abortForUnmount = () => deadlineController.abort(signal.reason)
+	const deadline = window.setTimeout(() => deadlineController.abort(), forceRefreshDeadlineMilliseconds)
+	signal.addEventListener('abort', abortForUnmount, { once: true })
 	let attempt = 0
-	while (true) {
-		if (signal.aborted) throw signal.reason
-		const refresh = await readForceRefresh(forceRefreshId, signal)
-		if (refresh.status !== 'queued' && refresh.status !== 'running') return refresh
-		const remaining = deadline - Date.now()
-		if (remaining <= 0) throw new Error('Force Refresh did not finish before the deadline')
-		await waitForForceRefreshPoll(Math.min(1000 * 2 ** attempt, 30_000, remaining), signal)
-		attempt += 1
+	try {
+		while (true) {
+			if (deadlineController.signal.aborted) throw deadlineController.signal.reason
+			const refresh = await readForceRefresh(forceRefreshId, deadlineController.signal)
+			if (deadlineController.signal.aborted) throw deadlineController.signal.reason
+			if (refresh.status !== 'queued' && refresh.status !== 'running') return refresh
+			await waitForForceRefreshPoll(Math.min(1000 * 2 ** attempt, 30_000), deadlineController.signal)
+			attempt += 1
+		}
+	} catch (error) {
+		if (deadlineController.signal.aborted && !signal.aborted)
+			throw new Error('Force Refresh did not finish before the deadline')
+		throw error
+	} finally {
+		window.clearTimeout(deadline)
+		signal.removeEventListener('abort', abortForUnmount)
 	}
 }
 

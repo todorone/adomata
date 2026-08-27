@@ -15,8 +15,14 @@ import {
 	syncInvocation,
 	syncRun,
 } from '../db/schema'
-import { isMetaAccessLoss, MetaApiError } from '../meta/client'
-import type { MetaClient } from '../meta/client'
+import {
+	isMetaAccessLoss,
+	isMetaRateLimit,
+	metaThrottleNextDueAt,
+	MetaApiError,
+	type MetaClient,
+	type MetaThrottleObservation,
+} from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
@@ -119,7 +125,12 @@ export async function enqueueHierarchyRun({
 						inArray(adAccount.connectionStatus, ['pending', 'connected']),
 						...(force
 							? []
-							: [or(isNull(adAccount.hierarchySuccessfulAt), lte(adAccount.hierarchyNextDueAt, now))]),
+							: [
+									or(
+										lte(adAccount.hierarchyNextDueAt, now),
+										and(isNull(adAccount.hierarchySuccessfulAt), isNull(adAccount.hierarchyAttemptedAt)),
+									),
+								]),
 					),
 				)
 				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
@@ -355,19 +366,19 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 
 		const metaClient = params.buildMetaClient(account.metaAccessToken ?? undefined)
 		const campaigns = await metaClient.listCampaigns(account.adAccount.id)
-		if (campaigns.throttle.exhausted) {
-			await releaseOutcome(params)
-			return true
+		if (campaigns.throttle.appExhausted || campaigns.throttle.accountExhausted) {
+			await releaseOutcome(params, account.adAccount.id, campaigns.throttle)
+			return campaigns.throttle.appExhausted
 		}
 		const adSets = await metaClient.listAdSets(account.adAccount.id)
-		if (adSets.throttle.exhausted) {
-			await releaseOutcome(params)
-			return true
+		if (adSets.throttle.appExhausted || adSets.throttle.accountExhausted) {
+			await releaseOutcome(params, account.adAccount.id, adSets.throttle)
+			return adSets.throttle.appExhausted
 		}
 		const ads = await metaClient.listAds(account.adAccount.id)
 		if (!ads.complete) {
-			await releaseOutcome(params)
-			return true
+			await releaseOutcome(params, account.adAccount.id, ads.throttle)
+			return ads.throttle.appExhausted
 		}
 
 		const committedAt = params.clock()
@@ -483,7 +494,7 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 					hierarchyError: null,
 					hierarchyDiagnosticReference: hierarchyDiagnosticReference(params.runId, account.adAccount.id),
 					hierarchyMetaErrorCode: null,
-					hierarchyNextDueAt: new Date(committedAt.getTime() + hierarchyIntervalMilliseconds),
+					hierarchyNextDueAt: metaThrottleNextDueAt(ads.throttle, committedAt, hierarchyIntervalMilliseconds),
 					hierarchyLeaseOwner: null,
 					hierarchyLeaseExpiresAt: null,
 					updatedAt: committedAt,
@@ -491,17 +502,24 @@ async function processOutcome(params: HierarchyOutcomeContext) {
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
 		params.onAccountSynchronized?.(account.adAccount.id)
-		return ads.throttle.exhausted
+		return ads.throttle.appExhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return error instanceof MetaApiError && error.throttle?.exhausted === true
+		return error instanceof MetaApiError && error.throttle?.appExhausted === true
 	}
 }
 
-async function releaseOutcome(params: HierarchyOutcomeContext) {
+async function releaseOutcome(params: HierarchyOutcomeContext, accountId: string, throttle: MetaThrottleObservation) {
+	const occurredAt = params.clock()
 	await db
 		.update(syncAccountOutcome)
-		.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.clock() })
+		.set({
+			status: throttle.appExhausted ? 'queued' : 'skipped',
+			leaseOwner: null,
+			leaseExpiresAt: null,
+			completedAt: throttle.appExhausted ? null : occurredAt,
+			updatedAt: occurredAt,
+		})
 		.where(
 			and(
 				eq(syncAccountOutcome.id, params.outcomeId),
@@ -509,6 +527,15 @@ async function releaseOutcome(params: HierarchyOutcomeContext) {
 				eq(syncAccountOutcome.status, 'running'),
 			),
 		)
+	await db
+		.update(adAccount)
+		.set({
+			hierarchyNextDueAt: metaThrottleNextDueAt(throttle, occurredAt, hierarchyIntervalMilliseconds),
+			hierarchyLeaseOwner: null,
+			hierarchyLeaseExpiresAt: null,
+			updatedAt: occurredAt,
+		})
+		.where(eq(adAccount.id, accountId))
 }
 
 async function softDeleteMissingHierarchy(
@@ -650,7 +677,11 @@ async function recordOutcomeFailure(params: HierarchyOutcomeContext, error: unkn
 				hierarchyError: message,
 				hierarchyDiagnosticReference: diagnosticReference,
 				hierarchyMetaErrorCode: error instanceof MetaApiError ? (error.code ?? null) : null,
-				hierarchyNextDueAt: new Date(occurredAt.getTime() + hierarchyIntervalMilliseconds),
+				hierarchyNextDueAt: metaThrottleNextDueAt(
+					error instanceof MetaApiError ? error.throttle : undefined,
+					occurredAt,
+					hierarchyIntervalMilliseconds,
+				),
 				hierarchyLeaseOwner: null,
 				hierarchyLeaseExpiresAt: null,
 				updatedAt: occurredAt,
@@ -741,7 +772,7 @@ function describePollError(error: unknown) {
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
 		if (isMetaAccessLoss(error)) return 'authorization'
-		if (error.code === 4 || error.status === 429) return 'rate_limit'
+		if (isMetaRateLimit(error)) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'
 	}

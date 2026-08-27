@@ -135,7 +135,7 @@ describe('durable hierarchy work', () => {
 		let lowerPriorityCalls = 0
 		fakeMetaServer.use(
 			http.get('https://graph.facebook.com/v25.0/act_100000000000005/campaigns', () =>
-				HttpResponse.json({ data: [] }, { headers: { 'X-App-Usage': '{"call_count":100}' } }),
+				HttpResponse.json({ data: [] }, { headers: { 'X-App-Usage': '{"call_count":95}' } }),
 			),
 			http.get('https://graph.facebook.com/v25.0/act_100000000000006/campaigns', () => {
 				lowerPriorityCalls += 1
@@ -157,6 +157,39 @@ describe('durable hierarchy work', () => {
 
 		expect(resumed.runId).toBe(result.runId)
 		expect(resumed).toMatchObject({ status: 'completed', processed: 7, failed: 0, queued: 0 })
+	})
+
+	it("continues with other Ad Accounts after an account-scoped throttle and honors Meta's retry hint", async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		let nextAccountCalls = 0
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/act_100000000000005/campaigns', () =>
+				HttpResponse.json(
+					{ data: [] },
+					{
+						headers: {
+							'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}',
+						},
+					},
+				),
+			),
+			http.get('https://graph.facebook.com/v25.0/act_100000000000006/campaigns', () => {
+				nextAccountCalls += 1
+				return HttpResponse.json({ data: [] })
+			}),
+		)
+
+		const result = await scheduleHierarchyRun(buildHierarchyOptions(now))
+		expect(result).toMatchObject({ status: 'completed', processed: 6, failed: 0, skipped: 1, queued: 0 })
+		expect(nextAccountCalls).toBe(1)
+		const [throttledAccount] = await db
+			.select({ nextDueAt: adAccount.hierarchyNextDueAt })
+			.from(adAccount)
+			.where(eq(adAccount.id, 'act_100000000000005'))
+		expect(throttledAccount?.nextDueAt).toEqual(new Date(now.getTime() + 12 * 60 * 1000))
+
+		const beforeRetry = await scheduleHierarchyRun(buildHierarchyOptions(new Date(now.getTime() + 60 * 1000)))
+		expect(beforeRetry).toMatchObject({ status: 'completed', processed: 0, failed: 0, queued: 0 })
 	})
 
 	it('preserves the previous hierarchy and committed Account data after a partial enumeration failure', async () => {

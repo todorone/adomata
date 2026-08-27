@@ -102,6 +102,31 @@ describe('durable Historical Reconciliation', () => {
 		expect(outcomes).toEqual([{ reconciliationDate: '2026-07-25' }])
 	})
 
+	it('skips account-scoped Historical Reconciliation throttles', async () => {
+		const now = new Date('2026-07-26T01:25:00.000Z')
+		await prepareConnectedAccount(now)
+		fakeMetaServer.use(
+			http.get(`https://graph.facebook.com/v25.0/${accountId}/insights`, () =>
+				HttpResponse.json(
+					{ data: [] },
+					{
+						headers: {
+							'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}',
+						},
+					},
+				),
+			),
+		)
+
+		const result = await scheduleHistoricalReconciliationRun(buildOptions(now))
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, result.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+
+		expect(outcome).toEqual({ status: 'skipped' })
+	})
+
 	it("keeps a failed target date eligible for next-day retry without affecting today's Insights", async () => {
 		const night = new Date('2026-07-26T01:25:00.000Z')
 		await prepareConnectedAccount(night)

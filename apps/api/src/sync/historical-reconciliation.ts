@@ -17,7 +17,7 @@ import {
 	syncRun,
 } from '../db/schema'
 import { dateRangeForAccount, historicalReconciliationRangeForEndDate } from '../fleet-board/domain'
-import { isMetaAccessLoss, MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, isMetaRateLimit, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
@@ -379,6 +379,10 @@ async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
 		const insights = await params
 			.buildMetaClient(account.metaAccessToken ?? undefined)
 			.listDailyInsights(account.adAccount.id, range)
+		if (insights.throttle.accountExhausted && !insights.throttle.appExhausted) {
+			await recordOutcomeThrottled(params, account.adAccount.id)
+			return false
+		}
 		const knownAds = await db
 			.select({ id: ad.id })
 			.from(ad)
@@ -459,10 +463,10 @@ async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
-		return insights.throttle.exhausted
+		return insights.throttle.appExhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return error instanceof MetaApiError && error.throttle?.exhausted === true
+		return error instanceof MetaApiError && error.throttle?.appExhausted === true
 	}
 }
 
@@ -526,6 +530,45 @@ async function recordOutcomeSkipped(params: HistoricalReconciliationOutcomeConte
 			.set({
 				historicalReconciliationAttemptedAt: occurredAt,
 				historicalReconciliationError: noTokenMessage,
+				historicalReconciliationDiagnosticReference: diagnosticReference,
+				historicalReconciliationMetaErrorCode: null,
+				historicalReconciliationLeaseOwner: null,
+				historicalReconciliationLeaseExpiresAt: null,
+				updatedAt: occurredAt,
+			})
+			.where(eq(adAccount.id, accountId))
+	})
+}
+
+async function recordOutcomeThrottled(params: HistoricalReconciliationOutcomeContext, accountId: string) {
+	const occurredAt = params.clock()
+	const diagnosticReference = reconciliationDiagnosticReference(params.runId, accountId)
+	await db.transaction(async transaction => {
+		const outcome = await transaction
+			.update(syncAccountOutcome)
+			.set({
+				status: 'skipped',
+				leaseOwner: null,
+				leaseExpiresAt: null,
+				completedAt: occurredAt,
+				diagnosticReference,
+				error: 'Meta throttle budget exhausted',
+				updatedAt: occurredAt,
+			})
+			.where(
+				and(
+					eq(syncAccountOutcome.id, params.outcomeId),
+					eq(syncAccountOutcome.leaseOwner, params.leaseOwner),
+					eq(syncAccountOutcome.status, 'running'),
+				),
+			)
+			.returning({ id: syncAccountOutcome.id })
+		if (!outcome[0]) return
+		await transaction
+			.update(adAccount)
+			.set({
+				historicalReconciliationAttemptedAt: occurredAt,
+				historicalReconciliationError: 'Meta throttle budget exhausted',
 				historicalReconciliationDiagnosticReference: diagnosticReference,
 				historicalReconciliationMetaErrorCode: null,
 				historicalReconciliationLeaseOwner: null,
@@ -719,7 +762,7 @@ function describePollError(error: unknown) {
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
 		if (isMetaAccessLoss(error)) return 'authorization'
-		if (error.code === 4 || error.status === 429) return 'rate_limit'
+		if (isMetaRateLimit(error)) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'
 	}

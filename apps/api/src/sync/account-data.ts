@@ -13,8 +13,8 @@ import {
 	syncInvocation,
 	syncRun,
 } from '../db/schema'
-import { isMetaAccessLoss, MetaApiError } from '../meta/client'
-import type { MetaClient } from '../meta/client'
+import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
+import type { MetaClient, MetaThrottleObservation } from '../meta/client'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const accountDataIntervalMilliseconds = 5 * 60 * 1000
@@ -117,7 +117,12 @@ export async function enqueueAccountDataRun({
 						inArray(adAccount.connectionStatus, ['pending', 'connected']),
 						...(force
 							? []
-							: [or(isNull(adAccount.accountDataSuccessfulAt), lte(adAccount.accountDataNextDueAt, now))]),
+							: [
+									or(
+										lte(adAccount.accountDataNextDueAt, now),
+										and(isNull(adAccount.accountDataSuccessfulAt), isNull(adAccount.accountDataAttemptedAt)),
+									),
+								]),
 					),
 				)
 				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
@@ -348,6 +353,10 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 		const accountData = await params
 			.buildMetaClient(account.metaAccessToken ?? undefined)
 			.getAccount(account.adAccount.id)
+		if (accountData.throttle.accountExhausted && !accountData.throttle.appExhausted) {
+			await recordOutcomeThrottled(params, account.adAccount.id, accountData.throttle)
+			return false
+		}
 		const committedAt = params.clock()
 		await db.transaction(async transaction => {
 			const outcome = await transaction
@@ -389,7 +398,11 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 					accountDataError: null,
 					accountDataDiagnosticReference: null,
 					accountDataMetaErrorCode: null,
-					accountDataNextDueAt: new Date(committedAt.getTime() + accountDataIntervalMilliseconds),
+					accountDataNextDueAt: metaThrottleNextDueAt(
+						accountData.throttle,
+						committedAt,
+						accountDataIntervalMilliseconds,
+					),
 					accountDataLeaseOwner: null,
 					accountDataLeaseExpiresAt: null,
 					updatedAt: committedAt,
@@ -397,10 +410,10 @@ async function processOutcome(params: AccountDataOutcomeContext) {
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
 		params.onAccountSynchronized?.(account.adAccount.id)
-		return accountData.throttle.exhausted
+		return accountData.throttle.appExhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return error instanceof MetaApiError && error.throttle?.exhausted === true
+		return error instanceof MetaApiError && error.throttle?.appExhausted === true
 	}
 }
 
@@ -444,6 +457,50 @@ async function recordOutcomeSkipped(params: AccountDataOutcomeContext, accountId
 	})
 }
 
+async function recordOutcomeThrottled(
+	params: AccountDataOutcomeContext,
+	accountId: string,
+	throttle: MetaThrottleObservation,
+) {
+	const occurredAt = params.clock()
+	const diagnosticReference = accountDiagnosticReference(params.runId, accountId)
+	await db.transaction(async transaction => {
+		const outcome = await transaction
+			.update(syncAccountOutcome)
+			.set({
+				status: 'skipped',
+				leaseOwner: null,
+				leaseExpiresAt: null,
+				completedAt: occurredAt,
+				diagnosticReference,
+				error: 'Meta throttle budget exhausted',
+				updatedAt: occurredAt,
+			})
+			.where(
+				and(
+					eq(syncAccountOutcome.id, params.outcomeId),
+					eq(syncAccountOutcome.leaseOwner, params.leaseOwner),
+					eq(syncAccountOutcome.status, 'running'),
+				),
+			)
+			.returning({ id: syncAccountOutcome.id })
+		if (!outcome[0]) return
+		await transaction
+			.update(adAccount)
+			.set({
+				accountDataAttemptedAt: occurredAt,
+				accountDataError: 'Meta throttle budget exhausted',
+				accountDataDiagnosticReference: diagnosticReference,
+				accountDataMetaErrorCode: null,
+				accountDataNextDueAt: metaThrottleNextDueAt(throttle, occurredAt, accountDataIntervalMilliseconds),
+				accountDataLeaseOwner: null,
+				accountDataLeaseExpiresAt: null,
+				updatedAt: occurredAt,
+			})
+			.where(eq(adAccount.id, accountId))
+	})
+}
+
 async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
 	const diagnosticReference = accountDiagnosticReference(params.runId, accountId)
@@ -478,7 +535,11 @@ async function recordOutcomeFailure(params: AccountDataOutcomeContext, error: un
 				accountDataError: message,
 				accountDataDiagnosticReference: diagnosticReference,
 				accountDataMetaErrorCode: error instanceof MetaApiError ? (error.code ?? null) : null,
-				accountDataNextDueAt: new Date(occurredAt.getTime() + accountDataIntervalMilliseconds),
+				accountDataNextDueAt: metaThrottleNextDueAt(
+					error instanceof MetaApiError ? error.throttle : undefined,
+					occurredAt,
+					accountDataIntervalMilliseconds,
+				),
 				accountDataLeaseOwner: null,
 				accountDataLeaseExpiresAt: null,
 				updatedAt: occurredAt,
@@ -569,7 +630,7 @@ function describePollError(error: unknown) {
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
 		if (isMetaAccessLoss(error)) return 'authorization'
-		if (error.code === 4 || error.status === 429) return 'rate_limit'
+		if (isMetaRateLimit(error)) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'
 	}

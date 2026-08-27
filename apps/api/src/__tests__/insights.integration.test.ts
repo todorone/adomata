@@ -132,6 +132,68 @@ describe('durable Insights and Creative work', () => {
 		expect(outcome).toEqual({ slice: 'insights', successfulCommitAt: committedAt })
 	})
 
+	it('skips account-scoped Insight throttles until Meta allows that account again', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await prepareOperationalAccounts(now)
+		const accountId = 'act_100000000000001'
+		fakeMetaServer.use(
+			http.get(`https://graph.facebook.com/v25.0/${accountId}/insights`, () =>
+				HttpResponse.json(
+					{ data: [] },
+					{
+						headers: {
+							'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}',
+						},
+					},
+				),
+			),
+		)
+
+		const result = await scheduleInsightsRun(buildInsightsOptions(now))
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, result.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		const [account] = await db
+			.select({ nextDueAt: adAccount.insightsNextDueAt })
+			.from(adAccount)
+			.where(eq(adAccount.id, accountId))
+
+		expect(outcome).toEqual({ status: 'skipped' })
+		expect(account?.nextDueAt).toEqual(new Date(now.getTime() + 12 * 60 * 1000))
+	})
+
+	it('skips account-scoped Creative throttles until Meta allows that account again', async () => {
+		const now = new Date('2026-07-26T08:00:00.000Z')
+		await prepareOperationalAccounts(now)
+		const accountId = 'act_100000000000001'
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/ad-001', () =>
+				HttpResponse.json(
+					{ id: 'ad-001', creative: { id: 'creative-001' } },
+					{
+						headers: {
+							'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}',
+						},
+					},
+				),
+			),
+		)
+
+		const result = await scheduleCreativeRun(buildCreativeOptions(now))
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, result.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		const [account] = await db
+			.select({ nextDueAt: adAccount.creativeNextDueAt })
+			.from(adAccount)
+			.where(eq(adAccount.id, accountId))
+
+		expect(outcome).toEqual({ status: 'skipped' })
+		expect(account?.nextDueAt).toEqual(new Date(now.getTime() + 12 * 60 * 1000))
+	})
+
 	it('commits Insights for known Ads when the current hierarchy attempt fails', async () => {
 		const initialAt = new Date('2026-07-26T08:00:00.000Z')
 		await prepareOperationalAccounts(initialAt)

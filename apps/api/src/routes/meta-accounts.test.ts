@@ -244,7 +244,7 @@ describe('GET /meta-accounts', () => {
 					businessName: null,
 				},
 			],
-			throttle: { exhausted: false },
+			throttle: { appExhausted: false, accountExhausted: false },
 		})
 		const { app } = await import('../app')
 
@@ -327,7 +327,7 @@ describe('GET /meta-accounts', () => {
 					businessName: 'Northstar',
 				},
 			],
-			throttle: { exhausted: false },
+			throttle: { appExhausted: false, accountExhausted: false },
 		})
 		const { app } = await import('../app')
 

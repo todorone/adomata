@@ -128,6 +128,45 @@ describe('durable Account data work', () => {
 		)
 	})
 
+	it('skips an account-scoped throttle and holds its next Account data attempt until Meta allows it', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		const accountId = 'act_100000000000005'
+		fakeMetaServer.use(
+			http.get(`https://graph.facebook.com/v25.0/${accountId}`, () =>
+				HttpResponse.json(
+					{
+						id: accountId.slice(4),
+						name: 'Throttled Account',
+						currency: 'USD',
+						account_status: 1,
+						disable_reason: 0,
+						balance: '0',
+						is_prepay_account: true,
+						timezone_name: 'Europe/Kyiv',
+					},
+					{
+						headers: {
+							'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}',
+						},
+					},
+				),
+			),
+		)
+
+		const result = await scheduleAccountDataRun(buildOptions(now))
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, result.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		const [account] = await db
+			.select({ nextDueAt: adAccount.accountDataNextDueAt })
+			.from(adAccount)
+			.where(eq(adAccount.id, accountId))
+
+		expect(outcome).toEqual({ status: 'skipped' })
+		expect(account?.nextDueAt).toEqual(new Date(now.getTime() + 12 * 60 * 1000))
+	})
+
 	it('reclaims an expired generation lease after an API restart', async () => {
 		const now = new Date('2026-08-24T08:00:00.000Z')
 		const queued = await enqueueAccountDataRun(buildOptions(now))

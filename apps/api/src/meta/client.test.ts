@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { MetaApiError, MetaClient } from './client'
+import { isMetaRateLimit, MetaApiError, MetaClient } from './client'
 
 const fields =
 	'id,name,currency,timezone_name,account_status,disable_reason,balance,is_prepay_account,funding_source_details'
@@ -96,6 +96,57 @@ describe('MetaClient', () => {
 		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
+	it('keeps app and Ad Account throttle budgets scoped', async () => {
+		const account = {
+			id: '100000000000001',
+			name: 'Funded prepay',
+			currency: 'USD',
+			account_status: 1,
+			disable_reason: 0,
+			balance: '0',
+			is_prepay_account: true,
+			timezone_name: 'Europe/Kyiv',
+		}
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify(account), {
+					status: 200,
+					headers: { 'X-Ad-Account-Usage': '{"call_count":95,"estimated_time_to_regain_access":12}' },
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify(account), { status: 200, headers: { 'X-App-Usage': '{"call_count":95}' } }),
+			)
+		const client = new MetaClient({ accessToken: 'access token', fetch })
+
+		await expect(client.getAccount('100000000000001')).resolves.toMatchObject({
+			throttle: { appExhausted: false, accountExhausted: true },
+		})
+		await expect(client.getAccount('100000000000001')).resolves.toMatchObject({
+			throttle: { appExhausted: true, accountExhausted: false },
+		})
+	})
+
+	it('treats Meta code 17 as a retryable rate limit', async () => {
+		const fetch = vi.fn().mockImplementation(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						error: { message: 'User request limit reached', type: 'OAuthException', code: 17 },
+					}),
+					{ status: 400 },
+				),
+			),
+		)
+		const sleep = vi.fn().mockResolvedValue(undefined)
+		const client = new MetaClient({ accessToken: 'access token', fetch, sleep })
+
+		await expect(client.getAccount('100000000000001')).rejects.toMatchObject({ code: 17 })
+		expect(fetch).toHaveBeenCalledTimes(3)
+		expect(isMetaRateLimit(new MetaApiError('User request limit reached', 400, 17))).toBe(true)
+	})
+
 	it('falls back to baseline fields when the prepay flag is also unavailable', async () => {
 		const fetch = vi
 			.fn()
@@ -179,7 +230,7 @@ describe('MetaClient', () => {
 					data: [{ id: 'campaign-1', name: 'Campaign 1', effective_status: 'ACTIVE', objective: 'OUTCOME_LEADS' }],
 					paging: { next: 'https://graph.facebook.com/v25.0/act_100000000000001/campaigns?after=page-2' },
 				}),
-				{ status: 200, headers: { 'X-App-Usage': '{"call_count":100}' } },
+				{ status: 200, headers: { 'X-App-Usage': '{"call_count":95}' } },
 			),
 		)
 		const client = new MetaClient({ accessToken: 'token', fetch })
@@ -187,7 +238,7 @@ describe('MetaClient', () => {
 		await expect(client.listCampaigns('100000000000001')).resolves.toMatchObject({
 			items: [{ id: 'campaign-1' }],
 			complete: false,
-			throttle: { exhausted: true },
+			throttle: { appExhausted: true },
 		})
 		expect(fetch).toHaveBeenCalledTimes(1)
 	})
@@ -303,7 +354,7 @@ describe('MetaClient', () => {
 						},
 					],
 				}),
-				{ status: 200, headers: { 'x-app-usage': '{"call_count":100}' } },
+				{ status: 200, headers: { 'x-app-usage': '{"call_count":95}' } },
 			),
 		)
 		const client = new MetaClient({ accessToken: 'token', fetch })
@@ -312,7 +363,7 @@ describe('MetaClient', () => {
 			client.listDailyInsights('100000000000001', { start: '2026-07-01', end: '2026-07-01' }),
 		).resolves.toMatchObject({
 			items: [{ adId: 'ad-1', date: '2026-07-01', impressions: 101, inlineLinkClicks: 7 }],
-			throttle: { exhausted: true, app: { callCount: 100 } },
+			throttle: { appExhausted: true, app: { callCount: 95 } },
 		})
 	})
 
@@ -347,12 +398,12 @@ describe('MetaClient', () => {
 		const fetch = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify({ id: 'ad-1', creative: { id: 'creative-1' } }), {
 				status: 200,
-				headers: { 'X-App-Usage': '{"call_count":100}' },
+				headers: { 'X-App-Usage': '{"call_count":95}' },
 			}),
 		)
 		const client = new MetaClient({ accessToken: 'token', fetch })
 
-		await expect(client.getCreative('ad-1')).resolves.toMatchObject({ throttle: { exhausted: true } })
+		await expect(client.getCreative('ad-1')).resolves.toMatchObject({ throttle: { appExhausted: true } })
 	})
 
 	it('stores a streamable source for video creatives', async () => {

@@ -17,8 +17,8 @@ import {
 	syncRun,
 } from '../db/schema'
 import { dateRangeForAccount, firstConnectStart } from '../fleet-board/domain'
-import { isMetaAccessLoss, MetaApiError } from '../meta/client'
-import type { MetaClient, MetaDailyInsight } from '../meta/client'
+import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
+import type { MetaClient, MetaDailyInsight, MetaThrottleObservation } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
@@ -122,7 +122,14 @@ export async function enqueueInsightsRun({
 							eq(adAccount.connectionStatus, 'connected'),
 							and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
 						),
-						...(force ? [] : [or(isNull(adAccount.insightsSuccessfulAt), lte(adAccount.insightsNextDueAt, now))]),
+						...(force
+							? []
+							: [
+									or(
+										lte(adAccount.insightsNextDueAt, now),
+										and(isNull(adAccount.insightsSuccessfulAt), isNull(adAccount.insightsAttemptedAt)),
+									),
+								]),
 					),
 				)
 				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
@@ -356,6 +363,10 @@ async function processOutcome(params: InsightsOutcomeContext) {
 				: today
 		const metaClient = params.buildMetaClient(account.metaAccessToken ?? undefined)
 		const insights = await metaClient.listDailyInsights(account.adAccount.id, range)
+		if (insights.throttle.accountExhausted && !insights.throttle.appExhausted) {
+			await recordOutcomeThrottled(params, account.adAccount.id, insights.throttle)
+			return false
+		}
 		const knownAds = await db
 			.select({ id: ad.id })
 			.from(ad)
@@ -435,17 +446,17 @@ async function processOutcome(params: InsightsOutcomeContext) {
 					insightsError: null,
 					insightsDiagnosticReference: insightsDiagnosticReference(params.runId, account.adAccount.id),
 					insightsMetaErrorCode: null,
-					insightsNextDueAt: new Date(committedAt.getTime() + insightsIntervalMilliseconds),
+					insightsNextDueAt: metaThrottleNextDueAt(insights.throttle, committedAt, insightsIntervalMilliseconds),
 					insightsLeaseOwner: null,
 					insightsLeaseExpiresAt: null,
 					updatedAt: committedAt,
 				})
 				.where(eq(adAccount.id, account.adAccount.id))
 		})
-		return insights.throttle.exhausted
+		return insights.throttle.appExhausted
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return error instanceof MetaApiError && error.throttle?.exhausted === true
+		return error instanceof MetaApiError && error.throttle?.appExhausted === true
 	}
 }
 
@@ -520,6 +531,50 @@ async function recordOutcomeSkipped(params: InsightsOutcomeContext, accountId: s
 	})
 }
 
+async function recordOutcomeThrottled(
+	params: InsightsOutcomeContext,
+	accountId: string,
+	throttle: MetaThrottleObservation,
+) {
+	const occurredAt = params.clock()
+	const diagnosticReference = insightsDiagnosticReference(params.runId, accountId)
+	await db.transaction(async transaction => {
+		const outcome = await transaction
+			.update(syncAccountOutcome)
+			.set({
+				status: 'skipped',
+				leaseOwner: null,
+				leaseExpiresAt: null,
+				completedAt: occurredAt,
+				diagnosticReference,
+				error: 'Meta throttle budget exhausted',
+				updatedAt: occurredAt,
+			})
+			.where(
+				and(
+					eq(syncAccountOutcome.id, params.outcomeId),
+					eq(syncAccountOutcome.leaseOwner, params.leaseOwner),
+					eq(syncAccountOutcome.status, 'running'),
+				),
+			)
+			.returning({ id: syncAccountOutcome.id })
+		if (!outcome[0]) return
+		await transaction
+			.update(adAccount)
+			.set({
+				insightsAttemptedAt: occurredAt,
+				insightsError: 'Meta throttle budget exhausted',
+				insightsDiagnosticReference: diagnosticReference,
+				insightsMetaErrorCode: null,
+				insightsNextDueAt: metaThrottleNextDueAt(throttle, occurredAt, insightsIntervalMilliseconds),
+				insightsLeaseOwner: null,
+				insightsLeaseExpiresAt: null,
+				updatedAt: occurredAt,
+			})
+			.where(eq(adAccount.id, accountId))
+	})
+}
+
 async function recordOutcomeFailure(params: InsightsOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
 	const diagnosticReference = insightsDiagnosticReference(params.runId, accountId)
@@ -554,7 +609,11 @@ async function recordOutcomeFailure(params: InsightsOutcomeContext, error: unkno
 				insightsError: message,
 				insightsDiagnosticReference: diagnosticReference,
 				insightsMetaErrorCode: error instanceof MetaApiError ? (error.code ?? null) : null,
-				insightsNextDueAt: new Date(occurredAt.getTime() + insightsIntervalMilliseconds),
+				insightsNextDueAt: metaThrottleNextDueAt(
+					error instanceof MetaApiError ? error.throttle : undefined,
+					occurredAt,
+					insightsIntervalMilliseconds,
+				),
 				insightsLeaseOwner: null,
 				insightsLeaseExpiresAt: null,
 				updatedAt: occurredAt,
@@ -645,7 +704,7 @@ function describePollError(error: unknown) {
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
 		if (isMetaAccessLoss(error)) return 'authorization'
-		if (error.code === 4 || error.status === 429) return 'rate_limit'
+		if (isMetaRateLimit(error)) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'
 	}

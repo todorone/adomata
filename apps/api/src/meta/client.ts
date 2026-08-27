@@ -165,7 +165,8 @@ export type MetaThrottleObservation = {
 	businessUseCase?: MetaAppUsage
 	adAccount?: MetaAppUsage
 	insights?: MetaAppUsage
-	exhausted: boolean
+	appExhausted: boolean
+	accountExhausted: boolean
 }
 export type MetaPageResult<T> = { items: T[]; complete: boolean; throttle: MetaThrottleObservation }
 
@@ -186,6 +187,29 @@ export class MetaApiError extends Error {
 
 export function isMetaAccessLoss(error: unknown) {
 	return error instanceof MetaApiError && (error.code === 10 || error.code === 190)
+}
+
+const metaThrottleThresholdPercent = 95
+const metaRateLimitCodes = new Set([4, 17, 32, 613, 80_000, 80_001, 80_003, 80_004, 80_008, 80_009, 80_014])
+
+export function isMetaRateLimit(error: MetaApiError) {
+	return error.status === 429 || (error.code !== undefined && metaRateLimitCodes.has(error.code))
+}
+
+export function isMetaThrottleExhausted(throttle: MetaThrottleObservation | undefined) {
+	return throttle?.appExhausted === true || throttle?.accountExhausted === true
+}
+
+export function metaThrottleNextDueAt(
+	throttle: MetaThrottleObservation | undefined,
+	now: Date,
+	intervalMilliseconds: number,
+) {
+	const regainAccessMinutes = Math.max(
+		throttle?.adAccount?.estimatedTimeToRegainAccess ?? 0,
+		throttle?.insights?.estimatedTimeToRegainAccess ?? 0,
+	)
+	return new Date(now.getTime() + Math.max(intervalMilliseconds, regainAccessMinutes * 60 * 1000))
 }
 
 type MetaClientOptions = {
@@ -224,7 +248,8 @@ export class MetaClient {
 			const { payload, throttle } = await this.request(url)
 			return normalizeAccount(payload, throttle)
 		} catch (error) {
-			if (!(error instanceof MetaApiError) || error.code !== 10 || error.throttle?.exhausted) throw error
+			if (!(error instanceof MetaApiError) || error.code !== 10 || isMetaThrottleExhausted(error.throttle))
+				throw error
 			url.searchParams.set('fields', accountTierPrepayFields.join(','))
 			try {
 				const { payload, throttle } = await this.request(url)
@@ -233,7 +258,7 @@ export class MetaClient {
 				if (
 					!(fallbackError instanceof MetaApiError) ||
 					fallbackError.code !== 10 ||
-					fallbackError.throttle?.exhausted
+					isMetaThrottleExhausted(fallbackError.throttle)
 				)
 					throw fallbackError
 				url.searchParams.set('fields', accountTierFallbackFields.join(','))
@@ -312,7 +337,7 @@ export class MetaClient {
 		const { payload, throttle } = await this.request(url)
 		const ad = adResponseSchema.parse(payload)
 		if (!ad.creative) {
-			if (throttle.exhausted)
+			if (isMetaThrottleExhausted(throttle))
 				throw new MetaApiError(
 					'Meta throttle budget exhausted',
 					429,
@@ -325,7 +350,8 @@ export class MetaClient {
 			return null
 		}
 		const { id, name, ...payloadFields } = ad.creative
-		if (throttle.exhausted) return { id, adId: ad.id, name: name ?? null, throttle, payload: payloadFields }
+		if (isMetaThrottleExhausted(throttle))
+			return { id, adId: ad.id, name: name ?? null, throttle, payload: payloadFields }
 		const primaryVideoId = metaVideoId(ad.creative.video_id)
 		const videoIds = [...(primaryVideoId ? [primaryVideoId] : []), ...assetFeedVideoIds(ad.creative.asset_feed_spec)]
 		const videoSources = new Map(
@@ -416,7 +442,7 @@ export class MetaClient {
 	): Promise<MetaPageResult<U>> {
 		let nextUrl: URL | undefined = firstUrl
 		const items: U[] = []
-		let throttle: MetaThrottleObservation = { exhausted: false }
+		let throttle: MetaThrottleObservation = { appExhausted: false, accountExhausted: false }
 		let complete = true
 		while (nextUrl) {
 			const { payload, throttle: pageThrottle } = await this.request(nextUrl)
@@ -424,7 +450,7 @@ export class MetaClient {
 			items.push(...page.data.map(normalize))
 			throttle = mergeThrottle(throttle, pageThrottle)
 			const nextPage = page.paging?.next ? this.safeCursor(page.paging.next) : undefined
-			if (throttle.exhausted && nextPage) {
+			if (isMetaThrottleExhausted(throttle) && nextPage) {
 				complete = false
 				break
 			}
@@ -446,7 +472,7 @@ export class MetaClient {
 			const { payload } = await this.request(url)
 			return videoResponseSchema.parse(payload).source ?? null
 		} catch (error) {
-			if (error instanceof MetaApiError && error.throttle?.exhausted) throw error
+			if (error instanceof MetaApiError && isMetaThrottleExhausted(error.throttle)) throw error
 			// The thumbnail remains useful when the token cannot read the video source.
 			return null
 		}
@@ -465,7 +491,7 @@ export class MetaClient {
 					.data.flatMap(image => (image.url ? ([[image.hash, image.url]] as const) : [])),
 			)
 		} catch (error) {
-			if (error instanceof MetaApiError && error.throttle?.exhausted) throw error
+			if (error instanceof MetaApiError && isMetaThrottleExhausted(error.throttle)) throw error
 			// A missing image-library permission should not make the whole creative unavailable.
 			return new Map<string, string>()
 		}
@@ -490,11 +516,11 @@ export class MetaClient {
 				const response = await this.fetch(url.toString())
 				if (response.ok) return { payload: await response.json(), throttle: parseThrottle(response.headers) }
 				lastError = await parseMetaError(response)
-				if (lastError.throttle?.exhausted || !isRetryable(lastError) || attempt === 2) throw lastError
+				if (isMetaThrottleExhausted(lastError.throttle) || !isRetryable(lastError) || attempt === 2) throw lastError
 			} catch (error) {
 				if (!(error instanceof MetaApiError)) throw error
 				lastError = error
-				if (error.throttle?.exhausted || !isRetryable(error) || attempt === 2) throw error
+				if (isMetaThrottleExhausted(error.throttle) || !isRetryable(error) || attempt === 2) throw error
 			}
 			await this.sleep(this.retryDelay(attempt))
 		}
@@ -677,16 +703,22 @@ function parseThrottle(headers: Headers): MetaThrottleObservation {
 				estimatedTimeToRegainAccess: businessUseCase.estimated_time_to_regain_access,
 			}
 		: undefined
-	const all = [app, normalizedBusinessUseCase, adAccount, insights]
 	return {
 		app,
 		businessUseCase: normalizedBusinessUseCase,
 		adAccount,
 		insights,
-		exhausted: all.some(
-			usage => (usage?.callCount ?? 0) >= 100 || (usage?.totalCpuTime ?? 0) >= 100 || (usage?.totalTime ?? 0) >= 100,
-		),
+		appExhausted: [app, normalizedBusinessUseCase].some(isThrottleUsageExhausted),
+		accountExhausted: [adAccount, insights].some(isThrottleUsageExhausted),
 	}
+}
+
+function isThrottleUsageExhausted(usage: MetaAppUsage | undefined) {
+	return (
+		(usage?.callCount ?? 0) >= metaThrottleThresholdPercent ||
+		(usage?.totalCpuTime ?? 0) >= metaThrottleThresholdPercent ||
+		(usage?.totalTime ?? 0) >= metaThrottleThresholdPercent
+	)
 }
 
 function mergeThrottle(left: MetaThrottleObservation, right: MetaThrottleObservation): MetaThrottleObservation {
@@ -695,10 +727,11 @@ function mergeThrottle(left: MetaThrottleObservation, right: MetaThrottleObserva
 		businessUseCase: right.businessUseCase ?? left.businessUseCase,
 		adAccount: right.adAccount ?? left.adAccount,
 		insights: right.insights ?? left.insights,
-		exhausted: left.exhausted || right.exhausted,
+		appExhausted: left.appExhausted || right.appExhausted,
+		accountExhausted: left.accountExhausted || right.accountExhausted,
 	}
 }
 
 function isRetryable(error: MetaApiError) {
-	return error.code === 4 || error.status === 429 || error.status >= 500
+	return isMetaRateLimit(error) || error.status >= 500
 }

@@ -17,8 +17,8 @@ import {
 	syncRun,
 } from '../db/schema'
 import { creativeHasVideo } from '../fleet-board/creative'
-import { isMetaAccessLoss, MetaApiError } from '../meta/client'
-import type { MetaClient, MetaCreative } from '../meta/client'
+import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
+import type { MetaClient, MetaCreative, MetaThrottleObservation } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
@@ -110,7 +110,10 @@ export async function enqueueCreativeRun({
 							eq(adAccount.connectionStatus, 'connected'),
 							and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
 						),
-						or(isNull(adAccount.creativeSuccessfulAt), lte(adAccount.creativeNextDueAt, now)),
+						or(
+							lte(adAccount.creativeNextDueAt, now),
+							and(isNull(adAccount.creativeSuccessfulAt), isNull(adAccount.creativeAttemptedAt)),
+						),
 					),
 				)
 				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
@@ -347,15 +350,19 @@ async function processOutcome(params: CreativeOutcomeContext) {
 			try {
 				const creative = await metaClient.getCreative(row.id, account.adAccount.id)
 				results.push({ creative, error: null })
-				if (creative?.throttle.exhausted) {
-					await releaseOutcome(params)
-					return true
+				if (creative && (creative.throttle.appExhausted || creative.throttle.accountExhausted)) {
+					await releaseOutcome(params, account.adAccount.id, creative.throttle)
+					return creative.throttle.appExhausted
 				}
 			} catch (error) {
 				results.push({ creative: null, error })
-				if (error instanceof MetaApiError && error.throttle?.exhausted) {
-					await releaseOutcome(params)
-					return true
+				if (
+					error instanceof MetaApiError &&
+					error.throttle &&
+					(error.throttle.appExhausted || error.throttle.accountExhausted)
+				) {
+					await releaseOutcome(params, account.adAccount.id, error.throttle)
+					return error.throttle.appExhausted
 				}
 			}
 		}
@@ -420,14 +427,21 @@ async function processOutcome(params: CreativeOutcomeContext) {
 		return false
 	} catch (error) {
 		await recordOutcomeFailure(params, error, account.adAccount.id)
-		return error instanceof MetaApiError && error.throttle?.exhausted === true
+		return error instanceof MetaApiError && error.throttle?.appExhausted === true
 	}
 }
 
-async function releaseOutcome(params: CreativeOutcomeContext) {
+async function releaseOutcome(params: CreativeOutcomeContext, accountId: string, throttle: MetaThrottleObservation) {
+	const occurredAt = params.clock()
 	await db
 		.update(syncAccountOutcome)
-		.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.clock() })
+		.set({
+			status: throttle.appExhausted ? 'queued' : 'skipped',
+			leaseOwner: null,
+			leaseExpiresAt: null,
+			completedAt: throttle.appExhausted ? null : occurredAt,
+			updatedAt: occurredAt,
+		})
 		.where(
 			and(
 				eq(syncAccountOutcome.id, params.outcomeId),
@@ -435,6 +449,15 @@ async function releaseOutcome(params: CreativeOutcomeContext) {
 				eq(syncAccountOutcome.status, 'running'),
 			),
 		)
+	await db
+		.update(adAccount)
+		.set({
+			creativeNextDueAt: metaThrottleNextDueAt(throttle, occurredAt, creativeIntervalMilliseconds),
+			creativeLeaseOwner: null,
+			creativeLeaseExpiresAt: null,
+			updatedAt: occurredAt,
+		})
+		.where(eq(adAccount.id, accountId))
 }
 
 async function upsertCreative(
@@ -536,7 +559,11 @@ async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unkno
 				creativeAttemptedAt: occurredAt,
 				creativeError: message,
 				creativeDiagnosticReference: diagnosticReference,
-				creativeNextDueAt: new Date(occurredAt.getTime() + creativeIntervalMilliseconds),
+				creativeNextDueAt: metaThrottleNextDueAt(
+					error instanceof MetaApiError ? error.throttle : undefined,
+					occurredAt,
+					creativeIntervalMilliseconds,
+				),
 				creativeLeaseOwner: null,
 				creativeLeaseExpiresAt: null,
 				updatedAt: occurredAt,
@@ -627,7 +654,7 @@ function describePollError(error: unknown) {
 function errorCategory(error: unknown) {
 	if (error instanceof MetaApiError) {
 		if (isMetaAccessLoss(error)) return 'authorization'
-		if (error.code === 4 || error.status === 429) return 'rate_limit'
+		if (isMetaRateLimit(error)) return 'rate_limit'
 		if (error.status >= 500) return 'upstream'
 		return 'meta_validation'
 	}

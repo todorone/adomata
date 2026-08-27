@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { ApiClientError } from '@adomata/api/client'
 
 import { fleetBoardKeys, fleetBoardParentKey, useFleetBoardRoot } from '@/data/fleet-board'
 import type { FleetBoardSearch } from '@/data/fleet-board-search'
@@ -14,6 +15,9 @@ import {
 	TreeView,
 } from './fleet-board.components'
 import { expandSingleChildChain, type Node } from './fleet-board.logic'
+
+const forceRefreshDeadlineMilliseconds = 5 * 60 * 1000
+const forceRefreshCooldownMilliseconds = 60 * 1000
 
 export function FleetBoard({
 	search,
@@ -39,35 +43,64 @@ export function FleetBoard({
 	const [expanded, setExpanded] = useState<Set<string>>(new Set())
 	const [creativeAdId, setCreativeAdId] = useState<string | null>(search.ad ?? null)
 	const [forceRefreshId, setForceRefreshId] = useState(() => sessionStorage.getItem('force-refresh-id'))
+	const [isRequestingForceRefresh, setIsRequestingForceRefresh] = useState(false)
+	const [forceRefreshCooldownUntil, setForceRefreshCooldownUntil] = useState<number | null>(null)
+	const [forceRefreshError, setForceRefreshError] = useState<string | null>(null)
+	const forceRefreshDisabled =
+		Boolean(forceRefreshId) || isRequestingForceRefresh || forceRefreshCooldownUntil !== null
+	const forceRefreshPending = Boolean(forceRefreshId) || isRequestingForceRefresh
 
 	function refresh() {
+		if (forceRefreshDisabled) return
+		setIsRequestingForceRefresh(true)
+		setForceRefreshError(null)
 		requestForceRefresh()
 			.then(requested => {
 				sessionStorage.setItem('force-refresh-id', requested.id)
 				setForceRefreshId(requested.id)
 			})
-			.catch(() => undefined)
+			.catch(error => {
+				if (error instanceof ApiClientError && error.status === 429) {
+					setForceRefreshCooldownUntil(Date.now() + forceRefreshCooldownMilliseconds)
+					return
+				}
+				setForceRefreshError('Не вдалося запустити оновлення даних.')
+			})
+			.finally(() => setIsRequestingForceRefresh(false))
 	}
 
 	useEffect(() => {
+		if (forceRefreshCooldownUntil === null) return
+		const timeout = window.setTimeout(
+			() => setForceRefreshCooldownUntil(null),
+			Math.max(0, forceRefreshCooldownUntil - Date.now()),
+		)
+		return () => window.clearTimeout(timeout)
+	}, [forceRefreshCooldownUntil])
+
+	const forceRefreshCooldownMessage = forceRefreshCooldownUntil ? 'Оновлення даних доступне раз на хвилину.' : null
+
+	useEffect(() => {
 		if (!forceRefreshId) return
-		let cancelled = false
-		waitForForceRefresh(forceRefreshId)
+		const controller = new AbortController()
+		waitForForceRefresh(forceRefreshId, controller.signal)
 			.then(async () => {
-				if (cancelled) return
+				if (controller.signal.aborted) return
 				const tasks: Promise<unknown>[] = [refetch()]
 				if (creativeAdId)
 					tasks.push(queryClient.invalidateQueries({ queryKey: fleetBoardKeys.creative(creativeAdId) }))
 				await Promise.all(tasks)
 			})
-			.catch(() => undefined)
+			.catch(() => {
+				if (!controller.signal.aborted) setForceRefreshError('Не вдалося завершити оновлення даних.')
+			})
 			.finally(() => {
-				if (cancelled) return
+				if (controller.signal.aborted) return
 				sessionStorage.removeItem('force-refresh-id')
 				setForceRefreshId(null)
 			})
 		return () => {
-			cancelled = true
+			controller.abort()
 		}
 	}, [creativeAdId, forceRefreshId, queryClient, refetch])
 
@@ -114,6 +147,10 @@ export function FleetBoard({
 				clients={root.data?.clients ?? []}
 				accounts={root.data?.accounts ?? []}
 				onRefresh={refresh}
+				refreshDisabled={forceRefreshDisabled}
+				refreshPending={forceRefreshPending}
+				forceRefreshCooldownMessage={forceRefreshCooldownMessage}
+				forceRefreshError={forceRefreshError}
 			/>
 			{(root.isPending && !root.data) || waitingForColumnLayoutIdentity ? <LoadingState /> : null}
 			{root.isError ? <ErrorState retry={() => root.refetch().catch(() => undefined)} /> : null}
@@ -125,11 +162,30 @@ export function FleetBoard({
 	)
 }
 
-async function waitForForceRefresh(forceRefreshId: string) {
-	let refresh = await readForceRefresh(forceRefreshId)
-	while (refresh.status === 'queued' || refresh.status === 'running') {
-		await new Promise(resolve => setTimeout(resolve, 1000))
-		refresh = await readForceRefresh(forceRefreshId)
+async function waitForForceRefresh(forceRefreshId: string, signal: AbortSignal) {
+	const deadline = Date.now() + forceRefreshDeadlineMilliseconds
+	let attempt = 0
+	while (true) {
+		if (signal.aborted) throw signal.reason
+		const refresh = await readForceRefresh(forceRefreshId, signal)
+		if (refresh.status !== 'queued' && refresh.status !== 'running') return refresh
+		const remaining = deadline - Date.now()
+		if (remaining <= 0) throw new Error('Force Refresh did not finish before the deadline')
+		await waitForForceRefreshPoll(Math.min(1000 * 2 ** attempt, 30_000, remaining), signal)
+		attempt += 1
 	}
-	return refresh
+}
+
+function waitForForceRefreshPoll(milliseconds: number, signal: AbortSignal) {
+	return new Promise<void>((resolve, reject) => {
+		const timeout = window.setTimeout(resolve, milliseconds)
+		signal.addEventListener(
+			'abort',
+			() => {
+				window.clearTimeout(timeout)
+				reject(signal.reason)
+			},
+			{ once: true },
+		)
+	})
 }

@@ -118,6 +118,10 @@ export function FleetToolbar({
 	clients,
 	accounts,
 	onRefresh,
+	refreshDisabled,
+	refreshPending,
+	forceRefreshCooldownMessage,
+	forceRefreshError,
 }: {
 	search: FleetBoardSearch
 	setSearch: (changes: Partial<FleetBoardSearch>) => void
@@ -125,6 +129,10 @@ export function FleetToolbar({
 	clients: Client[]
 	accounts: Account[]
 	onRefresh: () => void
+	refreshDisabled: boolean
+	refreshPending: boolean
+	forceRefreshCooldownMessage: string | null
+	forceRefreshError: string | null
 }) {
 	const activeFilters =
 		Number(search.search.length > 0) + Number(search.needsAttention) + Number(Boolean(search.clientId))
@@ -153,16 +161,29 @@ export function FleetToolbar({
 					{header?.provisional ? (
 						<span className="font-medium text-amber-700 dark:text-amber-400">Уточнюється Meta.</span>
 					) : null}
+					{forceRefreshCooldownMessage ? <span>{forceRefreshCooldownMessage}</span> : null}
 				</p>
 				<FleetSyncHealthAggregate syncHealth={header?.syncHealth} accounts={accounts} onRefresh={onRefresh} />
+				{forceRefreshError ? (
+					<span className="text-destructive" aria-label="Не вдалося оновити дані" title={forceRefreshError}>
+						<CircleAlert size={16} aria-hidden />
+					</span>
+				) : null}
 				<TooltipProvider delayDuration={0}>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button type="button" size="icon-xs" variant="ghost" aria-label="Оновити дані" onClick={onRefresh}>
-								<RefreshCw />
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label="Оновити дані"
+								onClick={onRefresh}
+								disabled={refreshDisabled}
+							>
+								<RefreshCw className={refreshPending ? 'animate-spin' : undefined} />
 							</Button>
 						</TooltipTrigger>
-						<TooltipContent>Оновити дані</TooltipContent>
+						<TooltipContent>{refreshPending ? 'Оновлюємо дані…' : 'Оновити дані'}</TooltipContent>
 					</Tooltip>
 				</TooltipProvider>
 			</div>

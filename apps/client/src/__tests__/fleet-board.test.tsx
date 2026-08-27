@@ -2,7 +2,12 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider, queryOptions } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FleetBoardNode, FleetBoardSyncFinding } from '@adomata/api/client'
+import {
+	ApiClientError,
+	type FleetBoardNode,
+	type FleetBoardSyncFinding,
+	type ForceRefreshResponse,
+} from '@adomata/api/client'
 
 import type { FleetBoardRoot } from '@/data/fleet-board'
 import { fleetBoardSearchSchema, type FleetBoardSearch } from '@/data/fleet-board-search'
@@ -159,8 +164,12 @@ const snapshotNodeIndex = {
 
 const { refetchSpy, requestForceRefreshSpy, readForceRefreshSpy, meState } = vi.hoisted(() => ({
 	refetchSpy: vi.fn(() => Promise.resolve()),
-	requestForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'queued' as const })),
-	readForceRefreshSpy: vi.fn(() => Promise.resolve({ id: 'refresh_1', status: 'completed' as const })),
+	requestForceRefreshSpy: vi.fn<() => Promise<ForceRefreshResponse>>(() =>
+		Promise.resolve({ id: 'refresh_1', status: 'queued' }),
+	),
+	readForceRefreshSpy: vi.fn<(id: string, signal?: AbortSignal) => Promise<ForceRefreshResponse>>(() =>
+		Promise.resolve({ id: 'refresh_1', status: 'completed' }),
+	),
 	meState: { current: { isSuperadmin: false, activeOrgMember: { role: 'member' } } as Me },
 }))
 
@@ -299,11 +308,14 @@ async function renderToAdDepth(overrides: Record<string, unknown> = {}) {
 describe('Fleet Board', () => {
 	afterEach(() => {
 		cleanup()
+		vi.useRealTimers()
 		localStorage.clear()
 		sessionStorage.clear()
 		refetchSpy.mockClear()
 		requestForceRefreshSpy.mockClear()
 		readForceRefreshSpy.mockClear()
+		requestForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'queued' })
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'completed' })
 		rootResponse.header.provisional = false
 		rootResponse.header.syncHealth = null
 		soloAccount.syncHealth = null
@@ -342,9 +354,8 @@ describe('Fleet Board', () => {
 		renderBoard({ depth: 'ad' })
 		const refreshButton = screen.getByRole('button', { name: 'Оновити дані' })
 		fireEvent.click(refreshButton)
-		expect(refreshButton.hasAttribute('disabled')).toBe(false)
 		await waitFor(() => expect(requestForceRefreshSpy).toHaveBeenCalledTimes(1))
-		await waitFor(() => expect(readForceRefreshSpy).toHaveBeenCalledWith('refresh_1'))
+		await waitFor(() => expect(readForceRefreshSpy.mock.calls.some(([id]) => id === 'refresh_1')).toBe(true))
 		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))
 	})
 
@@ -352,9 +363,58 @@ describe('Fleet Board', () => {
 		sessionStorage.setItem('force-refresh-id', 'refresh_1')
 		renderBoard({ depth: 'ad' })
 
-		await waitFor(() => expect(readForceRefreshSpy).toHaveBeenCalledWith('refresh_1'))
+		await waitFor(() => expect(readForceRefreshSpy.mock.calls.some(([id]) => id === 'refresh_1')).toBe(true))
 		await waitFor(() => expect(refetchSpy).toHaveBeenCalledTimes(1))
 		expect(requestForceRefreshSpy).not.toHaveBeenCalled()
+	})
+
+	it('stops polling a Force Refresh that does not terminate and exposes a failure', async () => {
+		vi.useFakeTimers()
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'running' })
+		renderBoard()
+
+		await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+
+		expect(readForceRefreshSpy.mock.calls.length).toBeLessThan(30)
+		expect(sessionStorage.getItem('force-refresh-id')).toBeNull()
+		expect(screen.getByLabelText('Не вдалося оновити дані')).toBeTruthy()
+	})
+
+	it('stops Force Refresh polling when the board unmounts', async () => {
+		vi.useFakeTimers()
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'running' })
+		const { unmount } = renderBoard()
+
+		await vi.advanceTimersByTimeAsync(0)
+		expect(readForceRefreshSpy).toHaveBeenCalledTimes(1)
+		unmount()
+		await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+
+		expect(readForceRefreshSpy).toHaveBeenCalledTimes(1)
+	})
+
+	it('keeps Force Refresh disabled during the cooldown without showing an error icon', async () => {
+		requestForceRefreshSpy.mockRejectedValueOnce(
+			new ApiClientError({ error: { code: 'CONFLICT', message: 'Оновлення даних доступне раз на хвилину' } }, 429),
+		)
+		renderBoard()
+		const refreshButton = screen.getByRole('button', { name: 'Оновити дані' })
+		fireEvent.click(refreshButton)
+
+		await waitFor(() => expect(refreshButton.hasAttribute('disabled')).toBe(true))
+		expect(screen.getByText('Оновлення даних доступне раз на хвилину.')).toBeTruthy()
+		expect(screen.queryByLabelText('Не вдалося оновити дані')).toBeNull()
+	})
+
+	it('disables Force Refresh while a persisted refresh is in flight', async () => {
+		sessionStorage.setItem('force-refresh-id', 'refresh_1')
+		readForceRefreshSpy.mockResolvedValue({ id: 'refresh_1', status: 'running' })
+		renderBoard()
+
+		await waitFor(() => expect(readForceRefreshSpy.mock.calls.some(([id]) => id === 'refresh_1')).toBe(true))
+		expect(screen.getByRole('button', { name: 'Оновити дані' }).hasAttribute('disabled')).toBe(true)
 	})
 
 	it('shows a Creative thumbnail for an Ad that has one, and the placeholder icon otherwise', async () => {

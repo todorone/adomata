@@ -7,9 +7,9 @@ export async function requestForceRefresh() {
 	return parseResponse(await api['force-refresh'].$post(), forceRefreshResponseSchema, 'POST /force-refresh')
 }
 
-export async function readForceRefresh(forceRefreshId: string) {
+export async function readForceRefresh(forceRefreshId: string, signal?: AbortSignal) {
 	return parseResponse(
-		await api['force-refresh'][':forceRefreshId'].$get({ param: { forceRefreshId } }),
+		await api['force-refresh'][':forceRefreshId'].$get({ param: { forceRefreshId } }, { init: { signal } }),
 		forceRefreshResponseSchema,
 		'GET /force-refresh/:forceRefreshId',
 	)

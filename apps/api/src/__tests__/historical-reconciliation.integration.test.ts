@@ -156,7 +156,7 @@ describe('durable Historical Reconciliation', () => {
 			...buildOptions(nextDay),
 			trigger: 'cron',
 		})
-		expect(insights).toMatchObject({ status: 'completed', processed: 4, failed: 0 })
+		expect(insights).toMatchObject({ status: 'completed', processed: 5, failed: 0 })
 
 		const [account] = await db
 			.select({

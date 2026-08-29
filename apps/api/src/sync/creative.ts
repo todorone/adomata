@@ -24,6 +24,7 @@ import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } fro
 
 const creativeIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
+const runMaximumActiveMilliseconds = 5 * 60 * 1000
 const noTokenMessage = 'No Meta token configured for this Agency'
 
 export type CreativeRunOptions = {
@@ -70,6 +71,17 @@ export async function enqueueCreativeRun({
 
 	return db.transaction(async transaction => {
 		await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${agencyId}))`)
+		await transaction
+			.update(syncRun)
+			.set({ status: 'failed', leaseOwner: null, leaseExpiresAt: null, completedAt: now, updatedAt: now })
+			.where(
+				and(
+					eq(syncRun.agencyId, agencyId),
+					eq(syncRun.slice, 'creative'),
+					inArray(syncRun.status, ['queued', 'running']),
+					lte(syncRun.createdAt, new Date(now.getTime() - runMaximumActiveMilliseconds)),
+				),
+			)
 
 		const [activeRun] = await transaction
 			.select({ id: syncRun.id })
@@ -84,9 +96,16 @@ export async function enqueueCreativeRun({
 			.orderBy(asc(syncRun.createdAt))
 			.limit(1)
 
-		const runId = activeRun?.id ?? randomUUID()
-		const joined = Boolean(activeRun)
-		if (!activeRun) {
+		const [joinedRun] = activeRun
+			? await transaction
+					.update(syncRun)
+					.set({ updatedAt: now })
+					.where(and(eq(syncRun.id, activeRun.id), inArray(syncRun.status, ['queued', 'running'])))
+					.returning({ id: syncRun.id })
+			: []
+		const runId = joinedRun?.id ?? randomUUID()
+		const joined = Boolean(joinedRun)
+		if (!joinedRun) {
 			await transaction.insert(syncRun).values({
 				id: runId,
 				agencyId,
@@ -97,29 +116,32 @@ export async function enqueueCreativeRun({
 				createdAt: now,
 				updatedAt: now,
 			})
+		}
 
-			const dueAccounts = await transaction
-				.select({ id: adAccount.id })
-				.from(adAccount)
-				.innerJoin(client, eq(adAccount.clientId, client.id))
-				.where(
-					and(
-						eq(client.agencyId, agencyId),
-						inArray(adAccount.connectionStatus, ['pending', 'connected']),
-						or(
-							eq(adAccount.connectionStatus, 'connected'),
-							and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
-						),
-						or(
-							lte(adAccount.creativeNextDueAt, now),
-							and(isNull(adAccount.creativeSuccessfulAt), isNull(adAccount.creativeAttemptedAt)),
-						),
+		const dueAccounts = await transaction
+			.select({ id: adAccount.id })
+			.from(adAccount)
+			.innerJoin(client, eq(adAccount.clientId, client.id))
+			.where(
+				and(
+					eq(client.agencyId, agencyId),
+					inArray(adAccount.connectionStatus, ['pending', 'connected']),
+					or(
+						eq(adAccount.connectionStatus, 'connected'),
+						and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
 					),
-				)
-				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
+					or(
+						lte(adAccount.creativeNextDueAt, now),
+						and(isNull(adAccount.creativeSuccessfulAt), isNull(adAccount.creativeAttemptedAt)),
+					),
+				),
+			)
+			.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
-			if (dueAccounts.length > 0) {
-				await transaction.insert(syncAccountOutcome).values(
+		if (dueAccounts.length > 0) {
+			await transaction
+				.insert(syncAccountOutcome)
+				.values(
 					dueAccounts.map(account => ({
 						id: randomUUID(),
 						runId,
@@ -131,7 +153,7 @@ export async function enqueueCreativeRun({
 						updatedAt: now,
 					})),
 				)
-			}
+				.onConflictDoNothing()
 		}
 
 		const invocationId = randomUUID()
@@ -178,32 +200,42 @@ export async function runCreativeGeneration({
 	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
 	if (!claimed) return await readGenerationResult(runId)
 
-	const outcomes = await db
-		.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
-		.from(syncAccountOutcome)
-		.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-		// Least-recently-attempted first so a resumed generation rotates past the account that
-		// exhausted Meta's budget last time instead of stalling on it and starving the rest.
-		.orderBy(
-			asc(adAccount.connectionStatus),
-			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
-			asc(adAccount.id),
-		)
-	await mapWithConcurrency(outcomes, metaCapacityConcurrency, async outcome => {
-		return runWithMetaCapacity(priorityForSyncWork(trigger, 'creative', outcome.connectionStatus), () =>
-			processOutcome({
-				agencyId,
-				runId,
-				outcomeId: outcome.id,
-				leaseOwner,
-				metaMode,
-				buildMetaClient,
-				now,
-				clock,
-			}),
-		)
-	})
+	let stopped = false
+	while (!stopped) {
+		const outcomes = await db
+			.select({ id: syncAccountOutcome.id, connectionStatus: adAccount.connectionStatus })
+			.from(syncAccountOutcome)
+			.innerJoin(adAccount, eq(syncAccountOutcome.adAccountId, adAccount.id))
+			.where(
+				and(
+					eq(syncAccountOutcome.runId, runId),
+					eq(syncAccountOutcome.slice, 'creative'),
+					eq(syncAccountOutcome.status, 'queued'),
+				),
+			)
+			// Least-recently-attempted first so a resumed generation rotates past the account that
+			// exhausted Meta's budget last time instead of stalling on it and starving the rest.
+			.orderBy(
+				asc(adAccount.connectionStatus),
+				sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
+				asc(adAccount.id),
+			)
+		if (outcomes.length === 0) break
+		stopped = await mapWithConcurrency(outcomes, metaCapacityConcurrency, async outcome => {
+			return runWithMetaCapacity(priorityForSyncWork(trigger, 'creative', outcome.connectionStatus), () =>
+				processOutcome({
+					agencyId,
+					runId,
+					outcomeId: outcome.id,
+					leaseOwner,
+					metaMode,
+					buildMetaClient,
+					now,
+					clock,
+				}),
+			)
+		})
+	}
 
 	await finishRun({ runId, leaseOwner, now: clock() })
 	const result = await readGenerationResult(runId)
@@ -577,25 +609,34 @@ async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unkno
 }
 
 async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner: string; now: Date }) {
-	const outcomes = await db
-		.select({ status: syncAccountOutcome.status })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-	const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
-		? 'running'
-		: outcomes.some(outcome => outcome.status === 'failed')
-			? 'failed'
-			: 'completed'
-	await db
-		.update(syncRun)
-		.set({
-			status,
-			leaseOwner: status === 'running' ? leaseOwner : null,
-			leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
-			completedAt: status === 'running' ? null : now,
-			updatedAt: now,
-		})
-		.where(and(eq(syncRun.id, runId), eq(syncRun.slice, 'creative'), eq(syncRun.leaseOwner, leaseOwner)))
+	await db.transaction(async transaction => {
+		const [run] = await transaction
+			.update(syncRun)
+			.set({ updatedAt: now })
+			.where(and(eq(syncRun.id, runId), eq(syncRun.slice, 'creative'), eq(syncRun.leaseOwner, leaseOwner)))
+			.returning({ id: syncRun.id })
+		if (!run) return
+
+		const outcomes = await transaction
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
+		const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
+			? 'running'
+			: outcomes.some(outcome => outcome.status === 'failed')
+				? 'failed'
+				: 'completed'
+		await transaction
+			.update(syncRun)
+			.set({
+				status,
+				leaseOwner: status === 'running' ? leaseOwner : null,
+				leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
+				completedAt: status === 'running' ? null : now,
+				updatedAt: now,
+			})
+			.where(eq(syncRun.id, runId))
+	})
 }
 
 async function readGenerationResult(runId: string): Promise<CreativeGenerationResult> {
@@ -626,6 +667,7 @@ async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, t
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+	return stopped
 }
 
 function runDiagnosticReference(runId: string) {

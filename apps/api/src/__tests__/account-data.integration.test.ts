@@ -153,6 +153,116 @@ describe('durable Account data work', () => {
 		expect(result).toMatchObject({ status: 'failed', processed: 5, failed: 2, queued: 0 })
 	})
 
+	it('starts a fresh run after an active generation reaches the five-minute cadence boundary', async () => {
+		const now = new Date('2026-08-24T08:05:00.000Z')
+		await db.insert(syncRun).values({
+			id: 'expired-account-data-run',
+			agencyId: fakeMetaAgency.id,
+			slice: 'account_data',
+			trigger: 'cron',
+			status: 'running',
+			leaseOwner: 'previous-runner',
+			leaseExpiresAt: new Date(now.getTime() + 60_000),
+			createdAt: new Date(now.getTime() - 5 * 60 * 1_000),
+			updatedAt: new Date(now.getTime() - 5 * 60 * 1_000),
+		})
+
+		const next = await enqueueAccountDataRun(buildOptions(now))
+
+		expect(next.runId).not.toBe('expired-account-data-run')
+		const [expired] = await db
+			.select({ status: syncRun.status, completedAt: syncRun.completedAt })
+			.from(syncRun)
+			.where(eq(syncRun.id, 'expired-account-data-run'))
+		expect(expired).toEqual({ status: 'failed', completedAt: now })
+	})
+
+	it('drains a newly selected Ad Account before the running generation finishes', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		const accountId = 'act_100000000000001'
+		const firstAccountId = 'act_100000000000002'
+		let releaseFirstAccount: (() => void) | undefined
+		let firstAccountStarted: (() => void) | undefined
+		const firstAccountReady = new Promise<void>(resolve => (firstAccountStarted = resolve))
+		const release = new Promise<void>(resolve => (releaseFirstAccount = resolve))
+		fakeMetaServer.use(
+			http.get(`https://graph.facebook.com/v25.0/${firstAccountId}`, async () => {
+				firstAccountStarted!()
+				await release
+				return HttpResponse.json({
+					id: firstAccountId.slice(4),
+					name: 'Prepay with amount due',
+					currency: 'USD',
+					timezone_name: 'America/Los_Angeles',
+					account_status: 1,
+					disable_reason: 0,
+					balance: '12345',
+					is_prepay_account: true,
+				})
+			}),
+			http.get('https://graph.facebook.com/v25.0/act_100000000000005', () =>
+				HttpResponse.json({
+					id: '100000000000005',
+					name: 'Throttled Account',
+					currency: 'USD',
+					timezone_name: 'Europe/Kyiv',
+					account_status: 1,
+					disable_reason: 0,
+					balance: '0',
+					is_prepay_account: true,
+				}),
+			),
+		)
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'access_lost', accountDataNextDueAt: new Date(now.getTime() + 5 * 60 * 1_000) })
+			.where(eq(adAccount.id, accountId))
+		const active = await enqueueAccountDataRun(buildOptions(now))
+		const running = runAccountDataGeneration({ ...buildOptions(now), runId: active.runId })
+		await firstAccountReady
+
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'pending', accountDataNextDueAt: now })
+			.where(eq(adAccount.id, accountId))
+		await enqueueAccountDataRun({ agencyId: fakeMetaAgency.id, trigger: 'connect', now })
+		releaseFirstAccount!()
+
+		const result = await running
+		expect(result).toMatchObject({ status: 'failed', queued: 0 })
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, active.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		expect(outcome).toEqual({ status: 'succeeded' })
+	})
+
+	it('adds a newly selected Ad Account to the active run and imports its Account data', async () => {
+		const now = new Date('2026-08-24T08:00:00.000Z')
+		const accountId = 'act_100000000000001'
+		await db
+			.update(adAccount)
+			.set({
+				connectionStatus: 'access_lost',
+				accountDataNextDueAt: new Date(now.getTime() + 5 * 60 * 1_000),
+			})
+			.where(eq(adAccount.id, accountId))
+		const active = await enqueueAccountDataRun(buildOptions(now))
+
+		await db
+			.update(adAccount)
+			.set({ connectionStatus: 'pending', accountDataNextDueAt: now })
+			.where(eq(adAccount.id, accountId))
+		const imported = await scheduleAccountDataRun({ ...buildOptions(now), trigger: 'connect' })
+
+		expect(imported).toMatchObject({ runId: active.runId, joined: true })
+		const [outcome] = await db
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, active.runId), eq(syncAccountOutcome.adAccountId, accountId)))
+		expect(outcome).toEqual({ status: 'succeeded' })
+	})
+
 	it('makes access-lost accounts due for operational work after replacing the Agency token', async () => {
 		const now = new Date('2026-08-24T08:00:00.000Z')
 		const accountId = 'act_100000000000001'
@@ -186,12 +296,14 @@ describe('durable Account data work', () => {
 			.from(adAccount)
 			.where(eq(adAccount.id, accountId))
 		expect(account).toEqual({ connectionStatus: 'pending', nextDueAt: now })
+		const recovered = await scheduleAccountDataRun({ ...buildOptions(now), trigger: 'connect' })
+		expect(recovered).toMatchObject({ runId: run.runId, joined: true })
 
 		const [outcome] = await db
 			.select({ status: syncAccountOutcome.status })
 			.from(syncAccountOutcome)
 			.where(and(eq(syncAccountOutcome.runId, run.runId), eq(syncAccountOutcome.adAccountId, accountId)))
-		expect(outcome).toEqual({ status: 'queued' })
+		expect(outcome).toEqual({ status: 'succeeded' })
 	})
 
 	it('classifies Meta code 190 as access lost with a diagnostic reference', async () => {

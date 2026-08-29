@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 
 import { db, sql } from '../db'
@@ -118,6 +118,44 @@ describe('Force Refresh', () => {
 			id: refresh.id,
 			status: 'failed',
 		})
+	})
+
+	it('adds accounts outside their due window when Force Refresh joins active slices', async () => {
+		const now = new Date('2026-08-24T10:30:00.000Z')
+		const accountId = 'act_100000000000001'
+		await db
+			.update(adAccount)
+			.set({
+				connectionStatus: 'connected',
+				accountDataNextDueAt: new Date(now.getTime() + 5 * 60 * 1_000),
+				hierarchyNextDueAt: new Date(now.getTime() + 5 * 60 * 1_000),
+				insightsNextDueAt: new Date(now.getTime() + 5 * 60 * 1_000),
+			})
+			.where(eq(adAccount.id, accountId))
+		await db.insert(syncRun).values(
+			(['account_data', 'hierarchy', 'insights'] as const).map(slice => ({
+				id: `active-${slice}`,
+				agencyId: fakeMetaAgency.id,
+				slice,
+				trigger: 'cron' as const,
+				status: 'running' as const,
+				leaseOwner: `runner-${slice}`,
+				leaseExpiresAt: new Date(now.getTime() + 60_000),
+				createdAt: now,
+				updatedAt: now,
+			})),
+		)
+
+		await requestForceRefresh({ agencyId: fakeMetaAgency.id, now })
+
+		const outcomes = await db
+			.select({ slice: syncAccountOutcome.slice })
+			.from(syncAccountOutcome)
+			.innerJoin(syncRun, eq(syncAccountOutcome.runId, syncRun.id))
+			.where(and(eq(syncRun.agencyId, fakeMetaAgency.id), eq(syncAccountOutcome.adAccountId, accountId)))
+		expect(outcomes).toEqual(
+			expect.arrayContaining([{ slice: 'account_data' }, { slice: 'hierarchy' }, { slice: 'insights' }]),
+		)
 	})
 
 	it('schedules one post-click follow-up after joining a generation that started before the click', async () => {

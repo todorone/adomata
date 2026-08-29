@@ -23,6 +23,7 @@ import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const runLeaseMilliseconds = 60 * 1000
+const runMaximumActiveMilliseconds = 5 * 60 * 1000
 const reconciliationConcurrency = 1
 const reconciliationWindowStartMinutes = 2 * 60
 const reconciliationWindowEndMinutes = 5 * 60
@@ -88,6 +89,17 @@ export async function enqueueHistoricalReconciliationRun({
 
 	return db.transaction(async transaction => {
 		await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${agencyId}))`)
+		await transaction
+			.update(syncRun)
+			.set({ status: 'failed', leaseOwner: null, leaseExpiresAt: null, completedAt: now, updatedAt: now })
+			.where(
+				and(
+					eq(syncRun.agencyId, agencyId),
+					eq(syncRun.slice, 'historical_reconciliation'),
+					inArray(syncRun.status, ['queued', 'running']),
+					lte(syncRun.createdAt, new Date(now.getTime() - runMaximumActiveMilliseconds)),
+				),
+			)
 
 		const [activeRun] = await transaction
 			.select({ id: syncRun.id })
@@ -102,9 +114,16 @@ export async function enqueueHistoricalReconciliationRun({
 			.orderBy(asc(syncRun.createdAt))
 			.limit(1)
 
-		const runId = activeRun?.id ?? randomUUID()
-		const joined = Boolean(activeRun)
-		if (!activeRun) {
+		const [joinedRun] = activeRun
+			? await transaction
+					.update(syncRun)
+					.set({ updatedAt: now })
+					.where(and(eq(syncRun.id, activeRun.id), inArray(syncRun.status, ['queued', 'running'])))
+					.returning({ id: syncRun.id })
+			: []
+		const runId = joinedRun?.id ?? randomUUID()
+		const joined = Boolean(joinedRun)
+		if (!joinedRun) {
 			await transaction.insert(syncRun).values({
 				id: runId,
 				agencyId,
@@ -115,44 +134,47 @@ export async function enqueueHistoricalReconciliationRun({
 				createdAt: now,
 				updatedAt: now,
 			})
+		}
 
-			const accounts = await transaction
-				.select({
-					id: adAccount.id,
-					timezoneName: adAccount.timezoneName,
-					createdAt: adAccount.createdAt,
-					historicalReconciliationAttemptedAt: adAccount.historicalReconciliationAttemptedAt,
-					historicalReconciliationSuccessfulAt: adAccount.historicalReconciliationSuccessfulAt,
-					historicalReconciliationDate: adAccount.historicalReconciliationDate,
-					historicalReconciliationPendingDate: adAccount.historicalReconciliationPendingDate,
-				})
-				.from(adAccount)
-				.innerJoin(client, eq(adAccount.clientId, client.id))
-				.where(
-					and(
-						eq(client.agencyId, agencyId),
-						eq(adAccount.connectionStatus, 'connected'),
-						isNotNull(adAccount.accountDataSuccessfulAt),
-						isNotNull(adAccount.hierarchySuccessfulAt),
-					),
-				)
+		const accounts = await transaction
+			.select({
+				id: adAccount.id,
+				timezoneName: adAccount.timezoneName,
+				createdAt: adAccount.createdAt,
+				historicalReconciliationAttemptedAt: adAccount.historicalReconciliationAttemptedAt,
+				historicalReconciliationSuccessfulAt: adAccount.historicalReconciliationSuccessfulAt,
+				historicalReconciliationDate: adAccount.historicalReconciliationDate,
+				historicalReconciliationPendingDate: adAccount.historicalReconciliationPendingDate,
+			})
+			.from(adAccount)
+			.innerJoin(client, eq(adAccount.clientId, client.id))
+			.where(
+				and(
+					eq(client.agencyId, agencyId),
+					eq(adAccount.connectionStatus, 'connected'),
+					isNotNull(adAccount.accountDataSuccessfulAt),
+					isNotNull(adAccount.hierarchySuccessfulAt),
+				),
+			)
 
-			const dueAccounts = accounts
-				.map(account => ({
-					account,
-					currentTargetDate: reconciliationTargetDate(account, now),
-					targetDate: account.historicalReconciliationPendingDate ?? reconciliationTargetDate(account, now),
-				}))
-				.filter(({ account, currentTargetDate }) => isReconciliationDue(account, currentTargetDate, now))
+		const dueAccounts = accounts
+			.map(account => ({
+				account,
+				currentTargetDate: reconciliationTargetDate(account, now),
+				targetDate: account.historicalReconciliationPendingDate ?? reconciliationTargetDate(account, now),
+			}))
+			.filter(({ account, currentTargetDate }) => isReconciliationDue(account, currentTargetDate, now))
 
-			if (dueAccounts.length > 0) {
-				for (const { account, targetDate } of dueAccounts) {
-					await transaction
-						.update(adAccount)
-						.set({ historicalReconciliationPendingDate: targetDate, updatedAt: now })
-						.where(eq(adAccount.id, account.id))
-				}
-				await transaction.insert(syncAccountOutcome).values(
+		if (dueAccounts.length > 0) {
+			for (const { account, targetDate } of dueAccounts) {
+				await transaction
+					.update(adAccount)
+					.set({ historicalReconciliationPendingDate: targetDate, updatedAt: now })
+					.where(eq(adAccount.id, account.id))
+			}
+			await transaction
+				.insert(syncAccountOutcome)
+				.values(
 					dueAccounts.map(({ account, targetDate }) => ({
 						id: randomUUID(),
 						runId,
@@ -165,7 +187,7 @@ export async function enqueueHistoricalReconciliationRun({
 						updatedAt: now,
 					})),
 				)
-			}
+				.onConflictDoNothing()
 		}
 
 		const invocationId = randomUUID()
@@ -214,25 +236,35 @@ export async function runHistoricalReconciliationGeneration({
 	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
 	if (!claimed) return await readGenerationResult(runId)
 
-	const outcomes = await db
-		.select({ id: syncAccountOutcome.id })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
-		.orderBy(asc(syncAccountOutcome.createdAt))
-	await mapWithConcurrency(outcomes, reconciliationConcurrency, async outcome =>
-		runWithMetaCapacity(priorityForSyncWork(trigger, 'historical_reconciliation'), () =>
-			processOutcome({
-				agencyId,
-				runId,
-				outcomeId: outcome.id,
-				leaseOwner,
-				metaMode,
-				buildMetaClient,
-				now,
-				clock,
-			}),
-		),
-	)
+	let stopped = false
+	while (!stopped) {
+		const outcomes = await db
+			.select({ id: syncAccountOutcome.id })
+			.from(syncAccountOutcome)
+			.where(
+				and(
+					eq(syncAccountOutcome.runId, runId),
+					eq(syncAccountOutcome.slice, 'historical_reconciliation'),
+					eq(syncAccountOutcome.status, 'queued'),
+				),
+			)
+			.orderBy(asc(syncAccountOutcome.createdAt))
+		if (outcomes.length === 0) break
+		stopped = await mapWithConcurrency(outcomes, reconciliationConcurrency, async outcome =>
+			runWithMetaCapacity(priorityForSyncWork(trigger, 'historical_reconciliation'), () =>
+				processOutcome({
+					agencyId,
+					runId,
+					outcomeId: outcome.id,
+					leaseOwner,
+					metaMode,
+					buildMetaClient,
+					now,
+					clock,
+				}),
+			),
+		)
+	}
 
 	await finishRun({ runId, leaseOwner, now: clock() })
 	const result = await readGenerationResult(runId)
@@ -624,27 +656,40 @@ async function recordOutcomeFailure(params: HistoricalReconciliationOutcomeConte
 }
 
 async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner: string; now: Date }) {
-	const outcomes = await db
-		.select({ status: syncAccountOutcome.status })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
-	const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
-		? 'running'
-		: outcomes.some(outcome => outcome.status === 'failed')
-			? 'failed'
-			: 'completed'
-	await db
-		.update(syncRun)
-		.set({
-			status,
-			leaseOwner: status === 'running' ? leaseOwner : null,
-			leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
-			completedAt: status === 'running' ? null : now,
-			updatedAt: now,
-		})
-		.where(
-			and(eq(syncRun.id, runId), eq(syncRun.slice, 'historical_reconciliation'), eq(syncRun.leaseOwner, leaseOwner)),
-		)
+	await db.transaction(async transaction => {
+		const [run] = await transaction
+			.update(syncRun)
+			.set({ updatedAt: now })
+			.where(
+				and(
+					eq(syncRun.id, runId),
+					eq(syncRun.slice, 'historical_reconciliation'),
+					eq(syncRun.leaseOwner, leaseOwner),
+				),
+			)
+			.returning({ id: syncRun.id })
+		if (!run) return
+
+		const outcomes = await transaction
+			.select({ status: syncAccountOutcome.status })
+			.from(syncAccountOutcome)
+			.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
+		const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
+			? 'running'
+			: outcomes.some(outcome => outcome.status === 'failed')
+				? 'failed'
+				: 'completed'
+		await transaction
+			.update(syncRun)
+			.set({
+				status,
+				leaseOwner: status === 'running' ? leaseOwner : null,
+				leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
+				completedAt: status === 'running' ? null : now,
+				updatedAt: now,
+			})
+			.where(eq(syncRun.id, runId))
+	})
 }
 
 async function readGenerationResult(runId: string): Promise<HistoricalReconciliationGenerationResult> {
@@ -675,6 +720,7 @@ async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, t
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+	return stopped
 }
 
 function reconciliationTargetDate(account: Pick<ReconciliationAccount, 'timezoneName'>, now: Date) {

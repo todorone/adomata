@@ -78,6 +78,7 @@ jobs:
          E2E_SUPERADMIN_PASSWORD: e2e-ci-superadmin-password
          META_API_MODE: fake
          HEARTBEAT_SECRET: e2e-heartbeat-secret
+         SCHEDULER_SECRET: e2e-scheduler-secret
 
       steps:
          - name: Checkout

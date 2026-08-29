@@ -433,8 +433,10 @@ describe('Fleet Board', () => {
 		const refreshButton = screen.getByRole('button', { name: 'Оновити дані' })
 		fireEvent.click(refreshButton)
 
-		await waitFor(() => expect(refreshButton.hasAttribute('disabled')).toBe(true))
-		expect(screen.getByText('Оновлення даних доступне раз на хвилину.')).toBeTruthy()
+		await waitFor(() => {
+			expect(refreshButton.hasAttribute('disabled')).toBe(true)
+			expect(screen.getByText('Оновлення даних доступне раз на хвилину.')).toBeTruthy()
+		})
 		expect(screen.queryByLabelText('Не вдалося оновити дані')).toBeNull()
 	})
 

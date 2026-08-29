@@ -19,7 +19,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "bun src/db/migrate.ts",
 		"seed:fake-meta": "bun src/meta/fake/seed.ts",
-		"test:integration": "bun test src/__tests__/account-data.integration.test.ts && bun test src/__tests__/hierarchy.integration.test.ts && bun test src/__tests__/insights.integration.test.ts && bun test src/__tests__/force-refresh.integration.test.ts",
+		"test:integration": "bun test src/__tests__/account-data.integration.test.ts && bun test src/__tests__/hierarchy.integration.test.ts && bun test src/__tests__/insights.integration.test.ts && bun test src/__tests__/force-refresh.integration.test.ts && bun test src/__tests__/sync-throughput.integration.test.ts",
 		"format": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --write --log-level warn",
 		"format-check": "prettier \"src/**/*.{md,ts,tsx,js,mjs,json}\" --check",
 		"ts": "tsc",

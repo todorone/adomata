@@ -195,11 +195,7 @@ export async function scheduleHistoricalReconciliationRunsForAgencies(
 		.from(adAccount)
 		.innerJoin(client, eq(adAccount.clientId, client.id))
 		.groupBy(client.agencyId)
-	const results: HistoricalReconciliationGenerationResult[] = []
-	for (const agency of agencies) {
-		results.push(await scheduleHistoricalReconciliationRun({ ...options, agencyId: agency.id }))
-	}
-	return results
+	return Promise.all(agencies.map(agency => scheduleHistoricalReconciliationRun({ ...options, agencyId: agency.id })))
 }
 
 export async function runHistoricalReconciliationGeneration({

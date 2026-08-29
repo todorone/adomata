@@ -15,7 +15,7 @@ import {
 } from '../db/schema'
 import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaThrottleObservation } from '../meta/client'
-import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const accountDataIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -189,7 +189,7 @@ export async function runAccountDataGeneration({
 			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
 			asc(adAccount.id),
 		)
-	await mapWithConcurrency(outcomes, 1, async outcome => {
+	await mapWithConcurrency(outcomes, metaCapacityConcurrency, async outcome => {
 		return runWithMetaCapacity(priorityForSyncWork(trigger, 'account_data', outcome.connectionStatus), () =>
 			processOutcome({
 				agencyId,
@@ -227,12 +227,7 @@ export async function scheduleAccountDataRunsForAgencies(
 		.from(adAccount)
 		.innerJoin(client, eq(adAccount.clientId, client.id))
 		.groupBy(client.agencyId)
-	const results: AccountDataGenerationResult[] = []
-	for (const agency of agencies) {
-		const result = await scheduleAccountDataRun({ ...options, agencyId: agency.id })
-		results.push(result)
-	}
-	return results
+	return Promise.all(agencies.map(agency => scheduleAccountDataRun({ ...options, agencyId: agency.id })))
 }
 
 export async function pruneSyncHistory(now = new Date()) {

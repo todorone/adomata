@@ -1,26 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
-import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 describe('Meta capacity', () => {
-	it('runs queued work in the accepted priority order', async () => {
+	it('admits the configured concurrent work and runs queued work in the accepted priority order', async () => {
 		const started: string[] = []
-		let releaseRoutine: (() => void) | undefined
-		const routine = runWithMetaCapacity(
-			'routine',
-			() =>
-				new Promise<void>(resolve => {
-					started.push('routine')
-					releaseRoutine = resolve
-				}),
+		const releaseRoutines: Array<() => void> = []
+		const routines = Array.from({ length: metaCapacityConcurrency }, (_, index) =>
+			runWithMetaCapacity(
+				'routine',
+				() =>
+					new Promise<void>(resolve => {
+						started.push(`routine ${index + 1}`)
+						releaseRoutines.push(resolve)
+					}),
+			),
 		)
+
+		await Promise.resolve()
+		expect(started).toHaveLength(metaCapacityConcurrency)
+
 		const initialImport = runWithMetaCapacity('initial_import', async () => started.push('initial import'))
 		const forceRefresh = runWithMetaCapacity('force_refresh', async () => started.push('Force Refresh'))
 
-		releaseRoutine?.()
-		await Promise.all([routine, initialImport, forceRefresh])
+		expect(started).toHaveLength(metaCapacityConcurrency)
+		for (const releaseRoutine of releaseRoutines) releaseRoutine()
+		await Promise.all([...routines, initialImport, forceRefresh])
 
-		expect(started).toEqual(['routine', 'Force Refresh', 'initial import'])
+		expect(started.slice(metaCapacityConcurrency)).toEqual(['Force Refresh', 'initial import'])
 	})
 
 	it('maps sync work to its accepted priority', () => {

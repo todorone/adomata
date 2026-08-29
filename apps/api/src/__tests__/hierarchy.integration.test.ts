@@ -145,8 +145,8 @@ describe('durable hierarchy work', () => {
 
 		const result = await scheduleHierarchyRun(buildHierarchyOptions(now))
 
-		expect(result).toMatchObject({ status: 'running', processed: 5, failed: 0, queued: 2 })
-		expect(lowerPriorityCalls).toBe(0)
+		expect(result).toMatchObject({ status: 'running', processed: 6, failed: 0, queued: 1 })
+		expect(lowerPriorityCalls).toBe(1)
 
 		// The paused generation is only durable if a later one drains what it left behind. Without
 		// this the slice wedges: the run keeps a queued outcome, so it never leaves 'running', and
@@ -242,7 +242,7 @@ describe('durable hierarchy work', () => {
 
 		const failedAt = new Date(firstAt.getTime() + 5 * 60 * 1000 + 1)
 		const failed = await scheduleHierarchyRun({ ...buildHierarchyOptions(failedAt), clock: () => failedAt })
-		expect(failed).toMatchObject({ status: 'failed', processed: 6, failed: 1, queued: 0 })
+		expect(failed).toMatchObject({ status: 'failed', processed: 5, failed: 1, queued: 0 })
 
 		const [account] = await db
 			.select({

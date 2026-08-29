@@ -1,0 +1,123 @@
+import { eq } from 'drizzle-orm'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { HttpResponse, http } from 'msw'
+
+import { db, sql } from '../db'
+import { adAccount, client, organization } from '../db/schema'
+import { MetaClient } from '../meta/client'
+import { fakeMetaServer } from '../meta/fake/server'
+import { createFakeMetaScaleRoster } from '../meta/fake/roster'
+import { scheduleAccountDataRun } from '../sync/account-data'
+import { metaCapacityConcurrency } from '../sync/capacity'
+import { scheduleHierarchyRun } from '../sync/hierarchy'
+import { scheduleInsightsRun } from '../sync/insights'
+
+const scaleAgency = {
+	id: 'fake-meta-scale-agency',
+	name: 'Meta Scale Fixture Agency',
+	slug: 'fake-meta-scale-agency',
+} as const
+const scaleRoster = createFakeMetaScaleRoster()
+const scaleAccounts = scaleRoster.flatMap(scaleClient =>
+	scaleClient.accounts.map(id => ({ id, clientId: scaleClient.id })),
+)
+const fakeMetaResponseLatencyMilliseconds = 5
+let inFlightRequests = 0
+let peakInFlightRequests = 0
+
+async function delayedResponse(body: Parameters<typeof HttpResponse.json>[0]) {
+	inFlightRequests += 1
+	peakInFlightRequests = Math.max(peakInFlightRequests, inFlightRequests)
+	await new Promise(resolve => setTimeout(resolve, fakeMetaResponseLatencyMilliseconds))
+	inFlightRequests -= 1
+	return HttpResponse.json(body)
+}
+
+function buildOptions(now: Date) {
+	return {
+		agencyId: scaleAgency.id,
+		trigger: 'cron' as const,
+		metaMode: 'fake' as const,
+		buildMetaClient: () => new MetaClient({ accessToken: 'scale-test-token', sleep: async () => undefined }),
+		now,
+		clock: () => now,
+	}
+}
+
+describe('operational sync throughput', () => {
+	beforeAll(async () => {
+		fakeMetaServer.listen({ onUnhandledRequest: 'error' })
+		await db.delete(organization).where(eq(organization.id, scaleAgency.id))
+	})
+
+	beforeEach(async () => {
+		fakeMetaServer.resetHandlers()
+		inFlightRequests = 0
+		peakInFlightRequests = 0
+		await db.delete(organization).where(eq(organization.id, scaleAgency.id))
+		const now = new Date()
+		await db.insert(organization).values({ ...scaleAgency, createdAt: now, updatedAt: now })
+		await db.insert(client).values(
+			scaleRoster.map(scaleClient => ({
+				id: scaleClient.id,
+				agencyId: scaleAgency.id,
+				name: scaleClient.name,
+				createdAt: now,
+				updatedAt: now,
+			})),
+		)
+		await db.insert(adAccount).values(
+			scaleAccounts.map(account => ({
+				...account,
+				name: `Scale ${account.id}`,
+				currency: 'USD',
+				timezoneName: 'Europe/Kyiv',
+				connectionStatus: 'connected' as const,
+				accountDataNextDueAt: now,
+				hierarchyNextDueAt: now,
+				insightsNextDueAt: now,
+				createdAt: now,
+				updatedAt: now,
+			})),
+		)
+		fakeMetaServer.use(
+			http.get('https://graph.facebook.com/v25.0/:accountId/campaigns', () => delayedResponse({ data: [] })),
+			http.get('https://graph.facebook.com/v25.0/:accountId/adsets', () => delayedResponse({ data: [] })),
+			http.get('https://graph.facebook.com/v25.0/:accountId/ads', () => delayedResponse({ data: [] })),
+			http.get('https://graph.facebook.com/v25.0/:accountId/insights', () => delayedResponse({ data: [] })),
+			http.get('https://graph.facebook.com/v25.0/:accountId', ({ params }) =>
+				delayedResponse({
+					id: String(params.accountId).replace(/^act_/, ''),
+					name: `Scale ${params.accountId}`,
+					currency: 'USD',
+					timezone_name: 'Europe/Kyiv',
+					account_status: 1,
+					disable_reason: 0,
+					balance: '0',
+					is_prepay_account: true,
+				}),
+			),
+		)
+	}, 30_000)
+
+	afterAll(async () => {
+		fakeMetaServer.close()
+		await db.delete(organization).where(eq(organization.id, scaleAgency.id))
+		await sql.end()
+	})
+
+	it('refreshes all Operational Slices for 150 Ad Accounts within the five-minute target', async () => {
+		const now = new Date('2026-08-29T08:00:00.000Z')
+		const startedAt = performance.now()
+		const accountData = await scheduleAccountDataRun(buildOptions(now))
+		const hierarchy = await scheduleHierarchyRun(buildOptions(now))
+		const insights = await scheduleInsightsRun(buildOptions(now))
+		const elapsedMilliseconds = performance.now() - startedAt
+
+		for (const result of [accountData, hierarchy, insights]) {
+			expect(result).toMatchObject({ status: 'completed', processed: 150, failed: 0, queued: 0 })
+		}
+		expect(peakInFlightRequests).toBe(metaCapacityConcurrency)
+		expect(elapsedMilliseconds).toBeLessThan(5 * 60 * 1_000)
+	}, 30_000)
+})

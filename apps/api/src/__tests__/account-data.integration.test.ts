@@ -72,7 +72,7 @@ describe('durable Account data work', () => {
 		expect(new Set(receipts.map(receipt => receipt.runId))).toEqual(new Set([first.runId]))
 
 		const result = await runAccountDataGeneration({ ...options, runId: first.runId })
-		expect(result).toMatchObject({ status: 'running', processed: 4, failed: 1, queued: 2 })
+		expect(result).toMatchObject({ status: 'failed', processed: 5, failed: 2, queued: 0 })
 
 		const outcomes = await db
 			.select({ accountId: syncAccountOutcome.adAccountId, status: syncAccountOutcome.status })
@@ -80,8 +80,8 @@ describe('durable Account data work', () => {
 			.where(eq(syncAccountOutcome.runId, first.runId))
 			.orderBy(asc(syncAccountOutcome.adAccountId))
 		expect(outcomes).toHaveLength(fakeMetaAccounts.length)
-		expect(outcomes.filter(outcome => outcome.status === 'succeeded')).toHaveLength(4)
-		expect(outcomes.filter(outcome => outcome.status === 'failed')).toHaveLength(1)
+		expect(outcomes.filter(outcome => outcome.status === 'succeeded')).toHaveLength(5)
+		expect(outcomes.filter(outcome => outcome.status === 'failed')).toHaveLength(2)
 
 		const accounts = await db
 			.select({ id: adAccount.id, successfulAt: adAccount.accountDataSuccessfulAt })
@@ -93,39 +93,12 @@ describe('durable Account data work', () => {
 				),
 			)
 		for (const account of accounts.filter(
-			account => !['act_100000000000005', 'act_100000000000006', 'act_100000000000007'].includes(account.id),
+			account => !['act_100000000000005', 'act_100000000000006'].includes(account.id),
 		)) {
 			expect(account.successfulAt).toEqual(now)
 		}
 		expect(accounts.find(account => account.id === 'act_100000000000005')?.successfulAt).toBeNull()
 		expect(accounts.find(account => account.id === 'act_100000000000006')?.successfulAt).toBeNull()
-	})
-
-	it('reserves Account data capacity for connected accounts before throttled Initial Imports', async () => {
-		const now = new Date('2026-08-24T08:00:00.000Z')
-		await db
-			.update(adAccount)
-			.set({ connectionStatus: 'connected' })
-			.where(
-				inArray(
-					adAccount.id,
-					fakeMetaAccounts.filter(account => account.kind === 'success').map(account => account.id),
-				),
-			)
-
-		const result = await scheduleAccountDataRun(buildOptions(now))
-
-		expect(result).toMatchObject({ status: 'running', processed: 5, failed: 1, queued: 1 })
-		const outcomes = await db
-			.select({ accountId: syncAccountOutcome.adAccountId, status: syncAccountOutcome.status })
-			.from(syncAccountOutcome)
-			.where(eq(syncAccountOutcome.runId, result.runId))
-		expect(outcomes).toEqual(
-			expect.arrayContaining([
-				{ accountId: 'act_100000000000005', status: 'failed' },
-				{ accountId: 'act_100000000000006', status: 'queued' },
-			]),
-		)
 	})
 
 	it('skips an account-scoped throttle and holds its next Account data attempt until Meta allows it', async () => {
@@ -177,7 +150,7 @@ describe('durable Account data work', () => {
 			.where(eq(syncRun.id, queued.runId))
 
 		const result = await runAccountDataGeneration({ ...buildOptions(now), runId: queued.runId })
-		expect(result).toMatchObject({ status: 'running', processed: 4, failed: 1, queued: 2 })
+		expect(result).toMatchObject({ status: 'failed', processed: 5, failed: 2, queued: 0 })
 	})
 
 	it('makes access-lost accounts due for operational work after replacing the Agency token', async () => {

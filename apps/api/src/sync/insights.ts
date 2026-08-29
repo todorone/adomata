@@ -20,11 +20,10 @@ import { dateRangeForAccount, firstConnectStart } from '../fleet-board/domain'
 import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight, MetaThrottleObservation } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
-import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const insightsIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
-const insightsConcurrency = 1
 const noTokenMessage = 'No Meta token configured for this Agency'
 
 export type InsightsRunOptions = {
@@ -177,9 +176,7 @@ export async function scheduleInsightsRunsForAgencies(
 		.from(adAccount)
 		.innerJoin(client, eq(adAccount.clientId, client.id))
 		.groupBy(client.agencyId)
-	const results: InsightsGenerationResult[] = []
-	for (const agency of agencies) results.push(await scheduleInsightsRun({ ...options, agencyId: agency.id }))
-	return results
+	return Promise.all(agencies.map(agency => scheduleInsightsRun({ ...options, agencyId: agency.id })))
 }
 
 export async function runInsightsGeneration({
@@ -208,7 +205,7 @@ export async function runInsightsGeneration({
 			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
 			asc(adAccount.id),
 		)
-	await mapWithConcurrency(outcomes, insightsConcurrency, async outcome => {
+	await mapWithConcurrency(outcomes, metaCapacityConcurrency, async outcome => {
 		return runWithMetaCapacity(priorityForSyncWork(trigger, 'insights', outcome.connectionStatus), () =>
 			processOutcome({
 				agencyId,

@@ -13,6 +13,7 @@ type SchedulerDependencies = {
 }
 
 let schedulerDependencies: SchedulerDependencies | undefined
+let activeBackgroundSync: Promise<void> | undefined
 
 export function configureScheduler(dependencies: SchedulerDependencies) {
 	schedulerDependencies = dependencies
@@ -24,35 +25,49 @@ export function getSchedulerDependencies() {
 }
 
 export function triggerBackgroundSync() {
+	if (activeBackgroundSync) return activeBackgroundSync
+
+	let dependencies: SchedulerDependencies
 	try {
-		const { metaMode, buildMetaClient } = getSchedulerDependencies()
-		Promise.allSettled([
+		dependencies = getSchedulerDependencies()
+	} catch {
+		// Runtime configuration is intentionally absent in isolated API route tests.
+		return
+	}
+
+	const { metaMode, buildMetaClient } = dependencies
+	const cycle = (async () => {
+		const results = await Promise.allSettled([
 			scheduleAccountDataRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleHierarchyRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleInsightsRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 			scheduleCreativeRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient }),
 		])
-			.then(results => {
-				for (const result of results) {
-					if (result.status === 'rejected')
-						logger.warn('Background sync failed', {
-							category: result.reason instanceof Error ? result.reason.name : 'unknown',
-						})
-				}
-				return triggerPendingForceRefreshes()
-			})
-			.then(() => {
-				return scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
-			})
-			.catch(error => {
-				logger.warn('Historical reconciliation scheduling failed', {
-					category: error instanceof Error ? error.name : 'unknown',
+		for (const result of results) {
+			if (result.status === 'rejected')
+				logger.warn('Background sync failed', {
+					category: result.reason instanceof Error ? result.reason.name : 'unknown',
 				})
+		}
+		await triggerPendingForceRefreshes()
+		try {
+			await scheduleHistoricalReconciliationRunsForAgencies({ trigger: 'cron', metaMode, buildMetaClient })
+		} catch (error) {
+			logger.warn('Historical reconciliation scheduling failed', {
+				category: error instanceof Error ? error.name : 'unknown',
 			})
-			.finally(() => triggerPendingForceRefreshes())
-	} catch {
-		// Runtime configuration is intentionally absent in isolated API route tests.
-	}
+		} finally {
+			await triggerPendingForceRefreshes()
+		}
+	})()
+
+	activeBackgroundSync = cycle
+	cycle
+		.finally(() => {
+			if (activeBackgroundSync === cycle) activeBackgroundSync = undefined
+		})
+		.catch(() => undefined)
+	return cycle
 }
 
 export function triggerAgencyBackgroundSync(agencyId: string, trigger: 'connect' | 'manual' = 'connect') {

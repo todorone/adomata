@@ -52,8 +52,7 @@ describe('triggerBackgroundSync', () => {
 		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
 		configureScheduler({ schedulerSecret: 'secret', metaMode: 'fake', buildMetaClient })
 
-		triggerBackgroundSync()
-		await new Promise(resolve => setTimeout(resolve, 0))
+		await triggerBackgroundSync()
 
 		for (const scheduler of [
 			sync.scheduleAccountDataRunsForAgencies,
@@ -66,6 +65,33 @@ describe('triggerBackgroundSync', () => {
 		}
 	})
 
+	it('joins a second background cycle while the first is in flight', async () => {
+		const buildMetaClient = () => new MetaClient({ accessToken: 'test-token' })
+		configureScheduler({ schedulerSecret: 'secret', metaMode: 'fake', buildMetaClient })
+		let finishAccountData: (() => void) | undefined
+		sync.scheduleAccountDataRunsForAgencies.mockImplementation(
+			() => new Promise<void>(resolve => (finishAccountData = resolve)),
+		)
+
+		const first = triggerBackgroundSync()
+		const second = triggerBackgroundSync()
+
+		expect(second).toBe(first)
+		for (const scheduler of [
+			sync.scheduleAccountDataRunsForAgencies,
+			sync.scheduleHierarchyRunsForAgencies,
+			sync.scheduleInsightsRunsForAgencies,
+			sync.scheduleCreativeRunsForAgencies,
+		]) {
+			expect(scheduler).toHaveBeenCalledOnce()
+		}
+
+		finishAccountData?.()
+		await first
+
+		expect(sync.scheduleHistoricalReconciliationRunsForAgencies).toHaveBeenCalledOnce()
+	})
+
 	it('swallows a rejected slice scheduler instead of throwing', async () => {
 		sync.scheduleInsightsRunsForAgencies.mockRejectedValue(new Error('boom'))
 		configureScheduler({
@@ -75,7 +101,7 @@ describe('triggerBackgroundSync', () => {
 		})
 
 		expect(() => triggerBackgroundSync()).not.toThrow()
-		await new Promise(resolve => setTimeout(resolve, 0))
+		await triggerBackgroundSync()
 	})
 
 	it('runs pending Force Refreshes before Historical Reconciliation', async () => {

@@ -24,7 +24,7 @@ import {
 	type MetaThrottleObservation,
 } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
-import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
 
 const hierarchyIntervalMilliseconds = 5 * 60 * 1000
 const runLeaseMilliseconds = 60 * 1000
@@ -178,12 +178,7 @@ export async function scheduleHierarchyRunsForAgencies(
 		.from(adAccount)
 		.innerJoin(client, eq(adAccount.clientId, client.id))
 		.groupBy(client.agencyId)
-	const results: HierarchyGenerationResult[] = []
-	for (const agency of agencies) {
-		const result = await scheduleHierarchyRun({ ...options, agencyId: agency.id })
-		results.push(result)
-	}
-	return results
+	return Promise.all(agencies.map(agency => scheduleHierarchyRun({ ...options, agencyId: agency.id })))
 }
 
 export async function runHierarchyGeneration({
@@ -213,7 +208,7 @@ export async function runHierarchyGeneration({
 			sql`${syncAccountOutcome.attemptedAt} asc nulls first`,
 			asc(adAccount.id),
 		)
-	await mapWithConcurrency(outcomes, 1, async outcome => {
+	await mapWithConcurrency(outcomes, metaCapacityConcurrency, async outcome => {
 		return runWithMetaCapacity(priorityForSyncWork(trigger, 'hierarchy', outcome.connectionStatus), () =>
 			processOutcome({
 				agencyId,

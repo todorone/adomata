@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lte, notExists, or, sql } from 'drizzle-orm'
 
 import { logger } from '../core/logger'
 import { db } from '../db'
@@ -234,7 +234,14 @@ export async function pruneSyncHistory(now = new Date()) {
 	const cutoff = new Date(now.getTime() - historyRetentionMilliseconds)
 	await db.delete(syncInvocation).where(lte(syncInvocation.createdAt, cutoff))
 	await db.delete(syncRun).where(lte(syncRun.createdAt, cutoff))
-	await db.delete(forceRefresh).where(lte(forceRefresh.createdAt, cutoff))
+	await db
+		.delete(forceRefresh)
+		.where(
+			and(
+				lte(forceRefresh.createdAt, cutoff),
+				notExists(db.select({ id: syncRun.id }).from(syncRun).where(eq(syncRun.forceRefreshId, forceRefresh.id))),
+			),
+		)
 }
 
 async function claimRun(params: {

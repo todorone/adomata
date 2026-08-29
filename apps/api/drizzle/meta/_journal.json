@@ -127,6 +127,13 @@
       "when": 1787716749472,
       "tag": "0017_dear_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787999030780,
+      "tag": "0018_lonely_mindworm",
+      "breakpoints": true
     }
   ]
 }

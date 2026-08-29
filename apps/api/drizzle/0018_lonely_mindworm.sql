@@ -1,0 +1,1 @@
+CREATE INDEX "force_refresh_requested_idx" ON "force_refresh" USING btree ("requested_at");

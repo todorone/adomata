@@ -194,7 +194,10 @@ export const forceRefresh = pgTable(
 		requestedAt: timestamp({ withTimezone: true }).notNull(),
 		createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 	},
-	table => [index('force_refresh_agency_requested_idx').on(table.agencyId, table.requestedAt)],
+	table => [
+		index('force_refresh_agency_requested_idx').on(table.agencyId, table.requestedAt),
+		index('force_refresh_requested_idx').on(table.requestedAt),
+	],
 )
 
 export const syncRun = pgTable(

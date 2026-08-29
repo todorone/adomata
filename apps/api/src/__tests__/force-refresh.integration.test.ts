@@ -2,10 +2,11 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 
 import { db, sql } from '../db'
-import { adAccount, organization, syncAccountOutcome, syncRun } from '../db/schema'
+import { adAccount, forceRefresh, organization, syncAccountOutcome, syncRun } from '../db/schema'
 import { MetaClient } from '../meta/client'
 import { fakeMetaServer } from '../meta/fake/server'
 import { fakeMetaAccounts, fakeMetaAgency, seedFakeMetaRoster } from '../meta/fake/roster'
+import { pruneSyncHistory } from '../sync/account-data'
 import {
 	ForceRefreshCooldownError,
 	readForceRefresh,
@@ -33,6 +34,152 @@ describe('Force Refresh', () => {
 		await sql.end()
 	})
 
+	it('skips historical generations in a bounded number of queries when resuming', async () => {
+		const now = new Date('2026-08-29T08:00:00.000Z')
+		const requestedAt = new Date('2026-07-01T08:00:00.000Z')
+		await db.insert(forceRefresh).values(
+			Array.from({ length: 100 }, (_, index) => ({
+				id: `historical-force-refresh-${index}`,
+				agencyId: fakeMetaAgency.id,
+				requestedAt,
+				createdAt: requestedAt,
+			})),
+		)
+
+		let queryCount = 0
+		const unsafe = sql.unsafe
+		sql.unsafe = ((query, values) => {
+			queryCount += 1
+			return unsafe(query, values)
+		}) as typeof sql.unsafe
+		try {
+			await resumeForceRefreshes({
+				metaMode: 'fake',
+				buildMetaClient: () =>
+					new MetaClient({ accessToken: 'integration-test-token', sleep: async () => undefined }),
+				now,
+			})
+		} finally {
+			sql.unsafe = unsafe
+		}
+
+		expect(queryCount).toBeLessThanOrEqual(2)
+	})
+
+	it('reaches a pending generation after recent completed generations', async () => {
+		const now = new Date('2026-08-29T08:00:00.000Z')
+		const completedRequests = Array.from({ length: 10 }, (_, index) => ({
+			id: `completed-force-refresh-${index}`,
+			agencyId: fakeMetaAgency.id,
+			requestedAt: new Date(now.getTime() - (4 * 60 * 1000 + index)),
+			createdAt: now,
+		}))
+		await db.insert(forceRefresh).values(completedRequests)
+		await db.insert(syncRun).values(
+			completedRequests.flatMap(request =>
+				['account_data', 'hierarchy', 'insights'].map(slice => ({
+					id: `${request.id}-${slice}`,
+					agencyId: fakeMetaAgency.id,
+					slice: slice as 'account_data' | 'hierarchy' | 'insights',
+					trigger: 'manual' as const,
+					status: 'completed' as const,
+					startedAt: request.requestedAt,
+					completedAt: request.requestedAt,
+					forceRefreshId: request.id,
+					createdAt: request.requestedAt,
+					updatedAt: request.requestedAt,
+				})),
+			),
+		)
+		const pendingRequest = {
+			id: 'pending-force-refresh',
+			agencyId: fakeMetaAgency.id,
+			requestedAt: now,
+			createdAt: now,
+		}
+		await db.insert(forceRefresh).values(pendingRequest)
+		await db.insert(syncRun).values(
+			['account_data', 'hierarchy', 'insights'].map(slice => ({
+				id: `pending-force-refresh-${slice}`,
+				agencyId: fakeMetaAgency.id,
+				slice: slice as 'account_data' | 'hierarchy' | 'insights',
+				trigger: 'manual' as const,
+				status: 'queued' as const,
+				forceRefreshId: pendingRequest.id,
+				createdAt: now,
+				updatedAt: now,
+			})),
+		)
+
+		await resumeForceRefreshes({
+			metaMode: 'fake',
+			buildMetaClient: () => new MetaClient({ accessToken: 'integration-test-token', sleep: async () => undefined }),
+			now,
+		})
+
+		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: pendingRequest.id, now })).toEqual({
+			id: pendingRequest.id,
+			status: 'completed',
+		})
+	})
+
+	it('fails an expired Force Refresh whose runs were pruned so a new request can start', async () => {
+		const now = new Date('2026-08-29T08:00:00.000Z')
+		const expiredRequest = {
+			id: 'force-refresh-with-pruned-runs',
+			agencyId: fakeMetaAgency.id,
+			requestedAt: new Date(now.getTime() - 6 * 60 * 1000),
+			createdAt: now,
+		}
+		await db.insert(forceRefresh).values(expiredRequest)
+		await db.insert(syncRun).values({
+			id: 'pruned-force-refresh-run',
+			agencyId: fakeMetaAgency.id,
+			slice: 'account_data',
+			trigger: 'manual',
+			status: 'completed',
+			forceRefreshId: expiredRequest.id,
+			createdAt: new Date('2026-07-01T08:00:00.000Z'),
+			updatedAt: new Date('2026-07-01T08:00:00.000Z'),
+		})
+
+		await pruneSyncHistory(now)
+
+		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: expiredRequest.id, now })).toEqual({
+			id: expiredRequest.id,
+			status: 'failed',
+		})
+		const replacement = await requestForceRefresh({ agencyId: fakeMetaAgency.id, now })
+		expect(replacement.id).not.toBe(expiredRequest.id)
+	})
+
+	it('retains a newer Sync Run when pruning its historical Force Refresh', async () => {
+		const now = new Date('2026-08-29T08:00:00.000Z')
+		const historicalRequest = {
+			id: 'historical-force-refresh-with-live-run',
+			agencyId: fakeMetaAgency.id,
+			requestedAt: new Date('2026-07-01T08:00:00.000Z'),
+			createdAt: new Date('2026-07-01T08:00:00.000Z'),
+		}
+		await db.insert(forceRefresh).values(historicalRequest)
+		await db.insert(syncRun).values({
+			id: 'newer-force-refresh-run',
+			agencyId: fakeMetaAgency.id,
+			slice: 'account_data',
+			trigger: 'manual',
+			status: 'completed',
+			forceRefreshId: historicalRequest.id,
+			createdAt: now,
+			updatedAt: now,
+		})
+
+		await pruneSyncHistory(now)
+
+		expect(
+			await db.select({ id: syncRun.id }).from(syncRun).where(eq(syncRun.id, 'newer-force-refresh-run')),
+		).toEqual([{ id: 'newer-force-refresh-run' }])
+	})
+
 	it('creates one persisted Operational Slice generation, coalesces concurrent clicks, and reports it for polling', async () => {
 		const clickedAt = new Date('2026-08-24T08:00:00.000Z')
 		const unavailableAccountIds = fakeMetaAccounts
@@ -48,10 +195,12 @@ describe('Force Refresh', () => {
 		])
 
 		expect(concurrent).toEqual(first)
-		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: first.id })).toEqual({
-			id: first.id,
-			status: 'queued',
-		})
+		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: first.id, now: clickedAt })).toEqual(
+			{
+				id: first.id,
+				status: 'queued',
+			},
+		)
 
 		const runs = await db
 			.select({ id: syncRun.id, slice: syncRun.slice, trigger: syncRun.trigger })
@@ -72,10 +221,12 @@ describe('Force Refresh', () => {
 			metaMode: 'fake',
 			buildMetaClient: () => new MetaClient({ accessToken: 'integration-test-token', sleep: async () => undefined }),
 		})
-		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: first.id })).toEqual({
-			id: first.id,
-			status: 'completed',
-		})
+		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: first.id, now: clickedAt })).toEqual(
+			{
+				id: first.id,
+				status: 'completed',
+			},
+		)
 	})
 
 	it('enforces the one-minute cooldown after a completed generation and schedules one follow-up after it expires', async () => {
@@ -83,7 +234,7 @@ describe('Force Refresh', () => {
 		const first = await requestForceRefresh({ agencyId: fakeMetaAgency.id, now: firstClick })
 		await db
 			.update(syncRun)
-			.set({ status: 'completed', completedAt: firstClick, updatedAt: firstClick })
+			.set({ status: 'completed', startedAt: firstClick, completedAt: firstClick, updatedAt: firstClick })
 			.where(eq(syncRun.forceRefreshId, first.id))
 
 		await expect(
@@ -114,7 +265,13 @@ describe('Force Refresh', () => {
 		expect(outcome).toBeDefined()
 		await db.update(syncAccountOutcome).set({ status: 'failed' }).where(eq(syncAccountOutcome.id, outcome!.id))
 
-		expect(await readForceRefresh({ agencyId: fakeMetaAgency.id, forceRefreshId: refresh.id })).toEqual({
+		expect(
+			await readForceRefresh({
+				agencyId: fakeMetaAgency.id,
+				forceRefreshId: refresh.id,
+				now: new Date('2026-08-24T10:00:00.000Z'),
+			}),
+		).toEqual({
 			id: refresh.id,
 			status: 'failed',
 		})
@@ -182,6 +339,7 @@ describe('Force Refresh', () => {
 		await resumeForceRefreshes({
 			metaMode: 'fake',
 			buildMetaClient: () => new MetaClient({ accessToken: 'integration-test-token', sleep: async () => undefined }),
+			now: clickedAt,
 		})
 		const accountDataRuns = await db
 			.select({ id: syncRun.id, slice: syncRun.slice, startedAt: syncRun.startedAt })

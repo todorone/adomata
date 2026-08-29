@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm'
 
 import { logger } from '../core/logger'
 import { db } from '../db'
@@ -11,18 +11,27 @@ import {
 	adSet,
 	campaign,
 	client,
-	organizationSettings,
 	syncAccountOutcome,
 	syncInvocation,
 	syncRun,
 } from '../db/schema'
 import { dateRangeForAccount, historicalReconciliationRangeForEndDate } from '../fleet-board/domain'
-import { isMetaAccessLoss, isMetaRateLimit, MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import {
+	claimOutcome,
+	claimRun,
+	describePollError,
+	errorCategory,
+	finishRun,
+	loadAccountForRun,
+	mapWithConcurrency,
+	outcomeDiagnosticReference,
+	readGenerationResult,
+} from './durable-run'
 
-const runLeaseMilliseconds = 60 * 1000
 const runMaximumActiveMilliseconds = 5 * 60 * 1000
 const reconciliationConcurrency = 1
 const reconciliationWindowStartMinutes = 2 * 60
@@ -232,9 +241,8 @@ export async function runHistoricalReconciliationGeneration({
 	runId: string
 }): Promise<HistoricalReconciliationGenerationResult> {
 	const leaseOwner = randomUUID()
-	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
-	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
-	if (!claimed) return await readGenerationResult(runId)
+	const claimed = await claimRun({ agencyId, runId, slice: 'historical_reconciliation', leaseOwner, now })
+	if (!claimed) return await readGenerationResult(runId, 'historical_reconciliation')
 
 	let stopped = false
 	while (!stopped) {
@@ -266,8 +274,8 @@ export async function runHistoricalReconciliationGeneration({
 		)
 	}
 
-	await finishRun({ runId, leaseOwner, now: clock() })
-	const result = await readGenerationResult(runId)
+	await finishRun({ runId, slice: 'historical_reconciliation', leaseOwner, now: clock() })
+	const result = await readGenerationResult(runId, 'historical_reconciliation')
 	logger.info('Historical reconciliation completed', {
 		agencyId,
 		runId,
@@ -279,99 +287,14 @@ export async function runHistoricalReconciliationGeneration({
 	return result
 }
 
-async function claimRun(params: {
-	agencyId: string
-	runId: string
-	leaseOwner: string
-	now: Date
-	leaseExpiresAt: Date
-}) {
-	return db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({
-				status: 'running',
-				leaseOwner: params.leaseOwner,
-				leaseExpiresAt: params.leaseExpiresAt,
-				startedAt: params.now,
-				updatedAt: params.now,
-			})
-			.where(
-				and(
-					eq(syncRun.id, params.runId),
-					eq(syncRun.agencyId, params.agencyId),
-					eq(syncRun.slice, 'historical_reconciliation'),
-					or(
-						eq(syncRun.status, 'queued'),
-						and(
-							eq(syncRun.status, 'running'),
-							or(isNull(syncRun.leaseExpiresAt), lte(syncRun.leaseExpiresAt, params.now)),
-						),
-					),
-				),
-			)
-			.returning({ id: syncRun.id })
-		if (!run) return false
-
-		await transaction
-			.update(syncAccountOutcome)
-			.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.now })
-			.where(
-				and(
-					eq(syncAccountOutcome.runId, params.runId),
-					eq(syncAccountOutcome.slice, 'historical_reconciliation'),
-					eq(syncAccountOutcome.status, 'running'),
-					or(isNull(syncAccountOutcome.leaseExpiresAt), lte(syncAccountOutcome.leaseExpiresAt, params.now)),
-				),
-			)
-		return true
-	})
-}
-
-async function loadAccountForRun(agencyId: string, accountId: string, metaMode: 'fake' | 'live') {
-	if (metaMode === 'fake') {
-		const [account] = await db
-			.select({ adAccount, metaAccessToken: sql<string | null>`null` })
-			.from(adAccount)
-			.innerJoin(client, eq(adAccount.clientId, client.id))
-			.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-			.limit(1)
-		return account
-	}
-
-	const [account] = await db
-		.select({ adAccount, metaAccessToken: organizationSettings.metaAccessToken })
-		.from(adAccount)
-		.innerJoin(client, eq(adAccount.clientId, client.id))
-		.leftJoin(organizationSettings, eq(organizationSettings.organizationId, client.agencyId))
-		.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-		.limit(1)
-	return account
-}
-
 async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
-	const leaseExpiresAt = new Date(params.now.getTime() + runLeaseMilliseconds)
-	const [claimed] = await db
-		.update(syncAccountOutcome)
-		.set({
-			status: 'running',
-			leaseOwner: params.leaseOwner,
-			leaseExpiresAt,
-			attemptedAt: params.now,
-			updatedAt: params.now,
-		})
-		.where(
-			and(
-				eq(syncAccountOutcome.id, params.outcomeId),
-				eq(syncAccountOutcome.runId, params.runId),
-				eq(syncAccountOutcome.slice, 'historical_reconciliation'),
-				eq(syncAccountOutcome.status, 'queued'),
-			),
-		)
-		.returning({
-			adAccountId: syncAccountOutcome.adAccountId,
-			reconciliationDate: syncAccountOutcome.reconciliationDate,
-		})
+	const claimed = await claimOutcome({
+		runId: params.runId,
+		outcomeId: params.outcomeId,
+		slice: 'historical_reconciliation',
+		leaseOwner: params.leaseOwner,
+		now: params.now,
+	})
 	if (!claimed) return false
 
 	await db
@@ -379,7 +302,7 @@ async function processOutcome(params: HistoricalReconciliationOutcomeContext) {
 		.set({
 			historicalReconciliationAttemptedAt: params.now,
 			historicalReconciliationLeaseOwner: params.leaseOwner,
-			historicalReconciliationLeaseExpiresAt: leaseExpiresAt,
+			historicalReconciliationLeaseExpiresAt: claimed.leaseExpiresAt,
 			updatedAt: params.now,
 		})
 		.where(eq(adAccount.id, claimed.adAccountId))
@@ -655,74 +578,6 @@ async function recordOutcomeFailure(params: HistoricalReconciliationOutcomeConte
 	})
 }
 
-async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner: string; now: Date }) {
-	await db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({ updatedAt: now })
-			.where(
-				and(
-					eq(syncRun.id, runId),
-					eq(syncRun.slice, 'historical_reconciliation'),
-					eq(syncRun.leaseOwner, leaseOwner),
-				),
-			)
-			.returning({ id: syncRun.id })
-		if (!run) return
-
-		const outcomes = await transaction
-			.select({ status: syncAccountOutcome.status })
-			.from(syncAccountOutcome)
-			.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
-		const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
-			? 'running'
-			: outcomes.some(outcome => outcome.status === 'failed')
-				? 'failed'
-				: 'completed'
-		await transaction
-			.update(syncRun)
-			.set({
-				status,
-				leaseOwner: status === 'running' ? leaseOwner : null,
-				leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
-				completedAt: status === 'running' ? null : now,
-				updatedAt: now,
-			})
-			.where(eq(syncRun.id, runId))
-	})
-}
-
-async function readGenerationResult(runId: string): Promise<HistoricalReconciliationGenerationResult> {
-	const [run] = await db.select().from(syncRun).where(eq(syncRun.id, runId)).limit(1)
-	if (!run) throw new Error(`Sync run ${runId} not found`)
-	const outcomes = await db
-		.select({ status: syncAccountOutcome.status })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'historical_reconciliation')))
-	return {
-		runId,
-		status: run.status,
-		processed: outcomes.filter(outcome => outcome.status === 'succeeded').length,
-		failed: outcomes.filter(outcome => outcome.status === 'failed').length,
-		skipped: outcomes.filter(outcome => outcome.status === 'skipped').length,
-		queued: outcomes.filter(outcome => outcome.status === 'queued' || outcome.status === 'running').length,
-	}
-}
-
-async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
-	let nextIndex = 0
-	let stopped = false
-	async function worker() {
-		while (!stopped && nextIndex < items.length) {
-			const item = items[nextIndex]
-			nextIndex += 1
-			if (await task(item)) stopped = true
-		}
-	}
-	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-	return stopped
-}
-
 function reconciliationTargetDate(account: Pick<ReconciliationAccount, 'timezoneName'>, now: Date) {
 	return dateRangeForAccount('yesterday', account.timezoneName ?? 'UTC', now).end
 }
@@ -785,28 +640,5 @@ function runDiagnosticReference(runId: string) {
 }
 
 function reconciliationDiagnosticReference(runId: string, accountId: string) {
-	return `${runDiagnosticReference(runId)}/historical-reconciliation/${accountId}`
-}
-
-function describePollError(error: unknown) {
-	if (error instanceof MetaApiError) {
-		return [
-			error.message,
-			error.code ? `code=${error.code}` : undefined,
-			error.fbtraceId ? `fbtrace=${error.fbtraceId}` : undefined,
-		]
-			.filter(Boolean)
-			.join(' ')
-	}
-	return error instanceof Error ? error.message : 'Unknown Meta poll failure'
-}
-
-function errorCategory(error: unknown) {
-	if (error instanceof MetaApiError) {
-		if (isMetaAccessLoss(error)) return 'authorization'
-		if (isMetaRateLimit(error)) return 'rate_limit'
-		if (error.status >= 500) return 'upstream'
-		return 'meta_validation'
-	}
-	return 'unexpected'
+	return outcomeDiagnosticReference(runId, 'historical_reconciliation', accountId)
 }

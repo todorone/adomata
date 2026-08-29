@@ -4,27 +4,25 @@ import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-
 
 import { logger } from '../core/logger'
 import { db } from '../db'
-import {
-	ad,
-	adAccount,
-	adCreative,
-	adSet,
-	campaign,
-	client,
-	organizationSettings,
-	syncAccountOutcome,
-	syncInvocation,
-	syncRun,
-} from '../db/schema'
+import { ad, adAccount, adCreative, adSet, campaign, client, syncAccountOutcome } from '../db/schema'
 import { creativeHasVideo } from '../fleet-board/creative'
-import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaCreative, MetaThrottleObservation } from '../meta/client'
-import { pruneSyncHistory } from './account-data'
 import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import {
+	claimOutcome,
+	claimRun,
+	describePollError,
+	enqueueDurableRun,
+	errorCategory,
+	finishRun,
+	loadAccountForRun,
+	mapWithConcurrency,
+	outcomeDiagnosticReference,
+	readGenerationResult,
+} from './durable-run'
 
 const creativeIntervalMilliseconds = 5 * 60 * 1000
-const runLeaseMilliseconds = 60 * 1000
-const runMaximumActiveMilliseconds = 5 * 60 * 1000
 const noTokenMessage = 'No Meta token configured for this Agency'
 
 export type CreativeRunOptions = {
@@ -67,105 +65,50 @@ export async function enqueueCreativeRun({
 	trigger,
 	now = new Date(),
 }: Pick<CreativeRunOptions, 'agencyId' | 'trigger' | 'now'>): Promise<EnqueuedCreativeRun> {
-	await pruneSyncHistory(now)
-
-	return db.transaction(async transaction => {
-		await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${agencyId}))`)
-		await transaction
-			.update(syncRun)
-			.set({ status: 'failed', leaseOwner: null, leaseExpiresAt: null, completedAt: now, updatedAt: now })
-			.where(
-				and(
-					eq(syncRun.agencyId, agencyId),
-					eq(syncRun.slice, 'creative'),
-					inArray(syncRun.status, ['queued', 'running']),
-					lte(syncRun.createdAt, new Date(now.getTime() - runMaximumActiveMilliseconds)),
-				),
-			)
-
-		const [activeRun] = await transaction
-			.select({ id: syncRun.id })
-			.from(syncRun)
-			.where(
-				and(
-					eq(syncRun.agencyId, agencyId),
-					eq(syncRun.slice, 'creative'),
-					inArray(syncRun.status, ['queued', 'running']),
-				),
-			)
-			.orderBy(asc(syncRun.createdAt))
-			.limit(1)
-
-		const [joinedRun] = activeRun
-			? await transaction
-					.update(syncRun)
-					.set({ updatedAt: now })
-					.where(and(eq(syncRun.id, activeRun.id), inArray(syncRun.status, ['queued', 'running'])))
-					.returning({ id: syncRun.id })
-			: []
-		const runId = joinedRun?.id ?? randomUUID()
-		const joined = Boolean(joinedRun)
-		if (!joinedRun) {
-			await transaction.insert(syncRun).values({
-				id: runId,
-				agencyId,
-				slice: 'creative',
-				trigger,
-				status: 'queued',
-				diagnosticReference: runDiagnosticReference(runId),
-				createdAt: now,
-				updatedAt: now,
-			})
-		}
-
-		const dueAccounts = await transaction
-			.select({ id: adAccount.id })
-			.from(adAccount)
-			.innerJoin(client, eq(adAccount.clientId, client.id))
-			.where(
-				and(
-					eq(client.agencyId, agencyId),
-					inArray(adAccount.connectionStatus, ['pending', 'connected']),
-					or(
-						eq(adAccount.connectionStatus, 'connected'),
-						and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
+	return enqueueDurableRun({
+		agencyId,
+		trigger,
+		slice: 'creative',
+		now,
+		enqueueOutcomes: async (transaction, runId, queuedAt) => {
+			const dueAccounts = await transaction
+				.select({ id: adAccount.id })
+				.from(adAccount)
+				.innerJoin(client, eq(adAccount.clientId, client.id))
+				.where(
+					and(
+						eq(client.agencyId, agencyId),
+						inArray(adAccount.connectionStatus, ['pending', 'connected']),
+						or(
+							eq(adAccount.connectionStatus, 'connected'),
+							and(isNotNull(adAccount.accountDataSuccessfulAt), isNotNull(adAccount.hierarchySuccessfulAt)),
+						),
+						or(
+							lte(adAccount.creativeNextDueAt, queuedAt),
+							and(isNull(adAccount.creativeSuccessfulAt), isNull(adAccount.creativeAttemptedAt)),
+						),
 					),
-					or(
-						lte(adAccount.creativeNextDueAt, now),
-						and(isNull(adAccount.creativeSuccessfulAt), isNull(adAccount.creativeAttemptedAt)),
-					),
-				),
-			)
-			.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
-
-		if (dueAccounts.length > 0) {
-			await transaction
-				.insert(syncAccountOutcome)
-				.values(
-					dueAccounts.map(account => ({
-						id: randomUUID(),
-						runId,
-						adAccountId: account.id,
-						slice: 'creative' as const,
-						status: 'queued' as const,
-						diagnosticReference: creativeDiagnosticReference(runId, account.id),
-						createdAt: now,
-						updatedAt: now,
-					})),
 				)
-				.onConflictDoNothing()
-		}
+				.orderBy(asc(adAccount.connectionStatus), asc(adAccount.id))
 
-		const invocationId = randomUUID()
-		await transaction.insert(syncInvocation).values({
-			id: invocationId,
-			agencyId,
-			runId,
-			trigger,
-			receivedAt: now,
-			createdAt: now,
-		})
-		return { runId, invocationId, joined }
+			if (dueAccounts.length > 0) {
+				await transaction
+					.insert(syncAccountOutcome)
+					.values(
+						dueAccounts.map(account => ({
+							id: randomUUID(),
+							runId,
+							adAccountId: account.id,
+							slice: 'creative' as const,
+							status: 'queued' as const,
+							diagnosticReference: outcomeDiagnosticReference(runId, 'creative', account.id),
+							createdAt: queuedAt,
+							updatedAt: queuedAt,
+						})),
+					)
+					.onConflictDoNothing()
+			}
+		},
 	})
 }
 
@@ -196,9 +139,8 @@ export async function runCreativeGeneration({
 	clock = () => new Date(),
 }: CreativeRunOptions & { runId: string }): Promise<CreativeGenerationResult> {
 	const leaseOwner = randomUUID()
-	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
-	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
-	if (!claimed) return await readGenerationResult(runId)
+	const claimed = await claimRun({ agencyId, runId, slice: 'creative', leaseOwner, now })
+	if (!claimed) return await readGenerationResult(runId, 'creative')
 
 	let stopped = false
 	while (!stopped) {
@@ -237,8 +179,8 @@ export async function runCreativeGeneration({
 		})
 	}
 
-	await finishRun({ runId, leaseOwner, now: clock() })
-	const result = await readGenerationResult(runId)
+	await finishRun({ runId, slice: 'creative', leaseOwner, now: clock() })
+	const result = await readGenerationResult(runId, 'creative')
 	logger.info('Durable Creative generation completed', {
 		agencyId,
 		runId,
@@ -250,114 +192,32 @@ export async function runCreativeGeneration({
 	return result
 }
 
-async function claimRun(params: {
-	agencyId: string
-	runId: string
-	leaseOwner: string
-	now: Date
-	leaseExpiresAt: Date
-}) {
-	return db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({
-				status: 'running',
-				leaseOwner: params.leaseOwner,
-				leaseExpiresAt: params.leaseExpiresAt,
-				startedAt: params.now,
-				updatedAt: params.now,
-			})
-			.where(
-				and(
-					eq(syncRun.id, params.runId),
-					eq(syncRun.agencyId, params.agencyId),
-					eq(syncRun.slice, 'creative'),
-					or(
-						eq(syncRun.status, 'queued'),
-						and(
-							eq(syncRun.status, 'running'),
-							or(isNull(syncRun.leaseExpiresAt), lte(syncRun.leaseExpiresAt, params.now)),
-						),
-					),
-				),
-			)
-			.returning({ id: syncRun.id })
-		if (!run) return false
-
-		await transaction
-			.update(syncAccountOutcome)
-			.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.now })
-			.where(
-				and(
-					eq(syncAccountOutcome.runId, params.runId),
-					eq(syncAccountOutcome.slice, 'creative'),
-					eq(syncAccountOutcome.status, 'running'),
-					or(isNull(syncAccountOutcome.leaseExpiresAt), lte(syncAccountOutcome.leaseExpiresAt, params.now)),
-				),
-			)
-		return true
-	})
-}
-
-async function loadAccountForRun(agencyId: string, accountId: string, metaMode: 'fake' | 'live') {
-	if (metaMode === 'fake') {
-		const [account] = await db
-			.select({ adAccount, metaAccessToken: sql<string | null>`null` })
-			.from(adAccount)
-			.innerJoin(client, eq(adAccount.clientId, client.id))
-			.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-			.limit(1)
-		return account
-	}
-
-	const [account] = await db
-		.select({ adAccount, metaAccessToken: organizationSettings.metaAccessToken })
-		.from(adAccount)
-		.innerJoin(client, eq(adAccount.clientId, client.id))
-		.leftJoin(organizationSettings, eq(organizationSettings.organizationId, client.agencyId))
-		.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-		.limit(1)
-	return account
-}
-
 async function processOutcome(params: CreativeOutcomeContext) {
-	const leaseExpiresAt = new Date(params.now.getTime() + runLeaseMilliseconds)
-	const claimed = await db
-		.update(syncAccountOutcome)
-		.set({
-			status: 'running',
-			leaseOwner: params.leaseOwner,
-			leaseExpiresAt,
-			attemptedAt: params.now,
-			updatedAt: params.now,
-		})
-		.where(
-			and(
-				eq(syncAccountOutcome.id, params.outcomeId),
-				eq(syncAccountOutcome.runId, params.runId),
-				eq(syncAccountOutcome.slice, 'creative'),
-				eq(syncAccountOutcome.status, 'queued'),
-			),
-		)
-		.returning({ adAccountId: syncAccountOutcome.adAccountId })
-	if (!claimed[0]) return false
+	const claimed = await claimOutcome({
+		runId: params.runId,
+		outcomeId: params.outcomeId,
+		slice: 'creative',
+		leaseOwner: params.leaseOwner,
+		now: params.now,
+	})
+	if (!claimed) return false
 
 	await db
 		.update(adAccount)
 		.set({
 			creativeAttemptedAt: params.now,
 			creativeLeaseOwner: params.leaseOwner,
-			creativeLeaseExpiresAt: leaseExpiresAt,
+			creativeLeaseExpiresAt: claimed.leaseExpiresAt,
 			updatedAt: params.now,
 		})
-		.where(eq(adAccount.id, claimed[0].adAccountId))
+		.where(eq(adAccount.id, claimed.adAccountId))
 
-	const account = await loadAccountForRun(params.agencyId, claimed[0].adAccountId, params.metaMode)
+	const account = await loadAccountForRun(params.agencyId, claimed.adAccountId, params.metaMode)
 	if (!account) {
 		await recordOutcomeFailure(
 			params,
 			new Error('Ad Account disappeared before Creative work started'),
-			claimed[0].adAccountId,
+			claimed.adAccountId,
 		)
 		return false
 	}
@@ -399,7 +259,7 @@ async function processOutcome(params: CreativeOutcomeContext) {
 		const failures = results.filter(result => result.error !== null)
 		const accessLost = failures.some(result => isMetaAccessLoss(result.error))
 		const committedAt = params.clock()
-		const diagnosticReference = creativeDiagnosticReference(params.runId, account.adAccount.id)
+		const diagnosticReference = outcomeDiagnosticReference(params.runId, 'creative', account.adAccount.id)
 
 		await db.transaction(async transaction => {
 			for (const result of results) {
@@ -519,7 +379,7 @@ async function upsertCreative(
 
 async function recordOutcomeSkipped(params: CreativeOutcomeContext, accountId: string) {
 	const occurredAt = params.clock()
-	const diagnosticReference = creativeDiagnosticReference(params.runId, accountId)
+	const diagnosticReference = outcomeDiagnosticReference(params.runId, 'creative', accountId)
 	await db.transaction(async transaction => {
 		const outcome = await transaction
 			.update(syncAccountOutcome)
@@ -558,7 +418,7 @@ async function recordOutcomeSkipped(params: CreativeOutcomeContext, accountId: s
 
 async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unknown, accountId: string) {
 	const message = describePollError(error)
-	const diagnosticReference = creativeDiagnosticReference(params.runId, accountId)
+	const diagnosticReference = outcomeDiagnosticReference(params.runId, 'creative', accountId)
 	const occurredAt = params.clock()
 	const accessLost = isMetaAccessLoss(error)
 	await db.transaction(async transaction => {
@@ -606,97 +466,4 @@ async function recordOutcomeFailure(params: CreativeOutcomeContext, error: unkno
 		outcomeId: params.outcomeId,
 		category: errorCategory(error),
 	})
-}
-
-async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner: string; now: Date }) {
-	await db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({ updatedAt: now })
-			.where(and(eq(syncRun.id, runId), eq(syncRun.slice, 'creative'), eq(syncRun.leaseOwner, leaseOwner)))
-			.returning({ id: syncRun.id })
-		if (!run) return
-
-		const outcomes = await transaction
-			.select({ status: syncAccountOutcome.status })
-			.from(syncAccountOutcome)
-			.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-		const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
-			? 'running'
-			: outcomes.some(outcome => outcome.status === 'failed')
-				? 'failed'
-				: 'completed'
-		await transaction
-			.update(syncRun)
-			.set({
-				status,
-				leaseOwner: status === 'running' ? leaseOwner : null,
-				leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
-				completedAt: status === 'running' ? null : now,
-				updatedAt: now,
-			})
-			.where(eq(syncRun.id, runId))
-	})
-}
-
-async function readGenerationResult(runId: string): Promise<CreativeGenerationResult> {
-	const [run] = await db.select().from(syncRun).where(eq(syncRun.id, runId)).limit(1)
-	if (!run) throw new Error(`Sync run ${runId} not found`)
-	const outcomes = await db
-		.select({ status: syncAccountOutcome.status })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'creative')))
-	return {
-		runId,
-		status: run.status,
-		processed: outcomes.filter(outcome => outcome.status === 'succeeded').length,
-		failed: outcomes.filter(outcome => outcome.status === 'failed').length,
-		skipped: outcomes.filter(outcome => outcome.status === 'skipped').length,
-		queued: outcomes.filter(outcome => outcome.status === 'queued' || outcome.status === 'running').length,
-	}
-}
-
-async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
-	let nextIndex = 0
-	let stopped = false
-	async function worker() {
-		while (!stopped && nextIndex < items.length) {
-			const item = items[nextIndex]
-			nextIndex += 1
-			if (await task(item)) stopped = true
-		}
-	}
-	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-	return stopped
-}
-
-function runDiagnosticReference(runId: string) {
-	return `sync-run/${runId}`
-}
-
-function creativeDiagnosticReference(runId: string, accountId: string) {
-	return `${runDiagnosticReference(runId)}/creative/${accountId}`
-}
-
-function describePollError(error: unknown) {
-	if (error instanceof MetaApiError) {
-		return [
-			error.message,
-			error.code ? `code=${error.code}` : undefined,
-			error.fbtraceId ? `fbtrace=${error.fbtraceId}` : undefined,
-		]
-			.filter(Boolean)
-			.join(' ')
-	}
-	return error instanceof Error ? error.message : 'Unknown Meta poll failure'
-}
-
-function errorCategory(error: unknown) {
-	if (error instanceof MetaApiError) {
-		if (isMetaAccessLoss(error)) return 'authorization'
-		if (isMetaRateLimit(error)) return 'rate_limit'
-		if (error.status >= 500) return 'upstream'
-		return 'meta_validation'
-	}
-	return 'unexpected'
 }

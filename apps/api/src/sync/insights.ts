@@ -11,19 +11,28 @@ import {
 	adSet,
 	campaign,
 	client,
-	organizationSettings,
 	syncAccountOutcome,
 	syncInvocation,
 	syncRun,
 } from '../db/schema'
 import { dateRangeForAccount, firstConnectStart } from '../fleet-board/domain'
-import { isMetaAccessLoss, isMetaRateLimit, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
+import { isMetaAccessLoss, metaThrottleNextDueAt, MetaApiError } from '../meta/client'
 import type { MetaClient, MetaDailyInsight, MetaThrottleObservation } from '../meta/client'
 import { pruneSyncHistory } from './account-data'
 import { metaCapacityConcurrency, priorityForSyncWork, runWithMetaCapacity } from './capacity'
+import {
+	claimOutcome,
+	claimRun,
+	describePollError,
+	errorCategory,
+	finishRun,
+	loadAccountForRun,
+	mapWithConcurrency,
+	outcomeDiagnosticReference,
+	readGenerationResult,
+} from './durable-run'
 
 const insightsIntervalMilliseconds = 5 * 60 * 1000
-const runLeaseMilliseconds = 60 * 1000
 const runMaximumActiveMilliseconds = 5 * 60 * 1000
 const noTokenMessage = 'No Meta token configured for this Agency'
 
@@ -208,9 +217,8 @@ export async function runInsightsGeneration({
 	clock = () => new Date(),
 }: InsightsRunOptions & { runId: string }): Promise<InsightsGenerationResult> {
 	const leaseOwner = randomUUID()
-	const leaseExpiresAt = new Date(now.getTime() + runLeaseMilliseconds)
-	const claimed = await claimRun({ agencyId, runId, leaseOwner, now, leaseExpiresAt })
-	if (!claimed) return await readGenerationResult(runId)
+	const claimed = await claimRun({ agencyId, runId, slice: 'insights', leaseOwner, now })
+	if (!claimed) return await readGenerationResult(runId, 'insights')
 
 	let stopped = false
 	while (!stopped) {
@@ -249,9 +257,9 @@ export async function runInsightsGeneration({
 		})
 	}
 
-	await finishRun({ runId, leaseOwner, now: clock() })
+	await finishRun({ runId, slice: 'insights', leaseOwner, now: clock() })
 	import('./runtime').then(({ triggerPendingForceRefreshes }) => triggerPendingForceRefreshes()).catch(() => undefined)
-	const result = await readGenerationResult(runId)
+	const result = await readGenerationResult(runId, 'insights')
 	logger.info('Durable Insights generation completed', {
 		agencyId,
 		runId,
@@ -263,114 +271,32 @@ export async function runInsightsGeneration({
 	return result
 }
 
-async function claimRun(params: {
-	agencyId: string
-	runId: string
-	leaseOwner: string
-	now: Date
-	leaseExpiresAt: Date
-}) {
-	return db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({
-				status: 'running',
-				leaseOwner: params.leaseOwner,
-				leaseExpiresAt: params.leaseExpiresAt,
-				startedAt: params.now,
-				updatedAt: params.now,
-			})
-			.where(
-				and(
-					eq(syncRun.id, params.runId),
-					eq(syncRun.agencyId, params.agencyId),
-					eq(syncRun.slice, 'insights'),
-					or(
-						eq(syncRun.status, 'queued'),
-						and(
-							eq(syncRun.status, 'running'),
-							or(isNull(syncRun.leaseExpiresAt), lte(syncRun.leaseExpiresAt, params.now)),
-						),
-					),
-				),
-			)
-			.returning({ id: syncRun.id })
-		if (!run) return false
-
-		await transaction
-			.update(syncAccountOutcome)
-			.set({ status: 'queued', leaseOwner: null, leaseExpiresAt: null, updatedAt: params.now })
-			.where(
-				and(
-					eq(syncAccountOutcome.runId, params.runId),
-					eq(syncAccountOutcome.slice, 'insights'),
-					eq(syncAccountOutcome.status, 'running'),
-					or(isNull(syncAccountOutcome.leaseExpiresAt), lte(syncAccountOutcome.leaseExpiresAt, params.now)),
-				),
-			)
-		return true
-	})
-}
-
-async function loadAccountForRun(agencyId: string, accountId: string, metaMode: 'fake' | 'live') {
-	if (metaMode === 'fake') {
-		const [account] = await db
-			.select({ adAccount, metaAccessToken: sql<string | null>`null` })
-			.from(adAccount)
-			.innerJoin(client, eq(adAccount.clientId, client.id))
-			.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-			.limit(1)
-		return account
-	}
-
-	const [account] = await db
-		.select({ adAccount, metaAccessToken: organizationSettings.metaAccessToken })
-		.from(adAccount)
-		.innerJoin(client, eq(adAccount.clientId, client.id))
-		.leftJoin(organizationSettings, eq(organizationSettings.organizationId, client.agencyId))
-		.where(and(eq(adAccount.id, accountId), eq(client.agencyId, agencyId)))
-		.limit(1)
-	return account
-}
-
 async function processOutcome(params: InsightsOutcomeContext) {
-	const leaseExpiresAt = new Date(params.now.getTime() + runLeaseMilliseconds)
-	const claimed = await db
-		.update(syncAccountOutcome)
-		.set({
-			status: 'running',
-			leaseOwner: params.leaseOwner,
-			leaseExpiresAt,
-			attemptedAt: params.now,
-			updatedAt: params.now,
-		})
-		.where(
-			and(
-				eq(syncAccountOutcome.id, params.outcomeId),
-				eq(syncAccountOutcome.runId, params.runId),
-				eq(syncAccountOutcome.slice, 'insights'),
-				eq(syncAccountOutcome.status, 'queued'),
-			),
-		)
-		.returning({ adAccountId: syncAccountOutcome.adAccountId })
-	if (!claimed[0]) return false
+	const claimed = await claimOutcome({
+		runId: params.runId,
+		outcomeId: params.outcomeId,
+		slice: 'insights',
+		leaseOwner: params.leaseOwner,
+		now: params.now,
+	})
+	if (!claimed) return false
 
 	await db
 		.update(adAccount)
 		.set({
 			insightsAttemptedAt: params.now,
 			insightsLeaseOwner: params.leaseOwner,
-			insightsLeaseExpiresAt: leaseExpiresAt,
+			insightsLeaseExpiresAt: claimed.leaseExpiresAt,
 			updatedAt: params.now,
 		})
-		.where(eq(adAccount.id, claimed[0].adAccountId))
+		.where(eq(adAccount.id, claimed.adAccountId))
 
-	const account = await loadAccountForRun(params.agencyId, claimed[0].adAccountId, params.metaMode)
+	const account = await loadAccountForRun(params.agencyId, claimed.adAccountId, params.metaMode)
 	if (!account) {
 		await recordOutcomeFailure(
 			params,
 			new Error('Ad Account disappeared before Insights work started'),
-			claimed[0].adAccountId,
+			claimed.adAccountId,
 		)
 		return false
 	}
@@ -654,95 +580,10 @@ async function recordOutcomeFailure(params: InsightsOutcomeContext, error: unkno
 	})
 }
 
-async function finishRun({ runId, leaseOwner, now }: { runId: string; leaseOwner: string; now: Date }) {
-	await db.transaction(async transaction => {
-		const [run] = await transaction
-			.update(syncRun)
-			.set({ updatedAt: now })
-			.where(and(eq(syncRun.id, runId), eq(syncRun.slice, 'insights'), eq(syncRun.leaseOwner, leaseOwner)))
-			.returning({ id: syncRun.id })
-		if (!run) return
-
-		const outcomes = await transaction
-			.select({ status: syncAccountOutcome.status })
-			.from(syncAccountOutcome)
-			.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'insights')))
-		const status = outcomes.some(outcome => outcome.status === 'queued' || outcome.status === 'running')
-			? 'running'
-			: outcomes.some(outcome => outcome.status === 'failed')
-				? 'failed'
-				: 'completed'
-		await transaction
-			.update(syncRun)
-			.set({
-				status,
-				leaseOwner: status === 'running' ? leaseOwner : null,
-				leaseExpiresAt: status === 'running' ? new Date(now.getTime() + runLeaseMilliseconds) : null,
-				completedAt: status === 'running' ? null : now,
-				updatedAt: now,
-			})
-			.where(eq(syncRun.id, runId))
-	})
-}
-
-async function readGenerationResult(runId: string): Promise<InsightsGenerationResult> {
-	const [run] = await db.select().from(syncRun).where(eq(syncRun.id, runId)).limit(1)
-	if (!run) throw new Error(`Sync run ${runId} not found`)
-	const outcomes = await db
-		.select({ status: syncAccountOutcome.status })
-		.from(syncAccountOutcome)
-		.where(and(eq(syncAccountOutcome.runId, runId), eq(syncAccountOutcome.slice, 'insights')))
-	return {
-		runId,
-		status: run.status,
-		processed: outcomes.filter(outcome => outcome.status === 'succeeded').length,
-		failed: outcomes.filter(outcome => outcome.status === 'failed').length,
-		skipped: outcomes.filter(outcome => outcome.status === 'skipped').length,
-		queued: outcomes.filter(outcome => outcome.status === 'queued' || outcome.status === 'running').length,
-	}
-}
-
-async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, task: (item: T) => Promise<boolean>) {
-	let nextIndex = 0
-	let stopped = false
-	async function worker() {
-		while (!stopped && nextIndex < items.length) {
-			const item = items[nextIndex]
-			nextIndex += 1
-			if (await task(item)) stopped = true
-		}
-	}
-	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-	return stopped
-}
-
 function runDiagnosticReference(runId: string) {
 	return `sync-run/${runId}`
 }
 
 function insightsDiagnosticReference(runId: string, accountId: string) {
-	return `${runDiagnosticReference(runId)}/insights/${accountId}`
-}
-
-function describePollError(error: unknown) {
-	if (error instanceof MetaApiError) {
-		return [
-			error.message,
-			error.code ? `code=${error.code}` : undefined,
-			error.fbtraceId ? `fbtrace=${error.fbtraceId}` : undefined,
-		]
-			.filter(Boolean)
-			.join(' ')
-	}
-	return error instanceof Error ? error.message : 'Unknown Meta poll failure'
-}
-
-function errorCategory(error: unknown) {
-	if (error instanceof MetaApiError) {
-		if (isMetaAccessLoss(error)) return 'authorization'
-		if (isMetaRateLimit(error)) return 'rate_limit'
-		if (error.status >= 500) return 'upstream'
-		return 'meta_validation'
-	}
-	return 'unexpected'
+	return outcomeDiagnosticReference(runId, 'insights', accountId)
 }
